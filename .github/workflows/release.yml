@@ -26,7 +26,7 @@ on:
         required: false
         default: ''
       only:
-        description: 'Jobs to run, comma-separated (windows, windows-more, linux, linux-riscv64, macos, flatpak, arch, freebsd, android); empty runs all'
+        description: 'Jobs to run, comma-separated (windows, windows-more, linux, linux-riscv64, macos, flatpak, arch, android; freebsd only when named); empty runs all'
         required: false
         default: ''
       quick:
@@ -645,7 +645,9 @@ jobs:
   freebsd:
     name: FreeBSD x86_64
     needs: meta
-    if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',freebsd,') }}
+    # Experimental, so only when asked for by name (`only: freebsd`): librqbit (torrents) doesn't
+    # build for FreeBSD yet (docs/PLATFORMS.md).
+    if: ${{ contains(format(',{0},', inputs.only), ',freebsd,') }}
     # Built in a FreeBSD VM (Tauri's CLI has no FreeBSD build, so cargo builds it and the pages are
     # built here first). A tarball: the binary, its desktop entry and icon; it needs the packages
     # listed in its README. Thin LTO keeps the VM's build within the job's time.

@@ -1,4 +1,5 @@
-Raygun for FreeBSD (x86_64), built from source by the release workflow.
+Raygun for FreeBSD (x86_64), built from source in a FreeBSD VM by the release workflow's freebsd
+job (run by hand while it's experimental; see docs/PLATFORMS.md).
 
 It needs WebKitGTK 4.1 and GStreamer's plugins for sound and video:
 

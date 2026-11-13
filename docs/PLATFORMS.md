@@ -21,7 +21,7 @@ add their files when they built (a failed one shows in the run and leaves its fi
 | Flatpak | `Raygun_<v>_x86_64.flatpak`, `Raygun_<v>_aarch64.flatpak` | GNOME 50 runtime | – |
 | Arch Linux, CachyOS | `raygun-bin-<v>-1-x86_64.pkg.tar.zst`, `raygun-bin-<v>-1-aarch64.pkg.tar.zst` | archlinux container | x86_64, installed with pacman |
 | macOS | `Raygun_<v>_aarch64.dmg` (Apple silicon), `Raygun_<v>_x64.dmg` (Intel) | macos-15 | yes |
-| FreeBSD x86_64 | `Raygun_<v>_freebsd_x86_64.tar.gz` | FreeBSD 14.3 VM | – |
+| FreeBSD x86_64 (not yet) | `Raygun_<v>_freebsd_x86_64.tar.gz` once it builds | FreeBSD 14.3 VM, only when asked for | – |
 
 "Starts in CI" means the build is started (on Linux in a virtual display) with a data folder of its
 own, must log that its start went well (20 healthy seconds) within 90 seconds, still be running then
@@ -116,11 +116,18 @@ pinned for both processors; FFmpeg comes from the system (Homebrew).
 
 ## FreeBSD
 
-Experimental. Tauri has no FreeBSD bundler or CLI build, so the job builds with cargo in a FreeBSD
-14.3 VM (thin LTO) and packs the binary, a desktop entry and an icon with a README. It needs
-`webkit2-gtk_41` and GStreamer's plugins from packages. Not built for it: one running copy at a
-time (the single-instance plugin has no BSD implementation), FFmpeg and yt-dlp downloads (yt-dlp's
-zipapp works with Python), voices.
+Not built yet. The `freebsd` job (run only when named in `only`) builds with cargo in a FreeBSD 14.3
+VM, since Tauri's CLI and bundler have no FreeBSD build, and would pack the binary, a desktop entry
+and an icon with a README (`packaging/freebsd`); it installs `webkit2-gtk_41` and gives FreeBSD's
+own bzip2 the `bzip2.pc` that `freetype2.pc` asks for. QuickJS has FreeBSD bindings
+(`third_party/rquickjs-sys`), and the single-instance plugin, which has no BSD implementation, is
+left out there.
+
+What stops it: the torrent engine. `librqbit-dualstack-sockets` 0.7 binds sockets to a device with
+socket2's `bind_device`, which socket2 has only on Linux, Android and Fuchsia, and `librqbit` 9.1
+calls reqwest's `ClientBuilder::interface`, which exists on Linux, Android and Apple systems only.
+A FreeBSD build needs both patched upstream (or vendored with those calls left out on the BSDs), or
+`raygun-torrent` built without librqbit there. Everything compiled before them did.
 
 ## Not built
 

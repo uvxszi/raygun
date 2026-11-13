@@ -245,5 +245,4 @@ strip = true
 rquickjs-sys = { path = "third_party/rquickjs-sys" }
 mp3lame-sys = { path = "third_party/mp3lame-sys" }
 librqbit-sha1-wrapper = { path = "third_party/librqbit-sha1-wrapper" }
-librqbit-dualstack-sockets = { path = "third_party/librqbit-dualstack-sockets" }
 rustpython-host_env = { path = "third_party/rustpython-host_env" }
