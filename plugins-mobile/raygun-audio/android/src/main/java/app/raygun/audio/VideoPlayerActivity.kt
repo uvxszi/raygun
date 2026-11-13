@@ -1725,6 +1725,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     /** Draws the paused frame again once the picture's surface settles at a new size. */
     private fun redrawPausedFrame() {
+        Log.d("RaygunPip", "paused frame asked for")
         main.removeCallbacks(redrawFrame)
         main.postDelayed(redrawFrame, REDRAW_WAIT_MS)
     }
@@ -1891,6 +1892,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        Log.d("RaygunPip", "small window $isInPictureInPictureMode, paused ${!player.playWhenReady}")
         if (isInPictureInPictureMode && settingsAfterPip) {
             settingsAfterPip = false
             request("openSettings")
