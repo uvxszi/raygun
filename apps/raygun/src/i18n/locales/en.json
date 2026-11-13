@@ -5862,5 +5862,9 @@
     "suspects": "At work when it stopped",
     "heldNow": "Held back now (it happened twice with these at work)",
     "close": "Close"
+  },
+  "web": {
+    "needsApp": "This needs the Raygun app on a phone or computer; a browser can't do it.",
+    "linkApp": "Link a device in Devices"
   }
 }

@@ -2,11 +2,12 @@
 // web core (no bindings mock), with the empty answers built from the real bindings.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { commandAnswers } from '../../web-build/commandAnswers';
 import { createAppRouter } from '../router';
+import { setRemoteConnected } from './remoteState';
 import { openCore } from './test/webCore';
 import type { TestCore } from './test/webCore';
 
@@ -59,5 +60,17 @@ describe('Raygun on the web', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Link' }));
     // An app without the browser fields says what to do.
     expect(await screen.findByText(/can't link with a browser yet/)).toBeVisible();
+  }, 30_000);
+
+  it('says what needs the app, until a linked app answers for the page', async () => {
+    await renderApp('/local-files');
+    const note = await screen.findByRole('note', undefined, { timeout: 10_000 });
+    expect(within(note).getByText(/needs the Raygun app/)).toBeVisible();
+    act(() => setRemoteConnected(true));
+    try {
+      await waitFor(() => expect(screen.queryByRole('note')).not.toBeInTheDocument());
+    } finally {
+      act(() => setRemoteConnected(false));
+    }
   }, 30_000);
 });

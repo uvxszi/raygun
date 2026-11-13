@@ -21,6 +21,7 @@ import { useLocalFolderActions, useLocalFolders } from '../localFiles/useLocalFo
 import { useMediaGate } from '../permissions/useMediaGate';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import { EmptyState } from '../shell/EmptyState';
+import { NeedsAppNote, useNeedsApp } from '../shell/NeedsApp';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { useIsDesktop } from '../shell/useIsDesktop';
@@ -228,6 +229,7 @@ export const LocalFilesPage: FC = () => {
   const mediaGate = useMediaGate();
   // Desktops keep their own folder dialog; phones (and a platform not known yet) browse.
   const desktop = useIsDesktop();
+  const needsApp = useNeedsApp();
   const [browsing, setBrowsing] = useState(false);
   const list = folders.data ?? [];
   const totals = KINDS.map(
@@ -245,6 +247,16 @@ export const LocalFilesPage: FC = () => {
   const addFolder = () => void mediaGate.guard(() => (desktop ? add.mutate() : setBrowsing(true)));
   const pickAgain = (folder: LocalFolder) =>
     folder.access === 'path' && !desktop ? setBrowsing(true) : add.mutate();
+
+  // Raygun on the web can't read this computer's folders yet (docs/WEB.md).
+  if (needsApp) {
+    return (
+      <section data-testid="local-files-page" className="flex flex-col gap-4">
+        <TopBar back fallback="/library" title={t('localFiles.title')} />
+        <NeedsAppNote />
+      </section>
+    );
+  }
 
   return (
     <section data-testid="local-files-page" className="flex flex-col gap-4">
