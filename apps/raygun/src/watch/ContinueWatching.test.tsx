@@ -232,7 +232,12 @@ describe('Continue watching', () => {
     await openMenu(user, row, 'Breaking Bad');
     await user.click(screen.getByRole('menuitem', { name: 'Choose a source…' }));
     expect(await screen.findByRole('dialog', { name: 'Streams' })).toBeInTheDocument();
-    expect(commands.stremioStreams).toHaveBeenCalledWith('series', 'tt1', 'tt1:1:2');
+    expect(commands.stremioStreams).toHaveBeenCalledWith(
+      'series',
+      'tt1',
+      'tt1:1:2',
+      expect.any(String),
+    );
     await user.click(screen.getByRole('button', { name: 'Close' }));
 
     await openMenu(user, row, 'Breaking Bad');

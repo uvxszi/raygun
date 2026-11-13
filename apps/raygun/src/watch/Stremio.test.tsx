@@ -6,11 +6,11 @@ import type {
   StremioStream,
   StremioVideo,
 } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock } from '../test/bindingsMock';
+import { bindingsMock, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -225,7 +225,12 @@ describe('Stremio addons in Watch', () => {
     });
     const picker = await screen.findByRole('dialog', { name: 'Streams' });
     // Streams are asked for with the series, whose details say which ids its episodes go by.
-    expect(commands.stremioStreams).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:2');
+    expect(commands.stremioStreams).toHaveBeenCalledWith(
+      'series',
+      'tt0903747',
+      'tt0903747:1:2',
+      expect.any(String),
+    );
     // While torrents are off, they're folded away with how many there are, and what they need.
     expect(
       within(picker).queryByRole('button', { name: /^Torrent 1080p/ }),
@@ -463,12 +468,53 @@ describe('Stremio addons in Watch', () => {
     // A stream that is another title opens its page.
     await user.click(within(page).getByRole('button', { name: 'Choose a source' }));
     const picker = await screen.findByRole('dialog', { name: 'Streams' });
-    expect(commands.stremioStreams).toHaveBeenCalledWith('movie', 'tmdb:603', 'tt0133093');
+    expect(commands.stremioStreams).toHaveBeenCalledWith(
+      'movie',
+      'tmdb:603',
+      'tt0133093',
+      expect.any(String),
+    );
     await user.click(await within(picker).findByRole('button', { name: /^The Matrix Reloaded/ }));
     await vi.waitFor(() =>
       expect(commands.stremioMeta).toHaveBeenLastCalledWith('movie', 'tt0234215'),
     );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('lists each addon’s streams as it answers, before the slowest one', async () => {
+    const user = userEvent.setup();
+    commands.stremioMeta.mockResolvedValue(ok(MOVIE));
+    const group = (addonId: string, label: string) => ({
+      addonId,
+      addonName: addonId,
+      streams: [stream('direct', label, `https://cdn.example/${addonId}.m3u8`)],
+      error: null,
+      failing: false,
+    });
+    let finish: () => void = () => {};
+    commands.stremioStreams.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(ok([group('fast', 'Fast 720p'), group('slow', 'Slow 1080p')]));
+        }),
+    );
+    await AppShellWrapper.mount(`/watch/title?type=movie&id=${MOVIE.id}`);
+    const page = await screen.findByTestId('watch-title-page');
+    await user.click(within(page).getByRole('button', { name: 'Choose a source' }));
+    const picker = await screen.findByRole('dialog', { name: 'Streams' });
+    await vi.waitFor(() => expect(commands.stremioStreams).toHaveBeenCalled());
+    const request = commands.stremioStreams.mock.lastCall?.[3] ?? '';
+    emitEvent('stremioStreamsEvent', [request, [group('fast', 'Fast 720p')]]);
+    expect(await within(picker).findByRole('button', { name: /^Fast 720p/ })).toBeVisible();
+    // The slower addons are still asked.
+    expect(within(picker).getByRole('status', { name: 'Finding streams…' })).toBeVisible();
+    expect(within(picker).queryByText(/None of your addons/)).not.toBeInTheDocument();
+    await act(async () => finish());
+    await vi.waitFor(() =>
+      expect(within(picker).queryByRole('status', { name: 'Finding streams…' })).toBeNull(),
+    );
+    expect(within(picker).getByRole('button', { name: /^Slow 1080p/ })).toBeVisible();
+    expect(within(picker).getByRole('button', { name: /^Fast 720p/ })).toBeVisible();
   });
 
   it('browses Discover by type, catalog, choice and page', async () => {

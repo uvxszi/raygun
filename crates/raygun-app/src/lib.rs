@@ -686,6 +686,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::SourceQueueEvent,
             events::SearchProgressEvent,
             events::CoverOptionsEvent,
+            events::StremioStreamsEvent,
+            events::AudiobooksElsewhereEvent,
             events::SyncChangedEvent,
             events::MangaUpdateEvent,
             events::MangaDownloadsEvent,

@@ -1985,11 +1985,19 @@ pub async fn audiobooks_elsewhere(
     title: String,
     author: Option<String>,
     feed_url: String,
+    request: String,
 ) -> Result<Vec<raygun_model::AudiobookResult>, String> {
     let skip = crate::search_filter::current(&app).await.no_adult;
+    let report = |books: &[raygun_model::AudiobookResult]| {
+        use tauri_specta::Event;
+        let event = crate::events::AudiobooksElsewhereEvent(request.clone(), books.to_vec());
+        if let Err(error) = event.emit(&app) {
+            tracing::warn!(%error, "could not send the books found so far");
+        }
+    };
     raygun_ext_host::without_adult_sources(
         skip,
-        podcasts.audiobooks_elsewhere(&title, author.as_deref(), &feed_url),
+        podcasts.audiobooks_elsewhere(&title, author.as_deref(), &feed_url, report),
     )
     .await
 }
@@ -5739,16 +5747,28 @@ pub async fn stremio_meta(
     stremio.meta(&kind, &id).await
 }
 
-/// Streams for a movie or an episode of the title `meta_id`, grouped by addon.
+/// Streams for a movie or an episode of the title `meta_id`, grouped by addon; the groups found
+/// so far are also sent as a [`crate::events::StremioStreamsEvent`] under `request` as each
+/// source answers.
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_streams(
+    app: tauri::AppHandle,
     stremio: Stremio<'_>,
     kind: String,
     meta_id: Option<String>,
     video_id: String,
+    request: String,
 ) -> Result<Vec<raygun_model::StremioStreamGroup>, String> {
-    stremio.streams(&kind, meta_id.as_deref(), &video_id).await
+    stremio
+        .streams_each(&kind, meta_id.as_deref(), &video_id, |groups| {
+            use tauri_specta::Event;
+            let event = crate::events::StremioStreamsEvent(request.clone(), groups.to_vec());
+            if let Err(error) = event.emit(&app) {
+                tracing::warn!(%error, "could not send the streams found so far");
+            }
+        })
+        .await
 }
 
 /// Plays a stream; `language` puts its subtitles first.

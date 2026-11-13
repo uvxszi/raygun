@@ -1,4 +1,4 @@
-import { commands } from '@raygun/bindings';
+import { commands, events } from '@raygun/bindings';
 import type {
   AudiobookResult,
   MangaCard,
@@ -40,6 +40,7 @@ import type { MenuItem } from '../shell/contextMenuStore';
 import { GroupPickSheet } from '../select/GroupPickSheet';
 import { MenuButton } from '../shell/MenuButton';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
+import { useArrivingAnswers } from '../shell/useArrivingAnswers';
 import { collectFromCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TextField } from '../shell/TextField';
@@ -872,13 +873,21 @@ const DirectoryOtherSources: FC<{
   const { t } = useTranslation();
   const find = useFindQuery(title, author);
   const query = find.query;
+  const request = JSON.stringify([query, find.byline, feedUrl]);
   const books = useQuery({
     queryKey: ['audiobooks', 'elsewhere', query, find.byline, feedUrl],
-    queryFn: () => unwrapResult(commands.audiobooksElsewhere(query, find.byline || null, feedUrl)),
+    queryFn: () =>
+      unwrapResult(commands.audiobooksElsewhere(query, find.byline || null, feedUrl, request)),
     enabled: medium === 'audiobook' && query !== '',
     staleTime: DIRECTORY_STALE_MS,
     retry: false,
   });
+  // While the sources still answer (`AudiobooksElsewhereEvent`), the books found so far.
+  const arrivingBooks = useArrivingAnswers<AudiobookResult>(
+    events.audiobooksElsewhereEvent,
+    request,
+    medium === 'audiobook' && query !== '' && books.isFetching,
+  );
   const shows = useQuery({
     queryKey: ['podcasts', 'elsewhere', query],
     queryFn: () => unwrapResult(commands.podcastSearch(query)),
@@ -889,7 +898,7 @@ const DirectoryOtherSources: FC<{
   const answer = medium === 'audiobook' ? books : shows;
   const matches: DirectoryMatch[] =
     medium === 'audiobook'
-      ? (books.data ?? [])
+      ? (books.data ?? arrivingBooks ?? [])
           .filter((book) => languageFits(book.language, find.language))
           .map((book) => bookMatch(book, t))
       : (shows.data ?? [])

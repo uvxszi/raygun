@@ -395,7 +395,7 @@ export const StreamPicker: FC<{
             />
           )}
           {groups.error && <SourceIssue>{groups.error.message}</SourceIssue>}
-          {groups.data && withStreams.length === 0 && (
+          {!groups.isPending && groups.data && withStreams.length === 0 && (
             <p className="text-muted text-sm">{t('watch.noStreams')}</p>
           )}
           {(choosing ? [] : inRankOrder(withStreams, ranks)).map(({ item: group, rank }) => (

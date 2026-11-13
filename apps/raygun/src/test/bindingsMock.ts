@@ -2,6 +2,7 @@ import type {
   AiModelProgress,
   AppInfo,
   AppUpdate,
+  AudiobookResult,
   AudiobookSummary,
   CastStatus,
   ConnectRequest,
@@ -12,6 +13,7 @@ import type {
   ExportJob,
   ExtensionInfo,
   SourceSetup,
+  StremioStreamGroup,
   ExtensionInstallStatus,
   SourceQueueStatus,
   FollowedArtist,
@@ -79,6 +81,8 @@ type EventPayloads = {
   sourceQueueEvent: SourceQueueStatus;
   searchProgressEvent: SearchProgress;
   coverOptionsEvent: [string, CoverOption[]];
+  stremioStreamsEvent: [string, StremioStreamGroup[]];
+  audiobooksElsewhereEvent: [string, AudiobookResult[]];
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
@@ -916,6 +920,8 @@ export const bindingsMock = {
     sourceQueueEvent: makeEvent('sourceQueueEvent'),
     searchProgressEvent: makeEvent('searchProgressEvent'),
     coverOptionsEvent: makeEvent('coverOptionsEvent'),
+    stremioStreamsEvent: makeEvent('stremioStreamsEvent'),
+    audiobooksElsewhereEvent: makeEvent('audiobooksElsewhereEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
