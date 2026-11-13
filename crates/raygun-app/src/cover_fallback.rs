@@ -279,8 +279,7 @@ impl CoverFallbacks {
             return Some(url);
         }
         let extensions = self.app.state::<Arc<ExtensionService>>().inner().clone();
-        let (options, answered) = extensions.cover_options_answered(target).await;
-        let first = options.into_iter().next();
+        let (first, answered) = first_cover(&extensions, target).await;
         if first.is_some() || answered {
             self.remember(
                 &key,
@@ -324,9 +323,67 @@ impl CoverFallbacks {
     }
 }
 
+/// The first cover a source answers with for `target`, without waiting for the slower sources
+/// (their calls stop); and whether any source answered.
+async fn first_cover(
+    extensions: &ExtensionService,
+    target: &DetailTarget,
+) -> (Option<raygun_model::CoverOption>, bool) {
+    let first: std::sync::Mutex<Option<raygun_model::CoverOption>> = Default::default();
+    let found = tokio::sync::Notify::new();
+    let asked = extensions.cover_options_each(target, |options| {
+        if let Some(option) = options.first() {
+            first
+                .lock()
+                .expect("cover poisoned")
+                .get_or_insert_with(|| option.clone());
+            found.notify_one();
+        }
+    });
+    first_of(asked, &first, &found).await
+}
+
+/// Waits for `asked` (every source's covers) or a first cover, whichever comes first.
+async fn first_of<T: Clone>(
+    asked: impl std::future::Future<Output = (Vec<T>, bool)>,
+    first: &std::sync::Mutex<Option<T>>,
+    found: &tokio::sync::Notify,
+) -> (Option<T>, bool) {
+    tokio::select! {
+        (options, answered) = asked => (options.into_iter().next(), answered),
+        () = found.notified() => (first.lock().expect("cover poisoned").clone(), true),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_missing_cover_takes_the_first_source_that_answers() {
+        let first = std::sync::Mutex::new(None);
+        let found = tokio::sync::Notify::new();
+        let started = tokio::time::Instant::now();
+        // One source answers after 1 s, the slowest after 20 s.
+        let asked = async {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            *first.lock().unwrap() = Some("fast.jpg");
+            found.notify_one();
+            tokio::time::sleep(std::time::Duration::from_secs(19)).await;
+            (vec!["fast.jpg", "slow.jpg"], true)
+        };
+        let (cover, answered) = first_of(asked, &first, &found).await;
+        assert_eq!(cover, Some("fast.jpg"));
+        assert!(answered);
+        assert_eq!(started.elapsed(), std::time::Duration::from_secs(1));
+        // Nobody had one: every source is waited for.
+        let none = std::sync::Mutex::new(None::<&str>);
+        let asked = async {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            (Vec::new(), true)
+        };
+        assert_eq!(first_of(asked, &none, &found).await, (None, true));
+    }
 
     /// Twenty rows scrolled past ask for lookups, then the row on screen does; each lookup takes
     /// 20 ms, two at a time. Returns how long the row on screen waited for its cover.

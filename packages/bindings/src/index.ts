@@ -515,8 +515,12 @@ export const commands = {
 	detailEditSet: (target: DetailTarget, edit: DetailEdit) => typedError<DetailEdit, string>(__TAURI_INVOKE("detail_edit_set", { target, edit })),
 	/**  Keeps a picked image (an upload) as a cover; returns its address for an edit. */
 	detailCoverImport: (uploadId: string) => typedError<string, string>(__TAURI_INVOKE("detail_cover_import", { uploadId })),
-	/**  Covers the music sources have for a song, an album or an artist (M46.36: Edit details). */
-	detailCoverOptions: (target: DetailTarget) => typedError<CoverOption[], string>(__TAURI_INVOKE("detail_cover_options", { target })),
+	/**
+	 *  Covers the music sources have for a song, an album or an artist (M46.36: Edit details). The
+	 *  covers found so far are also sent as a [`crate::events::CoverOptionsEvent`] under `request`
+	 *  each time a source answers.
+	 */
+	detailCoverOptions: (target: DetailTarget, request: string) => typedError<CoverOption[], string>(__TAURI_INVOKE("detail_cover_options", { target, request })),
 	/**
 	 *  Another source's cover for a song, an album or an artist whose own is missing or failed to
 	 *  load (M46.40), remembered on this device; `null` when no source has one.
@@ -1995,6 +1999,7 @@ export const events = {
 	castStatusEvent: makeEvent<CastStatusEvent>("cast-status-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
+	coverOptionsEvent: makeEvent<CoverOptionsEvent>("cover-options-event"),
 	deviceStateEvent: makeEvent<DeviceStateEvent>("device-state-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
@@ -3149,6 +3154,12 @@ export type CoverOption = {
 	/**  What it's the cover of, when that isn't the thing edited (a song's album). */
 	of: string | null,
 };
+
+/**
+ *  The covers found so far for an Edit details cover search (`detail_cover_options`), as each
+ *  source answers: `[request, covers]`.
+ */
+export type CoverOptionsEvent = [string, CoverOption[]];
 
 export type CoverStyle = "compact" | "comfortable";
 
