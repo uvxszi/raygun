@@ -5341,6 +5341,7 @@
   "otherSources": {
     "find": "Find in other sources",
     "title": "In other sources",
+    "stremioAddons": "In Stremio addons",
     "none": "No other source has it under this name.",
     "noSources": "Add more sources in Browse → Extensions to look in them.",
     "open": "Open",

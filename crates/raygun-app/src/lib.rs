@@ -624,6 +624,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_download_retry,
             commands::video_download_remove,
             commands::video_downloads_sweep,
+            commands::video_media_link,
             commands::video_download_play,
             commands::video_download_set_watched,
             commands::video_downloads_set_paused,

@@ -472,8 +472,8 @@ describe('desktop video player', () => {
           several: false,
           title: '1080p · WEB-DL',
           sound: 'DD+ 5.1',
-          url: 'http://127.0.0.1:1/media/u/https/cdn.example/ita.mkv',
-          headers: {},
+          url: 'https://cdn.example/ita.mkv',
+          headers: { Referer: 'https://cdn.example/' },
           format: null,
         },
       ],
@@ -494,7 +494,11 @@ describe('desktop video player', () => {
         change: { externalAudio: { source: 'Comet', language: 'it' } },
       }),
     );
-    // Its sound plays in an element of its own; the video's own is muted.
+    // Its sound plays in an element of its own, through the proxy with its headers; the video's
+    // own is muted.
+    expect(commands.videoMediaLink).toHaveBeenCalledWith('https://cdn.example/ita.mkv', {
+      Referer: 'https://cdn.example/',
+    });
     await vi.waitFor(() =>
       expect(created.some((audio) => audio.src.endsWith('/ita.mkv'))).toBe(true),
     );

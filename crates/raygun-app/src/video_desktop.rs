@@ -27,35 +27,46 @@ pub fn open(app: &AppHandle, payload: &Value) -> Result<(), String> {
     emit(app, VideoPlayerMessageKind::Open, &payload)
 }
 
-/// Sends an update to the webview's player; a `load` gets its stream linked like an opening, and
-/// the streams offered for their sound (`audioSources`) each get theirs.
+/// Sends an update to the webview's player; a `load` gets its stream linked like an opening.
+/// Streams offered for their sound (`audioSources`) keep their own addresses: one is linked
+/// when it's picked ([`media_link`]), so offers sent again and again don't crowd out the
+/// proxy's links in use.
 pub fn update(app: &AppHandle, update: &Value) -> Result<(), String> {
-    let update = match app.try_state::<MediaLinks>() {
-        Some(media) => linked_update(&media, update),
-        None => update.clone(),
-    };
+    let mut update = update.clone();
+    if update.get("type").and_then(Value::as_str) == Some("load")
+        && let Some(request) = update.get("request")
+        && let Some(media) = app.try_state::<MediaLinks>()
+    {
+        update["request"] = for_webview(&media, request);
+    }
     emit(app, VideoPlayerMessageKind::Update, &update)
 }
 
-/// An update with the streams it carries linked through `/media/`.
-fn linked_update(media: &MediaLinks, update: &Value) -> Value {
-    let mut update = update.clone();
-    match update.get("type").and_then(Value::as_str) {
-        Some("load") => {
-            if let Some(request) = update.get("request") {
-                update["request"] = for_webview(media, request);
-            }
-        }
-        Some("audioSources") => {
-            if let Some(items) = update.get_mut("items").and_then(Value::as_array_mut) {
-                for item in items.iter_mut() {
-                    *item = for_webview(media, item);
-                }
-            }
-        }
-        _ => {}
+/// The webview's address for a stream played for its sound (another source's, picked in the
+/// player's Audio panel): linked through `/media/` with its headers. Offline Mode lets none out.
+pub fn media_link(
+    app: &AppHandle,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    raygun_net::network_mode::check(url)?;
+    let media = app
+        .try_state::<MediaLinks>()
+        .ok_or("The stream proxy isn't running")?;
+    linked(&media, url, headers)
+}
+
+fn linked(
+    media: &MediaLinks,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    if media.is_local(url) {
+        return Ok(url.to_owned());
     }
-    update
+    media
+        .link(url, headers)
+        .ok_or_else(|| "Only web addresses can be played".to_owned())
 }
 
 fn emit(app: &AppHandle, kind: VideoPlayerMessageKind, json: &Value) -> Result<(), String> {
@@ -431,28 +442,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn streams_offered_for_their_sound_are_linked_too() {
+    async fn a_stream_picked_for_its_sound_is_linked_with_its_headers() {
         let proxy = raygun_net::StreamProxy::start(raygun_net::http_client().unwrap(), None)
             .await
             .unwrap();
         let media = proxy.media();
-        let update = json!({
-            "type": "audioSources",
-            "id": "stremio:movie:tt1",
-            "items": [{
-                "id": "1:0",
-                "url": "https://cdn.example/ita.mkv",
-                "headers": { "Referer": "https://site.example/" },
-                "format": null,
-            }],
-        });
-        let linked = linked_update(&media, &update);
-        let item = &linked["items"][0];
-        assert!(media.is_local(item["url"].as_str().unwrap()));
-        assert_eq!(item["headers"], json!({}));
-        assert_eq!(item["id"], "1:0");
-        // Other updates pass as they are.
-        let sources = json!({ "type": "sources", "groups": [] });
-        assert_eq!(linked_update(&media, &sources), sources);
+        let headers = BTreeMap::from([("Referer".to_owned(), "https://site.example/".to_owned())]);
+        let link = linked(&media, "https://cdn.example/ita.mkv", &headers).unwrap();
+        assert!(media.is_local(&link));
+        assert!(link.ends_with("/https/cdn.example/ita.mkv"));
+        // The proxy's own links (a download) stay; anything but a web address can't play.
+        let local = format!("http://{}/local/video/1/video.mkv", proxy.address());
+        assert_eq!(linked(&media, &local, &BTreeMap::new()).unwrap(), local);
+        assert!(linked(&media, "file:///C:/film.mkv", &BTreeMap::new()).is_err());
     }
 }

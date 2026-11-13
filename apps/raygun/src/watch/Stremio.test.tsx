@@ -332,6 +332,65 @@ describe('Stremio addons in Watch', () => {
       ]),
     );
     commands.videoTitle.mockResolvedValue({ status: 'error' as const, error: 'gone' });
+    // Another addon lists it by another id; this page's own id and other films stay out.
+    commands.stremioCatalogs.mockResolvedValue(
+      ok([
+        {
+          addonId: 'anime',
+          addonName: 'Anime Catalogs',
+          kind: 'movie',
+          catalogId: 'search',
+          name: 'Search',
+          extras: [],
+          board: false,
+          searchable: true,
+          discoverable: false,
+          pages: false,
+          failing: false,
+        },
+      ]),
+    );
+    commands.stremioSearchCatalog.mockResolvedValue(
+      ok({
+        addonId: 'anime',
+        addonName: 'Anime Catalogs',
+        kind: 'movie',
+        catalogId: 'search',
+        name: 'Search',
+        items: [
+          {
+            kind: 'movie',
+            id: 'tt0133093',
+            name: 'The Matrix',
+            poster: null,
+            posterShape: 'poster',
+            releaseInfo: '1999',
+            rating: null,
+          },
+          {
+            kind: 'movie',
+            id: 'kitsu:603',
+            name: 'The Matrix',
+            poster: null,
+            posterShape: 'poster',
+            releaseInfo: '1999',
+            rating: null,
+          },
+          {
+            kind: 'movie',
+            id: 'tt9',
+            name: 'Gardening for Beginners',
+            poster: null,
+            posterShape: 'poster',
+            releaseInfo: null,
+            rating: null,
+          },
+        ],
+        genres: [],
+        hasMore: false,
+        error: null,
+      }),
+    );
     await AppShellWrapper.mount('/watch/title?type=movie&id=tt0133093');
     const page = await screen.findByTestId('watch-title-page');
     await user.click(within(page).getByRole('button', { name: 'Find in other sources' }));
@@ -340,6 +399,13 @@ describe('Stremio addons in Watch', () => {
     expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('video', 'The Matrix', [films.id]);
     // A video has no author to ask for.
     expect(within(section).queryByRole('textbox', { name: 'Author' })).not.toBeInTheDocument();
+    // The Stremio addons' copy opens its own page.
+    const addons = await within(section).findByRole('region', { name: 'In Stremio addons' });
+    const links = within(addons).getAllByRole('link', { name: 'The Matrix' });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', expect.stringContaining('id=kitsu%3A603'));
+    expect(within(addons).getByText('Anime Catalogs')).toBeInTheDocument();
+    expect(within(addons).queryByText('Gardening for Beginners')).not.toBeInTheDocument();
   });
 
   it('plays a movie a catalog lists by another id by the id its details give', async () => {

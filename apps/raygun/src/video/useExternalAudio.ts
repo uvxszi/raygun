@@ -1,6 +1,8 @@
+import { commands } from '@raygun/bindings';
 import { useEffect, useEffectEvent, useRef } from 'react';
 import type { RefObject } from 'react';
 
+import { unwrapResult } from '../lib/commandResult';
 import { catchUp, soundTime } from './externalAudio';
 import type { SoundSource } from './externalAudio';
 import { attachMedia, engineKind } from './mediaEngine';
@@ -27,7 +29,8 @@ type Options = {
  * Plays `source` as the video's sound in a media element of its own, kept in step with the
  * picture (`externalAudio`): it plays, pauses, jumps and changes pace with the video, `delayMs`
  * behind it; a drift is caught up by pace or by a jump. The player mutes the video meanwhile.
- * Streams go through the same engines as the video (hls.js, dash.js, the webview's own).
+ * Streams go through the same engines as the video (hls.js, dash.js, the webview's own); another
+ * source's is linked through the stream proxy with its headers first (`video_media_link`).
  */
 export const useExternalAudio = ({
   videoRef,
@@ -42,6 +45,12 @@ export const useExternalAudio = ({
   /** Puts the sound in step now (a jump when `jump`). */
   const syncRef = useRef<((jump: boolean) => void) | null>(null);
   const failed = useEffectEvent((message: string) => onFailed(message));
+  /** Another source's stream is linked through the proxy, with its headers, once picked. */
+  const linkOf = useEffectEvent(async (address: string) =>
+    source?.offer
+      ? unwrapResult(commands.videoMediaLink(address, source.offer.headers ?? {}))
+      : address,
+  );
   const url = source?.url ?? null;
   const format = source?.format ?? null;
 
@@ -90,13 +99,19 @@ export const useExternalAudio = ({
     const timer = window.setInterval(() => sync(false), STEP_MS);
 
     // An `<audio>` takes what a `<video>` does: the engines only use what both have.
-    attachMedia(audio as unknown as HTMLVideoElement, url, engineKind(url, format), {
-      onTracks: () => {},
-      onFatal: (message) => {
-        if (!cancelled) failed(message);
-      },
-    })
+    linkOf(url)
+      .then((address) =>
+        cancelled
+          ? null
+          : attachMedia(audio as unknown as HTMLVideoElement, address, engineKind(url, format), {
+              onTracks: () => {},
+              onFatal: (message) => {
+                if (!cancelled) failed(message);
+              },
+            }),
+      )
       .then((attached) => {
+        if (!attached) return;
         if (cancelled) {
           attached.destroy();
           return;

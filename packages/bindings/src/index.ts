@@ -1846,6 +1846,11 @@ export const commands = {
 	 *  finished downloads whose files are gone.
 	 */
 	videoDownloadsSweep: () => typedError<VideoDownloadsSwept, string>(__TAURI_INVOKE("video_downloads_sweep")),
+	/**
+	 *  The desktop player's address for another source's stream picked for its sound: linked
+	 *  through the stream proxy with its headers (Android's player opens the address itself).
+	 */
+	videoMediaLink: (url: string, headers: { [key in string]: string }) => typedError<string, string>(__TAURI_INVOKE("video_media_link", { url, headers })),
 	/**  Plays a download (from the device once it's finished). */
 	videoDownloadPlay: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_play", { id })),
 	/**  Marks a downloaded video watched or not. */
