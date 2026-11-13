@@ -89,11 +89,17 @@ describe('Video cards', () => {
     const user = userEvent.setup();
     const card = await mountSource();
 
+    await user.click(card);
+    expect(await screen.findByTestId('video-title-page')).toBeInTheDocument();
+    expect(commands.videoSourceWatch).not.toHaveBeenCalled();
+  });
+
+  it("plays from the play button over the title's page, Back landing on it", async () => {
+    const user = userEvent.setup();
+    const card = await mountSource();
     await user.click(within(card).getByRole('button', { name: 'Play Flash Gordon' }));
     await waitFor(() => expect(commands.videoSourceWatch).toHaveBeenCalledWith('title-1', null));
-    expect(screen.queryByTestId('video-title-page')).not.toBeInTheDocument();
-
-    await user.click(card);
+    // The page opened first, under the player: closing the player shows it.
     expect(await screen.findByTestId('video-title-page')).toBeInTheDocument();
   });
 
@@ -210,10 +216,6 @@ describe('Video cards', () => {
     commands.videoResume.mockResolvedValue(ok(null));
     await AppShellWrapper.mount('/library?media=video');
     const row = await screen.findByRole('listitem', { name: 'Breaking Bad' });
-    await user.click(within(row).getByRole('button', { name: 'Resume Breaking Bad' }));
-    await waitFor(() =>
-      expect(commands.videoResume).toHaveBeenCalledWith('stremio:series:tt1:1:2'),
-    );
     expect(within(row).getByTestId('continue-card')).toHaveAttribute(
       'href',
       expect.stringContaining('/watch/title'),
@@ -222,5 +224,14 @@ describe('Video cards', () => {
     expect(menuItems()).toEqual(
       expect.arrayContaining(['Resume', 'Open page', 'Remove from Continue watching']),
     );
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    await user.click(within(row).getByRole('button', { name: 'Resume Breaking Bad' }));
+    await waitFor(() =>
+      expect(commands.videoResume).toHaveBeenCalledWith('stremio:series:tt1:1:2'),
+    );
+    // The title's page opened under the player.
+    expect(await screen.findByTestId('watch-title-page')).toBeInTheDocument();
   });
 });

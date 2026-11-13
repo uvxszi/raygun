@@ -143,6 +143,25 @@ describe('Back to search results', () => {
     await waitFor(() => expect(main.scrollTop).toBe(4000));
   });
 
+  it("puts the title's page under the player when a card's play button plays it", async () => {
+    const user = userEvent.setup();
+    const router = await AppShellWrapper.mount(
+      '/browse?tab=search&type=video&view=movies&q=sintel',
+    );
+    const section = await screen.findByRole('region', { name: 'Movies' });
+    await user.click(await within(section).findByRole('button', { name: 'Play Sintel 1' }));
+    await waitFor(() =>
+      expect(commands.stremioWatch).toHaveBeenCalledWith('movie', 'tt1001', null),
+    );
+    // The page opened before the player did: Back from the player lands on it.
+    expect(await screen.findByTestId('watch-title-page')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/watch/title');
+
+    act(() => router.history.back());
+    await screen.findByRole('region', { name: 'Movies' });
+    expect(router.state.location.pathname).toBe('/browse');
+  });
+
   it('starts a new search afresh', async () => {
     const user = userEvent.setup();
     const router = await AppShellWrapper.mount(

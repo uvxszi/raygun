@@ -57,6 +57,7 @@ import { LibraryItems } from './LibraryItems';
 import { CategoriesSheet, SelectionActions, SelectionTopBar } from './LibrarySelection';
 import { HiddenEntries } from './HiddenEntries';
 import { ROUTES } from './medium';
+import { entryPage, useOpenTitlePage } from './titleMenu';
 import type { Medium } from './medium';
 import { groupWords } from './groupWords';
 import { useCategories } from './useCategories';
@@ -196,10 +197,13 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
     },
   ];
 
+  const openTitlePage = useOpenTitlePage();
   const onContinue = async (entry: MangaLibraryEntry) => {
     setNotice(null);
     try {
       if (video) {
+        // The title's page goes under the player: Back from it lands there.
+        await openTitlePage(entryPage(medium, entry));
         if (entry.sourceId === STREMIO_SOURCE) {
           const split = entry.remoteId.indexOf(':');
           await unwrapResult(
@@ -219,6 +223,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
         setNotice(t('library.noNextChapter'));
         return;
       }
+      await openTitlePage(entryPage(medium, entry));
       void navigate({ to: ROUTES[medium].read, search: { title: entry.titleId, chapter } });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));

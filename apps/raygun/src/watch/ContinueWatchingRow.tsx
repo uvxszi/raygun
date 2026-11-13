@@ -9,6 +9,7 @@ import { Carousel } from '../shell/Carousel';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useOpenTitlePage } from '../manga/titleMenu';
 import { entryPage } from './continueEntry';
 import { useContinueMenu } from './continueMenu';
 import { ContinueSelectionBar, PickCircle } from './ContinueSelection';
@@ -44,6 +45,12 @@ const Card: FC<{
   const duration = item.durationMs ?? 0;
   const position = item.positionMs ?? 0;
   const page = entryPage(item);
+  const openTitlePage = useOpenTitlePage();
+  // The title's page goes under the player: Back from it lands there, then on this row.
+  const play = async () => {
+    if (page) await openTitlePage(page as { to: string; search: Record<string, string> });
+    resume.mutate(item.key);
+  };
   const body: ReactNode = (
     <>
       <span className="relative overflow-hidden rounded-xl">
@@ -64,7 +71,7 @@ const Card: FC<{
         )}
         <CardPlayButton
           label={t('watch.resumeTitle', { title: item.title })}
-          onPlay={() => resume.mutate(item.key)}
+          onPlay={() => void play()}
           className="absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2"
         />
       </span>
