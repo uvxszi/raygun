@@ -322,6 +322,7 @@ describe('Search filters', () => {
 
     const sheet = await openFilters(user);
     expect(within(sheet).getByText(/an addon you have gives streams/)).toBeInTheDocument();
+    const asked = commands.stremioSearchCatalog.mock.calls.length;
     await user.click(within(sheet).getByRole('switch', { name: 'Playable only' }));
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
       key: 'searchFilter',
@@ -331,6 +332,10 @@ describe('Search filters', () => {
       expect(screen.getByTestId('video-results')).not.toHaveTextContent('Sintel Trailer'),
     );
     expect(within(screen.getByTestId('video-results')).getByText('Sintel')).toBeInTheDocument();
+    // Whether a title plays is Rust's word as of the answer: the search is asked again.
+    await waitFor(() =>
+      expect(commands.stremioSearchCatalog.mock.calls.length).toBeGreaterThan(asked),
+    );
   });
 
   it("narrows Audio's songs to explicit ones, or to ones that stream", async () => {

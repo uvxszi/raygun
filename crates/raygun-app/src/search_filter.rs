@@ -62,7 +62,8 @@ pub fn asks_source(prefs: SearchFilterPrefs, source: &MangaSource) -> bool {
 /// A source's titles as the filters keep them (`medium` is `title.kind`: manga, novel or video):
 /// adult ones left out under "No 18+"; under "18+ only" only adult ones, or every one of a source
 /// rated for adults; comics or books already in the library left out under "Not in library".
-/// Video sources play their own titles, so Videos' "Playable only" keeps all of theirs.
+/// Video sources play their own titles, so Videos' "Playable only" keeps them, but not a
+/// source's folders (a Kodi add-on's), which are lists rather than something to play.
 pub fn keep_cards(
     prefs: SearchFilterPrefs,
     medium: &str,
@@ -70,10 +71,12 @@ pub fn keep_cards(
     cards: &mut Vec<MangaCard>,
 ) {
     let hide_saved = hides_saved(prefs, medium);
+    let no_folders = prefs.playable_videos && medium == "video";
     cards.retain(|card| {
         !(prefs.no_adult && card.adult)
             && !(prefs.adult_only && !source.adult && !card.adult)
             && !(hide_saved && card.in_library)
+            && !(no_folders && card.folder)
     });
 }
 
@@ -372,6 +375,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["tt1"]
         );
+    }
+
+    #[test]
+    fn playable_only_leaves_out_video_sources_folders() {
+        let playable = SearchFilterPrefs {
+            playable_videos: true,
+            ..OFF
+        };
+        let cards = || {
+            let mut folder = card("folder", false, false);
+            folder.folder = true;
+            vec![card("title", false, false), folder]
+        };
+        let mut kept = cards();
+        keep_cards(playable, "video", &source(false), &mut kept);
+        assert_eq!(ids(&kept), ["title"]);
+        let mut kept = cards();
+        keep_cards(OFF, "video", &source(false), &mut kept);
+        assert_eq!(kept.len(), 2);
     }
 
     #[test]

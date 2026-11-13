@@ -874,9 +874,17 @@ impl StremioService {
             Ok(value) => (protocol::parse_metas(&value, &catalog.kind), None),
             Err(error) => (Vec::new(), Some(error.message)),
         };
+        // Addons that failed lately ("didn't work lately") don't make a title playable.
+        let health = self.health_now().await;
+        let now = now_ms();
         let streams: Vec<&Manifest> = addons
             .iter()
             .filter(|loaded| loaded.row.enabled)
+            .filter(|loaded| {
+                !health
+                    .get(&loaded.row.id)
+                    .is_some_and(|health| health.failing(now))
+            })
             .filter_map(Loaded::manifest)
             .collect();
         // Stream providers find movies and series by their IMDb or TMDB ids.

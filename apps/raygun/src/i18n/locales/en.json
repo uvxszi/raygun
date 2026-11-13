@@ -2639,6 +2639,7 @@
     "cast": "Cast",
     "episodes": "Episodes",
     "seasons": "Seasons",
+    "pickSeason": "{{season}}, choose a season",
     "season": "Season {{number}}",
     "specials": "Specials",
     "streams": "Streams",

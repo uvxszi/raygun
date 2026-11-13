@@ -22,7 +22,7 @@ import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { useKnownCard } from '../manga/knownCard';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
-import { useDragScroll } from '../shell/useDragScroll';
+import { SeasonPicker } from '../watch/SeasonPicker';
 import { useWideScreen } from '../shell/useWideScreen';
 import { PinButton } from '../shell/PinButton';
 import { LibraryPill } from '../watch/LibraryPill';
@@ -86,7 +86,6 @@ const Episodes: FC<{
   const { t } = useTranslation();
   const setWatched = useSetEpisodeWatched();
   const selection = useEpisodeSelection();
-  const seasonRow = useDragScroll<HTMLDivElement>();
   const canDownload = view.sourceId !== LOCAL_VIDEO;
   const seasons = useMemo(
     () => [...new Set(view.episodes.map((episode) => episode.season))],
@@ -118,27 +117,16 @@ const Episodes: FC<{
         )}
       </div>
       {seasons.length > 1 && (
-        <div
-          ref={seasonRow}
-          role="tablist"
-          aria-label={t('watch.seasons')}
-          className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
-        >
-          {seasons.map((value) => (
-            <button
-              key={value ?? 'none'}
-              type="button"
-              role="tab"
-              aria-selected={value === shown}
-              onClick={() => setSeason(value)}
-              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${value === shown ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-            >
-              {value === null || value === 0
-                ? t('watch.specials')
-                : t('watch.season', { number: number(value) })}
-            </button>
-          ))}
-        </div>
+        <SeasonPicker
+          seasons={seasons}
+          shown={shown}
+          onPick={setSeason}
+          label={(value) =>
+            value === null || value === 0
+              ? t('watch.specials')
+              : t('watch.season', { number: number(value) })
+          }
+        />
       )}
       <ul className="flex flex-col gap-2">
         {episodes.map((episode) => {

@@ -1331,9 +1331,15 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         .collect();
     sort_videos(&mut videos);
     // A channel's program guide isn't episodes: the channel plays as itself, with the streams
-    // of the show on now.
-    let scheduled = flag(meta.get("behaviorHints"), "hasScheduledVideos")
-        || (!videos.is_empty() && videos.iter().all(|video| video.airs.is_some()));
+    // of the show on now. `hasScheduledVideos` alone isn't one: Cinemeta marks every series
+    // with upcoming episodes so (stremio-core's calendar), and those are seasons of episodes.
+    let numbered = videos
+        .iter()
+        .any(|video| video.season.is_some() && video.episode.is_some());
+    let scheduled = (!videos.is_empty() && videos.iter().all(|video| video.airs.is_some()))
+        || (flag(meta.get("behaviorHints"), "hasScheduledVideos")
+            && !numbered
+            && videos.iter().any(|video| video.airs.is_some()));
     let live_streams = if scheduled {
         let streams = on_air(&videos, chrono::Utc::now().timestamp_millis())
             .map(|video| video.streams.clone())
