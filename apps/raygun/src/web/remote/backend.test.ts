@@ -257,9 +257,15 @@ describe('a linked app as the back end', () => {
       label: 'Laptop',
     });
     expect(await backend.streamFor(item('Nowhere', lookup))).toBeNull();
+    // Other sites' addresses go through the app (many refuse web pages); the page's own play here.
     expect(
       await backend.streamFor(
         item('Song', { kind: 'url', url: 'https://a.org/s.mp3', headers: {} }),
+      ),
+    ).not.toBeNull();
+    expect(
+      await backend.streamFor(
+        item('Song', { kind: 'url', url: `${BASE}songs/s.mp3`, headers: {} }),
       ),
     ).toBeNull();
     expect(await backend.streamFor(item('Song', { kind: 'youTube', videoId: 'v' }))).toBeNull();

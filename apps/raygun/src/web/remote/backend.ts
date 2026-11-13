@@ -43,6 +43,16 @@ export type BackendOptions = {
   storage?: Pick<Storage, 'getItem' | 'setItem'> | null;
 };
 
+/** Whether the page can play `url` itself: its own files, blobs and data. */
+const playsInPage = (url: string, base: string) => {
+  if (/^(blob|data):/i.test(url)) return true;
+  try {
+    return new URL(url, base).origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
+};
+
 const describe = (error: unknown) =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
 
@@ -287,9 +297,11 @@ export class RemoteBackend {
     const client = this.client;
     if (!client || client.closed) return null;
     const source = item.source;
-    // A plain address plays as it is; one needing headers goes through the app's proxy.
+    // Addresses on other sites go through the app's proxy too: many sites don't let web pages read
+    // them (CORS), and the page's sound chain needs to. The page's own files and blobs play as
+    // they are.
     if (source.kind === 'youTube') return null;
-    if (source.kind === 'url' && Object.keys(source.headers ?? {}).length === 0) return null;
+    if (source.kind === 'url' && playsInPage(source.url, this.options.base)) return null;
     try {
       const result = await client.resolve(toAppLinks(item, this.options.base, this.prefs.proxy));
       if (result.kind !== 'ok') return null;

@@ -121,14 +121,13 @@ describe('the web core behind the bindings', () => {
     await expect(commands.ttsSetAvailable(true)).resolves.toBeNull();
   });
 
-  it('asks a remote first for commands it has no implementation of', async () => {
+  it("lets a remote answer first, with the page's own answer to fall back to", async () => {
     await start();
     const asked: string[] = [];
-    setRemoteHandler(async (command) => {
+    setRemoteHandler((command, _args, local) => {
       asked.push(command);
-      return command === 'podcast_set_subscribed'
-        ? { handled: true, value: null }
-        : { handled: false };
+      if (command === 'podcast_set_subscribed') return Promise.resolve(null);
+      return command === 'library_status' ? local() : null;
     });
     try {
       expect(await commands.podcastSetSubscribed('feed', true)).toEqual({
@@ -136,9 +135,8 @@ describe('the web core behind the bindings', () => {
         data: null,
       });
       expect(ok(await commands.libraryStatus()).trackCount).toBe(0);
-      // Commands the page answers itself never go to the remote.
       ok(await commands.playlistsList());
-      expect(asked).toEqual(['podcast_set_subscribed', 'library_status']);
+      expect(asked).toEqual(['podcast_set_subscribed', 'library_status', 'playlists_list']);
     } finally {
       setRemoteHandler(null);
     }
