@@ -1804,6 +1804,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         closeSheet(openSheet)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             runCatching { enterPictureInPictureMode(tools.pipParams()) }
+                .onFailure { Log.w("RaygunPip", "couldn't enter the small window", it) }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             @Suppress("DEPRECATION")
             enterPictureInPictureMode()
@@ -1816,6 +1817,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         val inPip = isInPictureInPictureMode
         if (inPip || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching { setPictureInPictureParams(tools.pipParams()) }
+                .onFailure { Log.w("RaygunPip", "couldn't update the small window", it) }
         }
     }
 
