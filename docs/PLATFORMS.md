@@ -1,8 +1,9 @@
 # Platforms
 
 Raygun is built for Android first and Windows second; the release workflow
-(`.github/workflows/release.yml`) also builds it for Linux, macOS and FreeBSD. This page lists what
-each release contains, what each platform needs, and what doesn't work where.
+(`.github/workflows/release.yml`) also builds it for Linux and macOS, with a FreeBSD job that doesn't
+build yet. This page lists what each release contains, what each platform needs, and what doesn't
+work where.
 
 ## Release files
 
@@ -34,8 +35,9 @@ no other Windows file may sort before the x64 ones with those endings. That's wh
 
 To test the workflow without releasing: Actions → Release → Run workflow on a branch with no tag
 (`gh workflow run release.yml --ref <branch>`). The files stay as the run's artifacts. `only`
-picks jobs (`windows,windows-more,linux,linux-riscv64,macos,flatpak,arch,freebsd,android`), `quick`
-builds with thin LTO.
+picks jobs (`windows,windows-more,linux,linux-riscv64,macos,flatpak,arch,android`; `freebsd` runs
+only when named), `quick` builds with thin LTO. `flatpak` and `arch` repackage the `linux` job's
+debs, so they need it in the same run.
 
 ## Updates
 
