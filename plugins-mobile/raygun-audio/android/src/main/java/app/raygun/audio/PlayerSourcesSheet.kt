@@ -1,7 +1,6 @@
 package app.raygun.audio
 
 import android.content.res.Configuration
-import android.graphics.Color
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -266,14 +265,17 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         })
     }
 
-    /** The sources, the `chosen` one marked (landscape: its options show beside them). */
+    /**
+     * The sources, the `chosen` one ticked (landscape: its options show beside them) and the one
+     * playing set apart on a tint of the accent.
+     */
     private fun sourceRows(list: LinearLayout, shown: List<Int>, chosen: Int?) {
         val playing = playingGroup()
         shown.forEach { group ->
             val server = groups.optJSONObject(group) ?: return@forEach
             val links = server.optJSONArray("links")?.length() ?: 0
             val detail = if (links == 0) stateText(server) else sourceDetail(server, group == playing)
-            list.addView(paneRow(server.optString("name"), detail, selected = group == chosen) {
+            list.addView(paneRow(server.optString("name"), detail, selected = group == chosen, playing = group == playing) {
                 picked = group
                 options = true
                 build()
@@ -315,7 +317,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         ranks.sortedWith(OPTION_ORDER).forEach { rank ->
             val link = links.optJSONObject(rank.index) ?: return@forEach
             val current = link.optBoolean("current")
-            list.addView(paneRow(optionTitle(link), optionDetail(link, server), selected = current) {
+            list.addView(paneRow(optionTitle(link), optionDetail(link, server), selected = current, playing = current) {
                 choose(group, rank.index, current)
             })
         }
@@ -415,26 +417,24 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
 
     private fun size(bytes: Long): String = sizeText(bytes)
 
-    /** A row of a pane, in the sheets' style: words, a tick when `selected`. */
-    private fun paneRow(text: String, detail: String?, selected: Boolean, onClick: (() -> Unit)?): TextView =
+    /**
+     * A row of a pane, in the sheets' style ([fillRow]): words, a tick when `selected`, and what
+     * plays (`playing`) on a tint of the accent.
+     */
+    private fun paneRow(
+        text: String,
+        detail: String?,
+        selected: Boolean,
+        playing: Boolean = false,
+        onClick: (() -> Unit)?,
+    ): TextView =
         TextView(host).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setPadding(host.dp(20), host.dp(12), host.dp(20), host.dp(12))
             minHeight = host.dp(48)
             gravity = Gravity.CENTER_VERTICAL
-            val check = if (selected) "✓  " else ""
-            this.text = if (detail.isNullOrBlank()) "$check$text" else "$check$text\n$detail"
-            setTextColor(
-                when {
-                    onClick == null -> 0x80FFFFFF.toInt()
-                    selected -> playerAccent
-                    else -> Color.WHITE
-                },
-            )
+            fillRow(text, detail, selected, onClick != null, highlighted = playing)
             if (onClick != null) {
-                val ripple = TypedValue()
-                host.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
-                setBackgroundResource(ripple.resourceId)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { onClick() }

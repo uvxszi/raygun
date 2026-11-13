@@ -138,6 +138,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
             label={group.name}
             hint={sourceDetail(group, index)}
             selected={landscape && index === chosen}
+            current={index === playing}
             onSelect={() => {
               setPicked(index);
               setOptions(true);
@@ -166,6 +167,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
                 .join(' · ') || null
             }
             selected={link.current}
+            current={link.current}
             onSelect={() => choose(index, linkIndex)}
           />
         ))}
@@ -193,6 +195,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
                   : null
             }
             selected={link.current}
+            current={link.current}
             onSelect={() => choose(index, linkIndex)}
           />
         ))}

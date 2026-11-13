@@ -7,6 +7,12 @@ import androidx.media3.common.util.UnstableApi
 import org.json.JSONArray
 import org.json.JSONObject
 
+/**
+ * Whether the quality is automatic: the stream picks its variant by itself (`variantsAuto`) and
+ * no step was asked for in the menu (Rust's `wanted`).
+ */
+internal fun automatic(variantsAuto: Boolean, wanted: String?): Boolean = variantsAuto && wanted == null
+
 /** A row's name: its tier, the picture's own size beside it when Rust names one ("1080p (1920×816)"). */
 internal fun qualityName(height: Int, exact: String?, nickname: String?): String = when {
     exact != null -> "${height}p ($exact)"
@@ -67,6 +73,8 @@ internal fun rangeOf(format: Format): String {
  */
 internal class PlayerQuality(private val host: VideoPlayerActivity) {
     private var rows = JSONArray()
+    /** The step asked for in this menu (Rust's `wanted`); null while it picks by itself. */
+    private var wanted: String? = null
     private var sheet: PlayerSheet? = null
     private var reported = ""
 
@@ -76,6 +84,7 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     /** Rust's `qualities` update. */
     fun onUpdate(update: JSONObject) {
         rows = update.optJSONArray("items") ?: JSONArray()
+        wanted = update.text("wanted")
         update.text("notice")?.let {
             host.pickedNothing()
             host.showHint(it, 3_000)
@@ -134,11 +143,15 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         }
     }
 
+    /**
+     * The sheet. Automatic is ticked while nothing was picked here; the row playing is always
+     * set apart (on a tint of the accent, "Playing" under it), and ticked too when it was picked.
+     */
     fun open() {
         val sheet = PlayerSheet(host, host.label("quality", "Quality"))
         this.sheet = sheet
-        val auto = host.tracks.qualityAuto()
-        sheet.row(host.label("qualityAuto", "Automatic"), selected = auto && host.tracks.qualities().size > 1) {
+        val auto = automatic(host.tracks.qualityAuto(), wanted)
+        sheet.row(host.label("qualityAuto", "Automatic"), selected = auto, highlighted = false) {
             host.tracks.selectQuality(null)
             if (host.session) host.request("quality", JSONObject().put("key", JSONObject.NULL))
             sheet.dismiss()
@@ -164,8 +177,15 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
                 "playing" -> if (host.session) { { ask(row, again = true); sheet.dismiss() } } else null
                 else -> { { ask(row, again = false); sheet.dismiss() } }
             }
-            val shown = sheet.row(stepName(row), detail, selected = state == "playing" && !auto, onClick = onClick)
-            if (state == "playing") sheet.reveal(shown)
+            val playing = state == "playing"
+            val shown = sheet.row(
+                stepName(row),
+                detail,
+                selected = playing && !auto,
+                highlighted = playing,
+                onClick = onClick,
+            )
+            if (playing) sheet.reveal(shown)
         }
         sheet.show()
     }

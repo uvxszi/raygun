@@ -6262,6 +6262,16 @@ pub async fn video_download_remove(
     downloads.remove(&id).await
 }
 
+/// Removes what deleted videos left behind (Settings → Data): folders no download owns, and
+/// finished downloads whose files are gone.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_downloads_sweep(
+    downloads: VideoDownloadsState<'_>,
+) -> Result<raygun_model::VideoDownloadsSwept, String> {
+    downloads.sweep().await
+}
+
 /// Plays a download (from the device once it's finished).
 #[tauri::command]
 #[specta::specta]

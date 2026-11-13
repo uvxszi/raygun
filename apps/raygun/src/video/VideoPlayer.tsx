@@ -40,7 +40,11 @@ import { useTranslation } from 'react-i18next';
 
 import { formatTime } from '../player/formatTime';
 import { useCaptions } from '../player/spoken';
+import { AudioPanel } from './AudioPanel';
 import { CastPanel, CastStage } from './Cast';
+import { MAX_AUDIO_DELAY_MS, rememberOf } from './externalAudio';
+import type { SoundSource } from './externalAudio';
+import { useExternalAudio } from './useExternalAudio';
 import { LiveBadge, LiveDelayPrompt } from './LiveControls';
 import { DVR_MIN_MS, HOLD_STEP_MS, readLive, useLiveStream } from './liveStream';
 import type { LiveView } from './liveStream';
@@ -50,7 +54,7 @@ import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { QualityPanel } from './QualityPanel';
 import { SourcesPanel } from './SourcesPanel';
 import { sendReport, sendRequest } from './protocol';
-import type { PlayerRequest, Position, TitleState } from './protocol';
+import type { AudioOffer, PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
 import { transferText } from './transferText';
 import { SubtitlesPanel } from './SubtitlesPanel';
@@ -461,6 +465,35 @@ const VideoStage: FC<StageProps> = ({
   const sources = useVideoPlayerStore((state) => state.sources);
   const pickedSource = useVideoPlayerStore((state) => state.pickedSource);
 
+  // ---- The sound: another source's stream or a file beside the picture, and the audio delay
+  // (the video's own stream played again, when only its sound moves) ----
+  const audioOffers = useVideoPlayerStore((state) => state.audioOffers);
+  const rememberedSound = useVideoPlayerStore((state) => state.rememberedSound);
+  const offers = audioOffers.id === id ? audioOffers.items : [];
+  const [audioDelayMs, setAudioDelayMs] = useState(titleState.audioDelayMs ?? 0);
+  const [chosenSound, setChosenSound] = useState<SoundSource | null>(null);
+  /** The sound the title remembers was let go (another picked, or it failed). */
+  const [rememberedDropped, setRememberedDropped] = useState(false);
+  /** The video's own stream couldn't be played again to move its sound. */
+  const [ownSoundFailed, setOwnSoundFailed] = useState(false);
+  const soundSource = useMemo<SoundSource | null>(() => {
+    if (chosenSound) return chosenSound;
+    if (rememberedSound && !rememberedDropped) {
+      return { url: rememberedSound.url, format: rememberedSound.format, offer: rememberedSound };
+    }
+    return audioDelayMs !== 0 && request.url && !ownSoundFailed
+      ? { url: request.url, format: request.format ?? null, own: true }
+      : null;
+  }, [
+    chosenSound,
+    rememberedSound,
+    rememberedDropped,
+    audioDelayMs,
+    request.url,
+    request.format,
+    ownSoundFailed,
+  ]);
+
   const heading = request.subtitle
     ? `${request.title ?? ''} · ${request.subtitle}`
     : (request.title ?? '');
@@ -617,6 +650,36 @@ const VideoStage: FC<StageProps> = ({
   const changeDelay = (next: number) => {
     setDelayMs(next);
     remember({ subtitleDelayMs: next });
+  };
+  /** Positive plays the sound later than the picture; kept for the title. */
+  const changeAudioDelay = (next: number) => {
+    const delay = Math.max(-MAX_AUDIO_DELAY_MS, Math.min(MAX_AUDIO_DELAY_MS, Math.round(next)));
+    setAudioDelayMs(delay);
+    remember({ audioDelayMs: delay });
+  };
+  /** Another source's stream plays its sound over this picture; the title takes it again next
+   * time its source offers the language. */
+  const pickSoundOffer = (offer: AudioOffer) => {
+    setChosenSound({ url: offer.url, format: offer.format, offer });
+    setRememberedDropped(true);
+    remember({ externalAudio: rememberOf(offer) });
+  };
+  /** A sound file from this device, for this video. */
+  const pickSoundFile = (file: File) => {
+    setChosenSound({ url: URL.createObjectURL(file), format: null, file: file.name });
+    setRememberedDropped(true);
+  };
+  /** The video's own sound again: a track of it (`-1` for a stream that lists none). */
+  const pickOwnSound = (trackId: number) => {
+    setChosenSound(null);
+    setRememberedDropped(true);
+    const track = engineRef.current?.audioTracks().find((candidate) => candidate.id === trackId);
+    if (track) engineRef.current?.setAudioTrack(track.id);
+    remember({
+      ...(track ? { audio: { language: track.language, label: track.label } } : {}),
+      externalAudio: null,
+    });
+    setTracksVersion((version) => version + 1);
   };
   const changeVolume = (level: number) => {
     const clamped = Math.max(0, Math.min(maxVolume, Math.round(level * 100) / 100));
@@ -1009,12 +1072,37 @@ const VideoStage: FC<StageProps> = ({
     [],
   );
 
+  // The sound beside the picture plays in step with it; the video's own is muted meanwhile.
+  useExternalAudio({
+    videoRef,
+    source: soundSource,
+    delayMs: audioDelayMs,
+    volume,
+    muted,
+    onFailed: () => {
+      if (soundSource?.own) {
+        setOwnSoundFailed(true);
+        return;
+      }
+      setChosenSound(null);
+      setRememberedDropped(true);
+      showHint(t('videoPlayer.audioFailed'));
+    },
+  });
+  // A sound file's address lives as long as it's the one chosen.
+  useEffect(() => {
+    const address = chosenSound?.file ? chosenSound.url : null;
+    return () => {
+      if (address) URL.revokeObjectURL(address);
+    };
+  }, [chosenSound]);
+
   // Volume, past 100 % through a gain node when boosting.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     video.volume = Math.min(1, volume);
-    video.muted = muted;
+    video.muted = muted || soundSource !== null;
     if (volume > 1 && !boostRef.current && typeof AudioContext !== 'undefined') {
       try {
         const context = new AudioContext();
@@ -1026,7 +1114,7 @@ const VideoStage: FC<StageProps> = ({
       }
     }
     if (boostRef.current) boostRef.current.gain.gain.value = Math.max(1, volume);
-  }, [volume, muted, videoRef]);
+  }, [volume, muted, videoRef, soundSource]);
   useEffect(
     () => () => {
       void boostRef.current?.context.close();
@@ -1543,14 +1631,13 @@ const VideoStage: FC<StageProps> = ({
             >
               {speed / 100}×
             </button>
-            {audioTracks.length > 1 && (
-              <IconButton
-                label={t('videoPlayer.audio')}
-                onClick={() => setPanel(panel === 'audio' ? null : 'audio')}
-              >
-                <AudioLines aria-hidden size={20} />
-              </IconButton>
-            )}
+            {/* Its tracks, another source's sound, a file and the audio delay. */}
+            <IconButton
+              label={t('videoPlayer.audio')}
+              onClick={() => setPanel(panel === 'audio' ? null : 'audio')}
+            >
+              <AudioLines aria-hidden size={20} />
+            </IconButton>
             {/* Quality, then subtitles, beside the picture's aspect. */}
             {(session || qualities.length > 1) && (
               <IconButton
@@ -1691,19 +1778,28 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'audio' && (
         <PlayerPanel title={t('videoPlayer.audio')} onClose={() => setPanel(null)}>
-          {audioTracks.map((track, index) => (
-            <PanelOption
-              key={track.id}
-              label={audioNames[index]?.name ?? track.label}
-              hint={audioNames[index]?.detail}
-              selected={engine?.audioTrack() === track.id}
-              onSelect={() => {
-                engineRef.current?.setAudioTrack(track.id);
-                remember({ audio: { language: track.language, label: track.label } });
-                setTracksVersion((version) => version + 1);
-              }}
-            />
-          ))}
+          <AudioPanel
+            tracks={audioTracks.map((track, index) => ({
+              id: track.id,
+              name: audioNames[index]?.name ?? track.label,
+              detail: audioNames[index]?.detail ?? null,
+            }))}
+            playingTrack={engine?.audioTrack() ?? null}
+            onTrack={pickOwnSound}
+            sound={soundSource}
+            offers={offers}
+            session={session}
+            onOffer={(offer) => {
+              pickSoundOffer(offer);
+              setPanel(null);
+            }}
+            onFile={(file) => {
+              pickSoundFile(file);
+              setPanel(null);
+            }}
+            delayMs={audioDelayMs}
+            onDelay={changeAudioDelay}
+          />
         </PlayerPanel>
       )}
       {panel === 'quality' && (

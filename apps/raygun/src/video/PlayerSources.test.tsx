@@ -192,10 +192,22 @@ describe('the desktop player’s sources, quality and live streams', () => {
     expect(names[1]).toMatch(/^Alpha/);
     expect(names[1]).toContain('Playing · Up to 1080p · 1 option · 9 Mb/s');
     expect(within(panel).queryByText(/WEB-DL\.x264-GROUP/)).not.toBeInTheDocument();
-    // The source playing shows its options beside the list.
+    // The source playing shows its options beside the list; it and its option playing are set
+    // apart, the others aren't.
     const alpha = within(panel).getByRole('group', { name: 'Alpha' });
     expect(within(alpha).getByRole('menuitemradio', { name: /1080p/ })).toHaveTextContent(
       'H.264 · needs ~4.5 Mb/s · 9 Mb/s measured · WEB-DL · Playing',
+    );
+    expect(within(alpha).getByRole('menuitemradio', { name: /1080p/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    expect(within(panel).getByRole('menuitemradio', { name: /^Alpha/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    expect(within(panel).getByRole('menuitemradio', { name: /^Beta/ })).not.toHaveAttribute(
+      'aria-current',
     );
 
     // Another source's options, best picture first; picking one plays it from here.
@@ -229,6 +241,11 @@ describe('the desktop player’s sources, quality and live streams', () => {
     await user.click(within(player).getByRole('button', { name: 'Sources' }));
     const panel = screen.getByRole('region', { name: 'Sources' });
     expect(within(panel).queryByRole('group')).not.toBeInTheDocument();
+    // Nothing is ticked in the list alone, but the source playing stands out.
+    expect(within(panel).getByRole('menuitemradio', { name: /^Alpha/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
     await user.click(within(panel).getByRole('menuitemradio', { name: /^Beta/ }));
     expect(within(panel).getByRole('group', { name: 'Beta' })).toBeInTheDocument();
     await user.click(within(panel).getByRole('button', { name: 'All sources' }));

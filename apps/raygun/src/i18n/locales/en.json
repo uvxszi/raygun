@@ -3147,7 +3147,20 @@
     "translateComplete": "Translated to the end",
     "translateDone_one": "{{n}} of {{of}} line",
     "translateDone_other": "{{n}} of {{of}} lines",
-    "translateStop": "Stop translating"
+    "translateStop": "Stop translating",
+    "addAudioFile": "Add an audio file",
+    "audioDelaySeconds": "Audio delay in seconds",
+    "audioTracks": "Audio tracks",
+    "audioOwn": "The video's own sound",
+    "audioOtherSources": "From other sources",
+    "audioNoOtherSources": "No other source has this yet",
+    "audioSeveral": "Several languages",
+    "audioUnnamed": "Sound",
+    "audioFrom": "From {{n}}",
+    "audioFile": "Audio file",
+    "audioLoading": "Loading…",
+    "audioFailed": "Couldn't play that sound",
+    "audioFromSource": "Sound from {{n}}"
   },
   "export": {
     "title": "Export",
@@ -3590,7 +3603,16 @@
     "refreshDays_one": "{{count}} day",
     "refreshDays_other": "{{count}} days",
     "clearPagesOnStart": "Clear the page cache on start",
-    "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens."
+    "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens.",
+    "leftoverVideos": "Files of deleted videos",
+    "leftoverVideosHint": "Folders a deleted video left behind (a file still open when it went), and downloads whose files are gone. Also removed a while after each start.",
+    "leftoverRemove": "Remove",
+    "leftoverRemoved_one": "Removed {{count}} folder · {{size}}",
+    "leftoverRemoved_other": "Removed {{count}} folders · {{size}}",
+    "leftoverEntries_one": "Removed {{count}} download whose file was gone",
+    "leftoverEntries_other": "Removed {{count}} downloads whose files were gone",
+    "leftoverNone": "Nothing was left behind",
+    "leftoverFailed": "Couldn't look for leftover files"
   },
   "songMemory": {
     "title": "What's kept about songs",

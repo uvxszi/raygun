@@ -284,3 +284,110 @@ fn file_names_follow_the_links() {
         None
     );
 }
+
+fn new_download(key: &str) -> NewDownload {
+    NewDownload {
+        key: key.into(),
+        title_id: None,
+        title: "Sintel".into(),
+        subtitle: None,
+        poster: None,
+        url: "https://cdn.example/sintel.mp4".into(),
+        headers: "{}".into(),
+        format: None,
+        subtitles: "[]".into(),
+    }
+}
+
+#[test]
+fn only_a_downloads_own_folder_is_ever_deleted() {
+    assert!(is_download_id("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"));
+    for id in ["", "..", "../music", "a/b", "a\\b", ".", "x.y"] {
+        assert!(!is_download_id(id), "{id}");
+    }
+}
+
+#[tokio::test]
+async fn deleted_videos_leave_nothing_behind() {
+    let temp = TempDir::new().unwrap();
+    let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+        .await
+        .unwrap();
+    let root = temp.path().join("downloads");
+    let folder = root.join(FOLDER);
+
+    // A finished download with its files, one whose files went missing, and one queued.
+    let kept = store::enqueue(&db, &new_download("source:a:1"), 1)
+        .await
+        .unwrap();
+    store::set_done(&db, &kept, "video.mp4", "[]", 2)
+        .await
+        .unwrap();
+    std::fs::create_dir_all(folder.join(&kept)).unwrap();
+    std::fs::write(folder.join(&kept).join("video.mp4"), b"film").unwrap();
+    let missing = store::enqueue(&db, &new_download("source:a:2"), 1)
+        .await
+        .unwrap();
+    store::set_done(&db, &missing, "video.mp4", "[]", 2)
+        .await
+        .unwrap();
+    let queued = store::enqueue(&db, &new_download("source:a:3"), 1)
+        .await
+        .unwrap();
+    std::fs::create_dir_all(folder.join(&queued)).unwrap();
+    // Folders of videos deleted earlier: a whole download with its subtitles and a torrent's
+    // pieces, and an empty one; a stray file and a folder that isn't a download's stay.
+    let gone = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+    std::fs::create_dir_all(folder.join(gone).join("torrent")).unwrap();
+    std::fs::write(folder.join(gone).join("video.mkv"), vec![0u8; 1_000]).unwrap();
+    std::fs::write(folder.join(gone).join("sub1.srt"), vec![0u8; 24]).unwrap();
+    std::fs::write(
+        folder.join(gone).join("torrent").join("piece"),
+        vec![0u8; 76],
+    )
+    .unwrap();
+    std::fs::create_dir_all(folder.join("0190a1b2-0000-7000-8000-000000000000")).unwrap();
+    std::fs::write(folder.join("notes.txt"), b"x").unwrap();
+    std::fs::create_dir_all(folder.join(".cache")).unwrap();
+
+    let swept = sweep_in(&db, &root).await.unwrap();
+    assert_eq!(swept.folders, 2);
+    assert_eq!(swept.bytes, 1_100.0);
+    assert_eq!(swept.entries, 1, "the finished download whose file is gone");
+    assert!(!folder.join(gone).exists());
+    assert!(folder.join(&kept).join("video.mp4").exists());
+    assert!(
+        folder.join(&queued).exists(),
+        "a queued download keeps its folder"
+    );
+    assert!(folder.join("notes.txt").exists());
+    assert!(folder.join(".cache").exists());
+    assert!(store::get(&db, &missing).await.unwrap().is_none());
+    assert!(store::get(&db, &kept).await.unwrap().is_some());
+
+    // Nothing left at all: the video folder goes too.
+    let empty = TempDir::new().unwrap();
+    let only = empty.path().join(FOLDER).join(gone);
+    std::fs::create_dir_all(&only).unwrap();
+    let swept = sweep_in(&db, empty.path()).await.unwrap();
+    assert_eq!(swept.folders, 1);
+    assert!(!empty.path().join(FOLDER).exists());
+}
+
+#[tokio::test]
+async fn a_folder_is_removed_whole_and_its_empty_parent_with_it() {
+    let temp = TempDir::new().unwrap();
+    let folder = temp.path().join(FOLDER);
+    let dir = folder.join("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b");
+    std::fs::create_dir_all(dir.join("torrent")).unwrap();
+    std::fs::write(dir.join("index.m3u8"), b"#EXTM3U").unwrap();
+    assert!(remove_tree(&dir).await);
+    // Already gone counts as removed.
+    assert!(remove_tree(&dir).await);
+    remove_if_empty(&folder).await;
+    assert!(!folder.exists());
+    // A parent with something left in it stays.
+    std::fs::create_dir_all(folder.join("other")).unwrap();
+    remove_if_empty(&folder).await;
+    assert!(folder.exists());
+}

@@ -27,16 +27,35 @@ pub fn open(app: &AppHandle, payload: &Value) -> Result<(), String> {
     emit(app, VideoPlayerMessageKind::Open, &payload)
 }
 
-/// Sends an update to the webview's player; a `load` gets its stream linked like an opening.
+/// Sends an update to the webview's player; a `load` gets its stream linked like an opening, and
+/// the streams offered for their sound (`audioSources`) each get theirs.
 pub fn update(app: &AppHandle, update: &Value) -> Result<(), String> {
-    let mut update = update.clone();
-    if update.get("type").and_then(Value::as_str) == Some("load")
-        && let Some(request) = update.get("request")
-        && let Some(media) = app.try_state::<MediaLinks>()
-    {
-        update["request"] = for_webview(&media, request);
-    }
+    let update = match app.try_state::<MediaLinks>() {
+        Some(media) => linked_update(&media, update),
+        None => update.clone(),
+    };
     emit(app, VideoPlayerMessageKind::Update, &update)
+}
+
+/// An update with the streams it carries linked through `/media/`.
+fn linked_update(media: &MediaLinks, update: &Value) -> Value {
+    let mut update = update.clone();
+    match update.get("type").and_then(Value::as_str) {
+        Some("load") => {
+            if let Some(request) = update.get("request") {
+                update["request"] = for_webview(media, request);
+            }
+        }
+        Some("audioSources") => {
+            if let Some(items) = update.get_mut("items").and_then(Value::as_array_mut) {
+                for item in items.iter_mut() {
+                    *item = for_webview(media, item);
+                }
+            }
+        }
+        _ => {}
+    }
+    update
 }
 
 fn emit(app: &AppHandle, kind: VideoPlayerMessageKind, json: &Value) -> Result<(), String> {
@@ -409,5 +428,31 @@ mod tests {
         assert_eq!(for_webview(&media, &download), download);
         let shell = json!({ "session": true, "id": "", "title": "Show" });
         assert_eq!(for_webview(&media, &shell), shell);
+    }
+
+    #[tokio::test]
+    async fn streams_offered_for_their_sound_are_linked_too() {
+        let proxy = raygun_net::StreamProxy::start(raygun_net::http_client().unwrap(), None)
+            .await
+            .unwrap();
+        let media = proxy.media();
+        let update = json!({
+            "type": "audioSources",
+            "id": "stremio:movie:tt1",
+            "items": [{
+                "id": "1:0",
+                "url": "https://cdn.example/ita.mkv",
+                "headers": { "Referer": "https://site.example/" },
+                "format": null,
+            }],
+        });
+        let linked = linked_update(&media, &update);
+        let item = &linked["items"][0];
+        assert!(media.is_local(item["url"].as_str().unwrap()));
+        assert_eq!(item["headers"], json!({}));
+        assert_eq!(item["id"], "1:0");
+        // Other updates pass as they are.
+        let sources = json!({ "type": "sources", "groups": [] });
+        assert_eq!(linked_update(&media, &sources), sources);
     }
 }

@@ -1841,6 +1841,11 @@ export const commands = {
 	videoDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_retry", { id })),
 	/**  Cancels a download or deletes a downloaded video. */
 	videoDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_remove", { id })),
+	/**
+	 *  Removes what deleted videos left behind (Settings → Data): folders no download owns, and
+	 *  finished downloads whose files are gone.
+	 */
+	videoDownloadsSweep: () => typedError<VideoDownloadsSwept, string>(__TAURI_INVOKE("video_downloads_sweep")),
 	/**  Plays a download (from the device once it's finished). */
 	videoDownloadPlay: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_play", { id })),
 	/**  Marks a downloaded video watched or not. */
@@ -8551,6 +8556,16 @@ export type VideoDownloads = {
 
 /**  The video downloads changed; carries the download's id when one did (else empty) (M43). */
 export type VideoDownloadsEvent = string;
+
+/**
+ *  What deleted videos left behind and was removed: folders no download owns (and the bytes in
+ *  them), and finished downloads whose files were gone.
+ */
+export type VideoDownloadsSwept = {
+	folders: number,
+	bytes: number | null,
+	entries: number,
+};
 
 export type VideoEpisodeView = {
 	/**  The stored episode's id. */

@@ -443,4 +443,76 @@ describe('desktop video player', () => {
       'false',
     );
   });
+
+  it('plays another source’s sound over the picture, with a delay kept for the title', async () => {
+    const user = userEvent.setup();
+    const created: HTMLAudioElement[] = [];
+    const createElement = document.createElement.bind(document);
+    const spy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        const element = createElement(tag, options);
+        if (tag === 'audio') created.push(element as HTMLAudioElement);
+        return element;
+      });
+    await AppShellWrapper.mount('/');
+    open({ ...MOVIE, session: true });
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    const video = (await within(player).findByTestId('desktop-video')) as HTMLVideoElement;
+    update({
+      type: 'audioSources',
+      id: MOVIE.id,
+      items: [
+        {
+          id: '1:0',
+          group: 1,
+          link: 0,
+          source: 'Comet',
+          languages: ['it'],
+          several: false,
+          title: '1080p · WEB-DL',
+          sound: 'DD+ 5.1',
+          url: 'http://127.0.0.1:1/media/u/https/cdn.example/ita.mkv',
+          headers: {},
+          format: null,
+        },
+      ],
+    });
+
+    // The audio button is always there: the delay, files and other sources are in it.
+    await user.click(within(player).getByRole('button', { name: 'Audio' }));
+    expect(screen.getByRole('menuitemradio', { name: "The video's own sound" })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    const italian = screen.getByRole('menuitemradio', { name: /Italian/ });
+    expect(italian).toHaveTextContent('Comet · 1080p · WEB-DL · DD+ 5.1');
+    await user.click(italian);
+    expect(reports()).toContainEqual(
+      expect.objectContaining({
+        action: 'state',
+        change: { externalAudio: { source: 'Comet', language: 'it' } },
+      }),
+    );
+    // Its sound plays in an element of its own; the video's own is muted.
+    await vi.waitFor(() =>
+      expect(created.some((audio) => audio.src.endsWith('/ita.mkv'))).toBe(true),
+    );
+    expect(video.muted).toBe(true);
+
+    // A later sound: the delay is typed or stepped, and kept for the title.
+    await user.click(within(player).getByRole('button', { name: 'Audio' }));
+    await user.click(screen.getByRole('button', { name: '+0.1 s' }));
+    expect(reports()).toContainEqual(
+      expect.objectContaining({ action: 'state', change: { audioDelayMs: 100 } }),
+    );
+    expect(screen.getByRole('textbox', { name: 'Audio delay in seconds' })).toHaveValue('0.10');
+
+    // The video's own sound again: the other source is forgotten for the title.
+    await user.click(screen.getByRole('menuitemradio', { name: "The video's own sound" }));
+    expect(reports()).toContainEqual(
+      expect.objectContaining({ action: 'state', change: { externalAudio: null } }),
+    );
+    spy.mockRestore();
+  });
 });

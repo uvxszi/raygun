@@ -9756,6 +9756,16 @@ pub struct VideoDownloads {
     pub items: Vec<VideoDownloadItem>,
 }
 
+/// What deleted videos left behind and was removed: folders no download owns (and the bytes in
+/// them), and finished downloads whose files were gone.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoDownloadsSwept {
+    pub folders: u32,
+    pub bytes: f64,
+    pub entries: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -850,6 +850,7 @@ export const bindingsMock = {
     videoDownloadsSetDeviceLanguage: vi.fn(),
     videoDownloadRetry: vi.fn(),
     videoDownloadRemove: vi.fn(),
+    videoDownloadsSweep: vi.fn(),
     videoDownloadPlay: vi.fn(),
     videoDownloadSetWatched: vi.fn(),
     videoDownloadsSetPaused: vi.fn(),
@@ -1791,6 +1792,7 @@ export const seedBindings = () => {
   commands.videoDownloadsSetDeviceLanguage.mockResolvedValue(ok(null));
   commands.videoDownloadRetry.mockResolvedValue(ok(null));
   commands.videoDownloadRemove.mockResolvedValue(ok(null));
+  commands.videoDownloadsSweep.mockResolvedValue(ok({ folders: 0, bytes: 0, entries: 0 }));
   commands.videoDownloadPlay.mockResolvedValue(ok(null));
   commands.videoDownloadSetWatched.mockResolvedValue(ok(null));
   commands.videoDownloadsSetPaused.mockResolvedValue(ok(null));

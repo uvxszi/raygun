@@ -1,4 +1,4 @@
-import { Check, X } from 'lucide-react';
+import { Check, Play, X } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,9 +29,9 @@ export const PlayerPanel: FC<Props> = ({
   const { t } = useTranslation();
   const list = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const chosen = list.current?.querySelector<HTMLElement>(
-      '[role="menuitemradio"][aria-checked="true"]',
-    );
+    const chosen =
+      list.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ??
+      list.current?.querySelector<HTMLElement>('[aria-current="true"]');
     chosen?.scrollIntoView?.({ block: 'center' });
   }, []);
   return (
@@ -68,31 +68,44 @@ type OptionProps = {
   disabled?: boolean;
   /** An on/off option (a checkbox), not one of several choices. */
   toggle?: boolean;
+  /** What plays now (a resolution, a source): set apart on a tint of the accent, also when it
+   * wasn't picked (automatic quality). */
+  current?: boolean;
   onSelect: () => void;
 };
 
-/** One choice in a panel; the chosen one has a tick. */
+/** One choice in a panel; the chosen one has a tick, what plays now sits on the accent. */
 export const PanelOption: FC<OptionProps> = ({
   label,
   hint,
   selected = false,
   disabled,
   toggle = false,
+  current = false,
   onSelect,
 }) => (
   <button
     type="button"
     role={toggle ? 'menuitemcheckbox' : 'menuitemradio'}
     aria-checked={selected}
+    aria-current={current ? 'true' : undefined}
     disabled={disabled}
     onClick={onSelect}
-    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10 disabled:opacity-40 ${selected ? 'text-primary' : ''}`}
+    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40 ${
+      current
+        ? 'bg-primary/20 ring-primary/60 ring-1 ring-inset hover:bg-primary/25'
+        : 'hover:bg-white/10'
+    } ${selected || current ? 'text-primary' : ''}`}
   >
     <span className="flex min-w-0 flex-1 flex-col">
-      <span className="truncate">{label}</span>
+      <span className={`truncate ${current ? 'font-semibold' : ''}`}>{label}</span>
       {hint && <span className="truncate text-xs text-white/55">{hint}</span>}
     </span>
-    {selected && <Check aria-hidden size={16} className="shrink-0" />}
+    {selected ? (
+      <Check aria-hidden size={16} className="shrink-0" />
+    ) : (
+      current && <Play aria-hidden size={14} className="shrink-0 fill-current" />
+    )}
   </button>
 );
 
