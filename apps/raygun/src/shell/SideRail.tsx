@@ -84,7 +84,7 @@ export const SideRail: FC = () => {
         <span
           className={`text-primary flex items-center gap-2 pt-2 pb-4 text-2xl font-black tracking-tight ${narrow ? 'justify-center' : 'px-2'}`}
         >
-          <img src="/icon.svg" alt="" className="size-9 shrink-0" />
+          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-9 shrink-0" />
           {!narrow && 'Raygun'}
         </span>
         <div

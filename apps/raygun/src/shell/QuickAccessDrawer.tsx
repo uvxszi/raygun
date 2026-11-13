@@ -186,7 +186,11 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
             >
               {expanded && (
                 <span className="text-primary flex min-w-0 items-center gap-2 font-semibold">
-                  <img src="/icon.svg" alt="" className="size-7 shrink-0" />
+                  <img
+                    src={`${import.meta.env.BASE_URL}icon.svg`}
+                    alt=""
+                    className="size-7 shrink-0"
+                  />
                   <span className="truncate">{t('quickAccess.title')}</span>
                 </span>
               )}

@@ -7,6 +7,7 @@
 pub mod channel;
 pub mod discovery;
 pub mod protocol;
+pub mod web;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
@@ -246,6 +247,13 @@ impl Engine {
         })
     }
 
+    /// The open pairing code while it works: a link code for browsers carries it (`web`).
+    pub fn open_code(&self) -> Option<String> {
+        let codes = self.codes.lock().expect("codes lock poisoned");
+        let (code, expires) = codes.open.as_ref()?;
+        ((self.clock)() < *expires).then(|| code.clone())
+    }
+
     /// Pairs with the device that showed `text`, then runs a first sync with it.
     pub async fn join(&self, text: &str) -> Result<Peer, SyncError> {
         let offer = Offer::parse(text)
@@ -341,8 +349,18 @@ impl Engine {
         })
     }
 
-    /// One incoming connection: pairing (while a code is open) or a sync from a paired device.
+    /// One incoming TCP connection.
     async fn handle(&self, stream: TcpStream, address: SocketAddr) -> Result<(), SyncError> {
+        self.handle_stream(stream, Some(address.ip())).await
+    }
+
+    /// One incoming connection: pairing (while a code is open) or a sync from a paired device.
+    /// `from` is where it came from; a browser (`web`) has no address it can be reached at.
+    pub(crate) async fn handle_stream<S: channel::Stream>(
+        &self,
+        stream: S,
+        from: Option<IpAddr>,
+    ) -> Result<(), SyncError> {
         let (mut channel, remote) = Channel::respond(stream, &self.identity).await?;
         match channel.recv().await? {
             Message::Pair {
@@ -363,7 +381,9 @@ impl Engine {
                     device_id,
                     name,
                     public_key: to_hex(&remote),
-                    address: port.map(|port| SocketAddr::new(address.ip(), port).to_string()),
+                    address: port
+                        .zip(from)
+                        .map(|(port, ip)| SocketAddr::new(ip, port).to_string()),
                     paired_at: (self.clock)(),
                     last_sync_at: None,
                     sent_seq: 0,
@@ -398,7 +418,9 @@ impl Engine {
                 };
                 channel.send(&self.hello()).await?;
                 let kinds = self.shared_kinds(&kinds);
-                let reach = port.map(|port| SocketAddr::new(address.ip(), port).to_string());
+                let reach = port
+                    .zip(from)
+                    .map(|(port, ip)| SocketAddr::new(ip, port).to_string());
                 let session =
                     sync::start_session(&self.db, &peer.device_id, &peer.name, (self.clock)())
                         .await?;
@@ -423,9 +445,9 @@ impl Engine {
     }
 
     /// Sends every change the peer hasn't acknowledged, then waits for its acknowledgement.
-    async fn send_changes(
+    async fn send_changes<S: channel::Stream>(
         &self,
-        channel: &mut Channel,
+        channel: &mut Channel<S>,
         peer: &Peer,
         kinds: &[SyncKind],
     ) -> Result<usize, SyncError> {
@@ -475,9 +497,9 @@ impl Engine {
     }
 
     /// Takes the peer's changes until it says it's done, then acknowledges them.
-    async fn receive_changes(
+    async fn receive_changes<S: channel::Stream>(
         &self,
-        channel: &mut Channel,
+        channel: &mut Channel<S>,
         session: i64,
         kinds: &[SyncKind],
         from_peer: &str,

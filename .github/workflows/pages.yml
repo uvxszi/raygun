@@ -1,0 +1,52 @@
+name: Pages
+
+# Raygun on the web (docs/WEB.md): the app built for a browser tab and published with GitHub Pages
+# at https://<owner>.github.io/<repository>/. Run by hand to publish from another branch.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the web version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @raygun/app build:pages
+        env:
+          # Pages serves a project site under its repository's name.
+          RAYGUN_WEB_BASE: /${{ github.event.repository.name }}/
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: apps/raygun/dist-web
+
+  deploy:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -51,11 +51,14 @@ pub struct LinkCard {
 
 /// What a link QR code says: where the device that shows it listens, a one-time code from its
 /// remote server's pairing, and its name. As text: `raygun:link?at=<host:port>&code=<code>&name=<name>`.
+/// While sync's browser listener runs, `web` adds what Raygun on the web needs to link over WebRTC
+/// (`raygun_sync::web`, docs/WEB.md); apps reading the code pass over those fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkInvite {
     pub address: String,
     pub code: String,
     pub name: String,
+    pub web: Vec<(&'static str, String)>,
 }
 
 /// The scheme and path of a link QR code's text.
@@ -63,11 +66,15 @@ const INVITE_PREFIX: &str = "raygun:link";
 
 impl LinkInvite {
     pub fn to_text(&self) -> String {
-        let query = url::form_urlencoded::Serializer::new(String::new())
+        let mut query = url::form_urlencoded::Serializer::new(String::new());
+        query
             .append_pair("at", &self.address)
             .append_pair("code", &self.code)
-            .append_pair("name", &self.name)
-            .finish();
+            .append_pair("name", &self.name);
+        for (key, value) in &self.web {
+            query.append_pair(key, value);
+        }
+        let query = query.finish();
         format!("{INVITE_PREFIX}?{query}")
     }
 
@@ -83,6 +90,7 @@ impl LinkInvite {
             address: String::new(),
             code: String::new(),
             name: String::new(),
+            web: Vec::new(),
         };
         for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
             match key.as_ref() {
@@ -202,10 +210,20 @@ mod tests {
             address: "192.168.1.20:8820".into(),
             code: "abcd234567".into(),
             name: "Living room & kitchen".into(),
+            web: Vec::new(),
         };
         let text = invite.to_text();
         assert!(text.starts_with("raygun:link?at=192.168.1.20%3A8820&code=abcd234567"));
         assert_eq!(LinkInvite::parse(&format!("  {text}\n")).unwrap(), invite);
+
+        // What browsers need goes along; apps pass over it.
+        let for_browsers = LinkInvite {
+            web: vec![("udp", "8840".into()), ("ice", "abcd:efgh".into())],
+            ..invite.clone()
+        };
+        let text = for_browsers.to_text();
+        assert!(text.ends_with("&udp=8840&ice=abcd%3Aefgh"), "{text}");
+        assert_eq!(LinkInvite::parse(&text).unwrap(), invite);
 
         for other in [
             "",
