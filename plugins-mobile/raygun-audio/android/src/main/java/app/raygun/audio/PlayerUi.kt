@@ -1,9 +1,16 @@
 package app.raygun.audio
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
+import android.graphics.drawable.RippleDrawable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -17,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.util.Locale
 
@@ -156,24 +164,58 @@ private fun Context.sheetRow(text: String, detail: String?, selected: Boolean, e
         setPadding(dp(20), dp(12), dp(20), dp(12))
         minHeight = dp(48)
         gravity = Gravity.CENTER_VERTICAL
-        if (enabled) {
-            val ripple = TypedValue()
-            theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
-            setBackgroundResource(ripple.resourceId)
-        }
         fillRow(text, detail, selected, enabled)
     }
 
-private fun TextView.fillRow(text: String, detail: String?, selected: Boolean, enabled: Boolean) {
+/** The accent at about a fifth of its strength: what a row in effect sits on. */
+internal fun accentTint(accent: Int): Int = (accent and 0x00FFFFFF) or 0x38000000
+
+/**
+ * A row's background: the ripple of a row that can be picked, and under a `highlighted` one (what
+ * plays, what's in effect) a rounded tint of the accent, so it's seen at a glance.
+ */
+internal fun Context.rowBackground(enabled: Boolean, highlighted: Boolean): Drawable? {
+    val plain = if (enabled) {
+        val ripple = TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+        ContextCompat.getDrawable(this, ripple.resourceId)
+    } else {
+        null
+    }
+    if (!highlighted) return plain
+    val tint = GradientDrawable().apply {
+        setColor(accentTint(playerAccent))
+        cornerRadius = dp(12).toFloat()
+    }
+    val inset = InsetDrawable(tint, dp(8), dp(2), dp(8), dp(2))
+    return if (enabled) RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), inset, null) else inset
+}
+
+/**
+ * Fills a row: a tick and the accent when `selected`, grey when it can't be picked, and (by
+ * default when selected) `highlighted`: its name bold on a tint of the accent.
+ */
+internal fun TextView.fillRow(
+    text: String,
+    detail: String?,
+    selected: Boolean,
+    enabled: Boolean,
+    highlighted: Boolean = selected,
+) {
     val check = if (selected) "✓  " else ""
-    this.text = if (detail.isNullOrBlank()) "$check$text" else "$check$text\n$detail"
+    val name = "$check$text"
+    val words = SpannableStringBuilder(name)
+    if (highlighted) words.setSpan(StyleSpan(Typeface.BOLD), 0, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    if (!detail.isNullOrBlank()) words.append('\n').append(detail)
+    this.text = words
     setTextColor(
         when {
             !enabled -> 0x80FFFFFF.toInt()
-            selected -> playerAccent
+            selected || highlighted -> playerAccent
             else -> Color.WHITE
         },
     )
+    background = context.rowBackground(enabled, highlighted)
 }
 
 /**
@@ -258,14 +300,19 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         })
     }
 
-    /** A row; `selected` ticks it, a null `onClick` greys it. */
+    /**
+     * A row; `selected` ticks it, a null `onClick` greys it. `highlighted` (by default what's
+     * selected) sets it on a tint of the accent: what plays now, also when it wasn't picked.
+     */
     fun row(
         text: String,
         detail: String? = null,
         selected: Boolean = false,
+        highlighted: Boolean = selected,
         onClick: (() -> Unit)?,
     ): TextView {
         val view = context.sheetRow(text, detail, selected, onClick != null).apply {
+            if (highlighted != selected) fillRow(text, detail, selected, onClick != null, highlighted)
             if (onClick != null) {
                 isClickable = true
                 isFocusable = true

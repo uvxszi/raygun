@@ -22,11 +22,12 @@ import { useSettings } from '../settings/useSettings';
 const STREMIO = ['stremio'];
 
 /** Every catalog of the addons that answer: board rows, searches and what Discover browses. */
-export const useStremioCatalogs = () =>
+export const useStremioCatalogs = (enabled = true) =>
   useQuery({
     queryKey: [...STREMIO, 'catalogs'],
     queryFn: () => unwrapResult(commands.stremioCatalogs()),
     staleTime: 10 * 60 * 1000,
+    enabled,
   });
 
 /** A catalog's first page, once its row is about to be seen (`enabled`). */
@@ -81,11 +82,11 @@ export type SearchRows = {
 
 /**
  * Every searching catalog's results for `query`, each asked on its own so a slow addon holds
- * nothing up; a newer query stops the older searches in Rust.
+ * nothing up; a newer query stops the older searches in Rust. Not `enabled`, nothing is asked.
  */
-export const useStremioSearchRows = (query: string): SearchRows => {
-  const catalogs = useStremioCatalogs();
-  const trimmed = query.trim();
+export const useStremioSearchRows = (query: string, enabled = true): SearchRows => {
+  const catalogs = useStremioCatalogs(enabled);
+  const trimmed = enabled ? query.trim() : '';
   const searchable = trimmed ? (catalogs.data ?? []).filter((catalog) => catalog.searchable) : [];
   return useQueries({
     queries: searchable.map((catalog) => ({
@@ -99,7 +100,8 @@ export const useStremioSearchRows = (query: string): SearchRows => {
     })),
     combine: (results) => {
       const pending =
-        catalogs.isPending || (trimmed !== '' && results.some((result) => result.isPending));
+        enabled &&
+        (catalogs.isPending || (trimmed !== '' && results.some((result) => result.isPending)));
       const rows = results.flatMap((result) =>
         result.data && result.data.items.length > 0 ? [result.data] : [],
       );

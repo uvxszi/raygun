@@ -18,6 +18,10 @@ import type { CueEdits } from './cueEdits';
 /** A remembered track: matched by label, then language. */
 export type TrackChoice = { language: string | null; label: string | null };
 
+/** Sound from another source a title remembers: taken again where the same source offers the
+ * same language. */
+export type RememberedAudio = { source: string; language: string | null };
+
 /** What a title remembers (`video.playerState.<group>` in Rust). Speed is in hundredths. */
 export type TitleState = {
   speed?: number;
@@ -28,6 +32,30 @@ export type TitleState = {
   introMs?: number;
   /** Subtitle lines changed by hand (M46.12), per episode and track. */
   subtitleEdits?: CueEdits;
+  /** Positive plays the sound later than the picture. */
+  audioDelayMs?: number;
+  externalAudio?: RememberedAudio | null;
+};
+
+/** Another stream of the episode, offered for its sound (`video_session::audio::AudioOffer`). */
+export type AudioOffer = {
+  /** `<group>:<link>`. */
+  id: string;
+  group: number;
+  link: number;
+  /** The source it comes from (the addon, the server). */
+  source: string;
+  /** The languages its names give, as codes. */
+  languages: string[];
+  /** Its names say it has several languages ("Multi"). */
+  several: boolean;
+  /** What its names say of it ("1080p · WEB-DL"). */
+  title: string;
+  /** Its sound, when its names say ("DD+ 5.1"). */
+  sound: string | null;
+  url: string;
+  headers?: Record<string, string>;
+  format: string | null;
 };
 
 /** A request (`prepare` in `video.rs`), or a session's shell before its first video. */
@@ -190,6 +218,8 @@ export type PlayerUpdate =
   | ({ type: 'transfer'; id: string } & TorrentTransfer)
   /** The Quality menu; `notice` when a step tapped can't play. */
   | { type: 'qualities'; items: QualityRow[]; wanted?: string | null; notice?: string | null }
+  /** Other streams of the episode for their sound; `id` is the video they're for. */
+  | { type: 'audioSources'; id: string | null; items: AudioOffer[] }
   /** Settings changed in the app while a video plays (`video::settings_changed`): followed at
    * once, as a request's would be. */
   | ({ type: 'prefs' } & Pick<

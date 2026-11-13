@@ -74,4 +74,69 @@ describe('the Quality panel', () => {
       expect.stringContaining('"action":"quality"'),
     );
   });
+
+  it('sets the resolution playing apart, whether it was picked or plays by itself', () => {
+    const { engine } = engineWith([]);
+    const rows = [
+      {
+        key: '2160:sdr',
+        height: 2160,
+        range: 'sdr' as const,
+        codec: 'HEVC',
+        state: 'otherSource' as const,
+        group: 1,
+        link: 0,
+        source: 'Beta',
+      },
+      {
+        key: '1080:sdr',
+        height: 1080,
+        range: 'sdr' as const,
+        codec: null,
+        state: 'playing' as const,
+      },
+    ];
+    // A session's single stream, nothing picked: Automatic is ticked, 1080p is what plays.
+    useVideoPlayerStore.setState({ session: true, qualities: rows, qualityWanted: null });
+    const { unmount } = render(
+      <QualityPanel
+        videoKey="k"
+        positionMs={0}
+        engine={engine}
+        onClose={vi.fn()}
+        onAsked={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('menuitemradio', { name: 'Automatic' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    const playing = screen.getByRole('menuitemradio', { name: /1080p/ });
+    expect(playing).toHaveAttribute('aria-current', 'true');
+    expect(playing).toHaveAttribute('aria-checked', 'false');
+    expect(playing).toHaveTextContent('Playing');
+    expect(screen.getByRole('menuitemradio', { name: /2160p/ })).not.toHaveAttribute(
+      'aria-current',
+    );
+    unmount();
+
+    // 1080p picked here: it's ticked as well, and Automatic isn't.
+    useVideoPlayerStore.setState({ qualityWanted: '1080:sdr' });
+    render(
+      <QualityPanel
+        videoKey="k"
+        positionMs={0}
+        engine={engine}
+        onClose={vi.fn()}
+        onAsked={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('menuitemradio', { name: 'Automatic' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    const picked = screen.getByRole('menuitemradio', { name: /1080p/ });
+    expect(picked).toHaveAttribute('aria-current', 'true');
+    expect(picked).toHaveAttribute('aria-checked', 'true');
+  });
 });

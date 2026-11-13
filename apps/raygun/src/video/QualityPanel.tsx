@@ -23,14 +23,16 @@ type Props = {
  * isn't the tier's plain one ("1080p (1920×816)"). A row the stream playing has (an HLS variant)
  * switches here; one the source playing has as another link, or only another source has, is
  * asked of Rust, which plays it from where the video is. Tapping the row that plays again tries
- * the next source with it.
+ * the next source with it. Automatic is ticked while nothing was picked here; the row playing is
+ * always set apart, and ticked too when it was picked.
  */
 export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose, onAsked }) => {
   const { t } = useTranslation();
   const rows = useVideoPlayerStore((state) => state.qualities);
+  const wanted = useVideoPlayerStore((state) => state.qualityWanted);
   const session = useVideoPlayerStore((state) => state.session);
   const variants = engine?.variants() ?? [];
-  const auto = variants.length > 1 && engine?.quality() === -1;
+  const auto = (engine?.quality() ?? -1) === -1 && wanted === null;
 
   const detail = (row: QualityRow): string | null => {
     switch (row.state) {
@@ -98,6 +100,7 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
           label={stepName(row.height, row.range, t, row.exact)}
           hint={detail(row)}
           selected={row.state === 'playing' && !auto}
+          current={row.state === 'playing'}
           disabled={row.state === 'playing' && !session}
           onSelect={() => pick(row)}
         />

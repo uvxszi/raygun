@@ -28,6 +28,9 @@ pub fn open(app: &AppHandle, payload: &Value) -> Result<(), String> {
 }
 
 /// Sends an update to the webview's player; a `load` gets its stream linked like an opening.
+/// Streams offered for their sound (`audioSources`) keep their own addresses: one is linked
+/// when it's picked ([`media_link`]), so offers sent again and again don't crowd out the
+/// proxy's links in use.
 pub fn update(app: &AppHandle, update: &Value) -> Result<(), String> {
     let mut update = update.clone();
     if update.get("type").and_then(Value::as_str) == Some("load")
@@ -37,6 +40,33 @@ pub fn update(app: &AppHandle, update: &Value) -> Result<(), String> {
         update["request"] = for_webview(&media, request);
     }
     emit(app, VideoPlayerMessageKind::Update, &update)
+}
+
+/// The webview's address for a stream played for its sound (another source's, picked in the
+/// player's Audio panel): linked through `/media/` with its headers. Offline Mode lets none out.
+pub fn media_link(
+    app: &AppHandle,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    raygun_net::network_mode::check(url)?;
+    let media = app
+        .try_state::<MediaLinks>()
+        .ok_or("The stream proxy isn't running")?;
+    linked(&media, url, headers)
+}
+
+fn linked(
+    media: &MediaLinks,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    if media.is_local(url) {
+        return Ok(url.to_owned());
+    }
+    media
+        .link(url, headers)
+        .ok_or_else(|| "Only web addresses can be played".to_owned())
 }
 
 fn emit(app: &AppHandle, kind: VideoPlayerMessageKind, json: &Value) -> Result<(), String> {
@@ -409,5 +439,21 @@ mod tests {
         assert_eq!(for_webview(&media, &download), download);
         let shell = json!({ "session": true, "id": "", "title": "Show" });
         assert_eq!(for_webview(&media, &shell), shell);
+    }
+
+    #[tokio::test]
+    async fn a_stream_picked_for_its_sound_is_linked_with_its_headers() {
+        let proxy = raygun_net::StreamProxy::start(raygun_net::http_client().unwrap(), None)
+            .await
+            .unwrap();
+        let media = proxy.media();
+        let headers = BTreeMap::from([("Referer".to_owned(), "https://site.example/".to_owned())]);
+        let link = linked(&media, "https://cdn.example/ita.mkv", &headers).unwrap();
+        assert!(media.is_local(&link));
+        assert!(link.ends_with("/https/cdn.example/ita.mkv"));
+        // The proxy's own links (a download) stay; anything but a web address can't play.
+        let local = format!("http://{}/local/video/1/video.mkv", proxy.address());
+        assert_eq!(linked(&media, &local, &BTreeMap::new()).unwrap(), local);
+        assert!(linked(&media, "file:///C:/film.mkv", &BTreeMap::new()).is_err());
     }
 }

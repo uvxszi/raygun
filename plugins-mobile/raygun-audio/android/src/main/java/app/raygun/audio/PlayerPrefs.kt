@@ -173,7 +173,7 @@ internal data class TrackChoice(val language: String?, val label: String?) {
 /**
  * What a title remembers (`video.playerState.<group>` in Rust): speed (hundredths), aspect, the
  * subtitle choice (`{"off": true}` or a track), the second subtitle track, the subtitle delay,
- * the audio track and the intro length.
+ * the audio track, the audio delay, another source's sound and the intro length.
  */
 internal class TitleState(json: JSONObject?) {
     var speed: Float? = json?.optInt("speed", 0)?.takeIf { it > 0 }?.let { it / 100f }
@@ -183,6 +183,10 @@ internal class TitleState(json: JSONObject?) {
     var secondary: TrackChoice? = TrackChoice.from(json?.optJSONObject("secondarySubtitle"))
     var subtitleDelayMs: Long = json?.optLong("subtitleDelayMs", 0L) ?: 0L
     var audio: TrackChoice? = TrackChoice.from(json?.optJSONObject("audio"))
+    /** Positive plays the sound later than the picture ([PlayerAudio]). */
+    var audioDelayMs: Long = json?.optLong("audioDelayMs", 0L) ?: 0L
+    /** Sound from another source, taken again when the same source offers the same language. */
+    var externalAudio: RememberedAudio? = RememberedAudio.from(json?.optJSONObject("externalAudio"))
     /** 0 hides the skip button's jump for this title. */
     var introMs: Long? = json?.let { if (it.has("introMs")) it.optLong("introMs") else null }
 }

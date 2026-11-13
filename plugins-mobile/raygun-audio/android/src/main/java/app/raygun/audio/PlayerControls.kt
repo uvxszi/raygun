@@ -48,7 +48,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         context.iconButton(R.drawable.raygun_ic_sources, host.label("sources", "Sources")) { host.sheets.sources() }
     private val audioButton =
         context.iconButton(R.drawable.raygun_ic_audio, host.label("audio", "Audio")) { host.sheets.audio() }.apply {
-            // Shown once the video turns out to have more than one audio track.
+            // Shown once a video's tracks are known ([setAudioChoice]).
             visibility = View.GONE
         }
     private val subtitlesButton =
@@ -311,9 +311,12 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         nextButton.alpha = if (hasNext) 1f else 0.35f
     }
 
-    /** The audio button shows when there's a choice of audio tracks. */
-    fun setAudioChoice(several: Boolean) {
-        audioButton.visibility = if (several) View.VISIBLE else View.GONE
+    /**
+     * The audio button shows once a video plays: its tracks, another source's sound, a file and
+     * the audio delay are all there.
+     */
+    fun setAudioChoice(shown: Boolean) {
+        audioButton.visibility = if (shown) View.VISIBLE else View.GONE
     }
 
     /** The quality button shows in a session (other sources' sizes) or with variants to pick. */

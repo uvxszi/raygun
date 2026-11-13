@@ -9,6 +9,9 @@
 //! too, so the player's Sources and Quality work for it: its own group holds the link (a torrent's
 //! video files, the one it names first), which always plays first; the movie it was matched with
 //! (`video_links`) adds the addons' streams for it after, tried only once the link failed.
+//!
+//! The episode's other streams are also offered for their sound (`audio`): the player can play
+//! one's audio over the picture it has, another language from another source.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -244,6 +247,7 @@ impl Group {
     }
 }
 
+mod audio;
 mod memory;
 
 use memory::WORKED_AFTER_MS;
@@ -2344,9 +2348,9 @@ impl VideoSessions {
 
     /// The sources and their links for the player's Sources sheet (raw labels for Raw details,
     /// what their names say for the clean list, in the order the list shows them), then the
-    /// Quality menu that follows from them.
+    /// Quality menu and the other streams offered for their sound, which follow from them.
     async fn push_sources(&self) {
-        let (update, qualities) = {
+        let (update, qualities, sound) = {
             let guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_ref() else {
                 return;
@@ -2355,10 +2359,12 @@ impl VideoSessions {
             (
                 sources_update(session, now),
                 session.quality_update(now, None),
+                audio::audio_update(session, now),
             )
         };
         let _ = crate::video::update_player(&self.app, &update);
         let _ = crate::video::update_player(&self.app, &qualities);
+        let _ = crate::video::update_player(&self.app, &sound);
     }
 
     fn snapshot(&self, generation: u64) -> Option<(Origin, Episode, String, Option<String>)> {
@@ -3731,5 +3737,97 @@ mod tests {
             }
         );
         assert_eq!(Heard::of(&json!({ "durationMs": 0 })), Heard::default());
+    }
+
+    /// An English stream playing from Alpha; others in Italian, Spanish, several languages and
+    /// none named, a torrent, a page, another episode's and one that failed.
+    fn sound_session() -> Session {
+        let mut torrent = link("Torrent ITA 1080p", None);
+        torrent.request.url = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10".into();
+        let mut page = link("Page ITA", None);
+        page.request.format = Some("page".into());
+        let mut other_episode = link("S01E02 ITA 1080p", None);
+        other_episode.mismatch = true;
+        let mut failed = link("Failed 🇩🇪 1080p", None);
+        failed.failed = Some("gone".into());
+        let mut state = session(
+            vec![
+                Group::finished(
+                    "a".into(),
+                    "Alpha".into(),
+                    vec![
+                        link("Alpha ENG 1080p", None),
+                        link("Alpha ENG 720p", None),
+                        link("Alpha 🇮🇹 720p WEB-DL", None),
+                        link("Alpha ITA 480p", None),
+                    ],
+                    None,
+                ),
+                Group::finished(
+                    "b".into(),
+                    "Beta".into(),
+                    vec![
+                        link("Beta Latino 1080p", None),
+                        link("Beta MULTi 2160p", None),
+                        link("Beta 1080p", None),
+                        link("Beta 720p", None),
+                        torrent,
+                        page,
+                        other_episode,
+                        failed,
+                    ],
+                    None,
+                ),
+            ],
+            vec![episode("e1", None)],
+        );
+        state.current = Some((0, 0));
+        state.tried.insert((0, 0));
+        state
+    }
+
+    #[test]
+    fn other_languages_are_offered_first_one_per_source_and_language() {
+        let state = sound_session();
+        let offers = audio::audio_offers(&state, NOW);
+        let ids: Vec<&str> = offers.iter().map(|offer| offer.id.as_str()).collect();
+        // Spanish and Italian (each once; the picture size the session prefers first), several
+        // languages, then English, then a name without any: never the stream playing, a
+        // torrent, a page, another episode's or a failed one.
+        assert_eq!(ids, vec!["1:0", "0:2", "1:1", "0:1", "1:2"]);
+        assert_eq!(offers[0].languages, vec!["es"]);
+        assert_eq!(offers[0].source, "Beta");
+        assert_eq!(offers[1].languages, vec!["it"]);
+        assert_eq!(offers[1].source, "Alpha");
+        assert_eq!(offers[1].title, "720p · WEB-DL");
+        assert_eq!(offers[1].url, "https://cdn.example/Alpha 🇮🇹 720p WEB-DL");
+        assert!(offers[2].several);
+        let update = audio::audio_update(&state, NOW);
+        assert_eq!(update["type"], "audioSources");
+        assert_eq!(update["id"], "k");
+        assert_eq!(update["items"].as_array().map(Vec::len), Some(5));
+    }
+
+    #[test]
+    fn nothing_is_offered_without_a_stream_playing_or_for_a_live_one() {
+        let mut state = sound_session();
+        state.current = None;
+        assert!(audio::audio_offers(&state, NOW).is_empty());
+        let mut live = sound_session();
+        live.groups[0].links[0].request.live = true;
+        assert!(audio::audio_offers(&live, NOW).is_empty());
+        // A download of the episode isn't another stream of it.
+        let mut downloaded = sound_session();
+        downloaded.groups.push(Group::finished(
+            DOWNLOAD_GROUP.into(),
+            "Downloaded".into(),
+            vec![link("On this device ITA", None)],
+            None,
+        ));
+        assert!(
+            audio::audio_offers(&downloaded, NOW)
+                .iter()
+                .all(|offer| offer.source != "Downloaded")
+        );
     }
 }
