@@ -1003,6 +1003,10 @@ pub struct MetaPreview {
     pub poster_shape: String,
     pub release_info: Option<String>,
     pub rating: Option<String>,
+    /// A wide picture of it (`background`), for 16:9 cards.
+    pub background: Option<String>,
+    /// Its first YouTube trailer, when the listing names one.
+    pub trailer: Option<String>,
 }
 
 fn preview(item: &Value, fallback_kind: &str) -> Option<MetaPreview> {
@@ -1030,6 +1034,8 @@ fn preview(item: &Value, fallback_kind: &str) -> Option<MetaPreview> {
                     .filter(|year| year.bytes().all(|byte| byte.is_ascii_digit()))
             }),
         rating: text_or_number(item.get("imdbRating")),
+        background: http(item.get("background")),
+        trailer: trailer_ids(item).into_iter().next(),
     })
 }
 
@@ -1295,31 +1301,35 @@ pub fn release_ms(text: &str) -> Option<i64> {
         })
 }
 
-/// A `meta` answer; `None` without details to show (no id or no name).
-pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
-    let meta = value.get("meta")?;
-    let preview = preview(meta, kind).filter(|preview| !preview.name.is_empty())?;
-    let mut trailers: Vec<String> = meta
+/// A title's YouTube trailers: `trailerStreams`' `ytId`s, else `trailers` (`{ source, type }` as
+/// the SDK documents them, or Stream objects (`{ ytId }`), which the SDK says they become).
+fn trailer_ids(meta: &Value) -> Vec<String> {
+    let streams: Vec<String> = meta
         .get("trailerStreams")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|trailer| text(trailer.get("ytId")))
         .collect();
-    if trailers.is_empty() {
-        // `{ source, type }` as the SDK documents them, or Stream objects (`{ ytId }`), which
-        // the SDK says they become.
-        trailers = meta
-            .get("trailers")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|trailer| {
-                text(trailer.get("type")).is_none_or(|kind| kind.eq_ignore_ascii_case("trailer"))
-            })
-            .filter_map(|trailer| text(trailer.get("source")).or_else(|| text(trailer.get("ytId"))))
-            .collect();
+    if !streams.is_empty() {
+        return streams;
     }
+    meta.get("trailers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|trailer| {
+            text(trailer.get("type")).is_none_or(|kind| kind.eq_ignore_ascii_case("trailer"))
+        })
+        .filter_map(|trailer| text(trailer.get("source")).or_else(|| text(trailer.get("ytId"))))
+        .collect()
+}
+
+/// A `meta` answer; `None` without details to show (no id or no name).
+pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
+    let meta = value.get("meta")?;
+    let preview = preview(meta, kind).filter(|preview| !preview.name.is_empty())?;
+    let trailers = trailer_ids(meta);
     let mut seen = HashSet::new();
     let mut videos: Vec<Video> = meta
         .get("videos")
@@ -1331,9 +1341,15 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         .collect();
     sort_videos(&mut videos);
     // A channel's program guide isn't episodes: the channel plays as itself, with the streams
-    // of the show on now.
-    let scheduled = flag(meta.get("behaviorHints"), "hasScheduledVideos")
-        || (!videos.is_empty() && videos.iter().all(|video| video.airs.is_some()));
+    // of the show on now. `hasScheduledVideos` alone isn't one: Cinemeta marks every series
+    // with upcoming episodes so (stremio-core's calendar), and those are seasons of episodes.
+    let numbered = videos
+        .iter()
+        .any(|video| video.season.is_some() && video.episode.is_some());
+    let scheduled = (!videos.is_empty() && videos.iter().all(|video| video.airs.is_some()))
+        || (flag(meta.get("behaviorHints"), "hasScheduledVideos")
+            && !numbered
+            && videos.iter().any(|video| video.airs.is_some()));
     let live_streams = if scheduled {
         let streams = on_air(&videos, chrono::Utc::now().timestamp_millis())
             .map(|video| video.streams.clone())

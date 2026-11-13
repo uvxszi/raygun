@@ -123,7 +123,8 @@ export const hidesSaved = (filter: SearchFilter, medium: Medium | undefined) =>
 /**
  * Whether a title stays, as Rust's `keep_cards` decides: adult ones go under "No 18+"; under
  * "18+ only" only adult ones stay, or every one of a source rated for adults (`sourceAdult`);
- * comics and books in the library go under their "Not in library".
+ * comics and books in the library go under their "Not in library", video folders under
+ * "Playable only".
  */
 export const keepCard = (
   filter: SearchFilter,
@@ -133,7 +134,9 @@ export const keepCard = (
 ) =>
   !(filter.noAdult && card.adult) &&
   !(filter.adultOnly && !sourceAdult && !card.adult) &&
-  !(hidesSaved(filter, medium) && card.inLibrary);
+  !(hidesSaved(filter, medium) && card.inLibrary) &&
+  // Videos' "Playable only": a source's folders (a Kodi add-on's) are lists, not titles.
+  !(filter.playableVideos && medium === 'video' && card.folder === true);
 
 /** `cards` as the filter keeps them; the same array when it keeps them all. */
 export const keepCards = (

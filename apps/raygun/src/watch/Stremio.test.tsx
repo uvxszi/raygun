@@ -268,6 +268,25 @@ describe('Stremio addons in Watch', () => {
     );
   });
 
+  it('picks among many seasons from a list instead of pills', async () => {
+    const user = userEvent.setup();
+    const seasons = Array.from({ length: 9 }, (_, index) => index + 1);
+    commands.stremioMeta.mockResolvedValue(
+      ok({ ...SERIES, videos: seasons.map((season) => episode(season, 1)) }),
+    );
+    await AppShellWrapper.mount('/watch/title?type=series&id=tt0903747');
+    const page = await screen.findByTestId('watch-title-page');
+    expect(within(page).queryByRole('tablist', { name: 'Seasons' })).not.toBeInTheDocument();
+    await user.click(within(page).getByRole('button', { name: 'Season 1, choose a season' }));
+    const list = await screen.findByRole('listbox', { name: 'Seasons' });
+    expect(within(list).getAllByRole('option')).toHaveLength(9);
+    await user.click(within(list).getByRole('option', { name: 'Season 7' }));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(within(page).getByRole('listitem', { name: 'S7 E1' })).toBeInTheDocument();
+    expect(within(page).queryByRole('listitem', { name: 'S1 E1' })).not.toBeInTheDocument();
+    expect(within(page).getByRole('button', { name: 'Season 7, choose a season' })).toBeVisible();
+  });
+
   it('plays a movie, its trailer, and says when no addon has streams', async () => {
     const user = userEvent.setup();
     commands.stremioMeta.mockResolvedValue(ok(MOVIE));

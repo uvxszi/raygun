@@ -22,6 +22,7 @@ import type { Medium } from '../manga/medium';
 import { useMangaLibrary, useMangaSources } from '../manga/useManga';
 import { ROUTES } from '../manga/medium';
 import { AdultMark } from '../shell/AdultMark';
+import { useListMemory } from '../shell/listMemory';
 import { matchesSearch } from '../shell/useListSearch';
 import { useDrawnCount } from '../shell/useDrawnCount';
 import { useInView } from '../shell/useInView';
@@ -241,7 +242,8 @@ export const RankedResults: FC<{
   const { t } = useTranslation();
   const failed = useSourceHealth((state) => state.failed);
   const worked = useSourceHealth((state) => state.worked);
-  const [shownCount, setShownCount] = useState(RANKED_PAGE);
+  // Kept for the page: coming back from a title finds every title it had shown.
+  const [shownCount, setShownCount] = useListMemory(`ranked:${medium}`, RANKED_PAGE);
   const ids = sources.map((source) => source.id).join('\n');
   // Only what the list needs from each search, worked out again only when an answer comes.
   const combine = useCallback(

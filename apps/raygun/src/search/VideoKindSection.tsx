@@ -2,12 +2,13 @@ import type { StremioItem } from '@raygun/bindings';
 import { useNavigate } from '@tanstack/react-router';
 import type { TFunction } from 'i18next';
 import { ChevronRight, Layers } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AdultMark } from '../shell/AdultMark';
 import { openMenuAt } from '../shell/contextMenuStore';
+import { useListMemory } from '../shell/listMemory';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { SourceTag } from '../shell/SourceTag';
 import { StremioCardList } from '../watch/StremioRow';
@@ -98,7 +99,8 @@ const VideoKindSectionView: FC<{
 }> = ({ section, layout, adult, more, onMore }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [shownCount, setShownCount] = useState(GRID_PAGE);
+  // Kept for the page, so coming back from a title finds every title it had shown.
+  const [shownCount, setShownCount] = useListMemory(`videoKind:${section.key}`, GRID_PAGE);
   const name = kindName(t, section);
   const onOpen = useCallback(
     (item: StremioItem) =>

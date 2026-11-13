@@ -10,10 +10,10 @@ import { CategoryPicker } from '../manga/CategoryPicker';
 import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
-import { useDragScroll } from '../shell/useDragScroll';
 import { useWideScreen } from '../shell/useWideScreen';
 import { TrailerWindow } from '../video/TrailerWindow';
 import { LibraryPill } from '../watch/LibraryPill';
+import { SeasonPicker } from '../watch/SeasonPicker';
 import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
 import { useDuplicateCheck } from '../manga/useDuplicateCheck';
@@ -37,6 +37,7 @@ import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { episodeLabel, isGenericName, showsSeasons } from '../watch/episodeLabel';
 import { LoadMore } from '../shell/LoadMore';
+import { useListMemory } from '../shell/listMemory';
 
 /** "S1 E2 · Pilot" without the show's name, or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
 const videoLabel = (video: StremioVideo, showSeason: boolean, show: string) =>
@@ -91,12 +92,16 @@ const Episodes: FC<{
 }> = ({ meta, downloads, onPick }) => {
   const { t } = useTranslation();
   const { seasons, first } = useSeasons(meta.videos, meta.continueVideoId);
-  const [season, setSeason] = useState<number | null>(null);
+  // The season picked and the episodes drawn are kept for the page: back from an episode, the
+  // list is as it was left.
+  const [season, setSeason] = useListMemory<number | null>('episodes:season', null);
   const shown = season ?? first;
-  const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
+  const [drawn, setDrawn] = useListMemory('episodes:drawn', {
+    season: shown,
+    count: EPISODE_CHUNK,
+  });
   const setWatched = useSetWatched();
   const selection = useEpisodeSelection();
-  const seasonRow = useDragScroll<HTMLDivElement>();
   const numbered = seasons.length > 1 || meta.videos.some((video) => video.season !== null);
   const videos = numbered
     ? meta.videos.filter((video) => (video.season ?? 0) === shown)
@@ -123,25 +128,12 @@ const Episodes: FC<{
         )}
       </div>
       {numbered && seasons.length > 1 && (
-        <div
-          ref={seasonRow}
-          role="tablist"
-          aria-label={t('watch.seasons')}
-          className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
-        >
-          {seasons.map((number) => (
-            <button
-              key={number}
-              type="button"
-              role="tab"
-              aria-selected={number === shown}
-              onClick={() => setSeason(number)}
-              className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${number === shown ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-            >
-              {number === 0 ? t('watch.specials') : t('watch.season', { number })}
-            </button>
-          ))}
-        </div>
+        <SeasonPicker
+          seasons={seasons}
+          shown={shown}
+          onPick={(number) => setSeason(number ?? 0)}
+          label={(number) => (number ? t('watch.season', { number }) : t('watch.specials'))}
+        />
       )}
       <ul className="flex flex-col gap-3">
         {videos.slice(0, count).map((video) => {

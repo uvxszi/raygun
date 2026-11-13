@@ -541,6 +541,15 @@ img[data-fade]:not([data-loaded]),
 .picture > img[data-leaving] {
   opacity: 0;
 }
+/* A video card's muted preview (watch/CardPreview): over the cover once it plays. */
+.card-preview:not([data-playing]) {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:is([data-motion='lively'], [data-motion='calm']) .card-preview {
+    transition: opacity 300ms ease-out;
+  }
+}
 /* A placeholder kept under the picture (a drawn book cover) goes once the picture covers it,
    transparent corners included. */
 .picture > img[data-loaded]:not([data-leaving]) ~ .picture-placeholder[data-kept] {

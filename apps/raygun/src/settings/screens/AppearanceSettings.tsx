@@ -2,6 +2,7 @@ import { LayoutList } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { VideoCardsGroup } from '../../watch/VideoCardChoices';
 import { AppearanceCard } from '../AppearanceCard';
 import { PrefGroup, PrefLink } from '../prefs';
 
@@ -11,6 +12,7 @@ export const AppearanceSettings: FC = () => {
   return (
     <>
       <AppearanceCard />
+      <VideoCardsGroup />
       <PrefGroup>
         <PrefLink title={t('layout.title')} to="/settings/layout" icon={LayoutList} />
       </PrefGroup>

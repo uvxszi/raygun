@@ -7,6 +7,7 @@ import { resetInstallQueue } from '../extensions/installQueue';
 import { usePlayerUiStore } from '../player/playerUiStore';
 import { createAppRouter } from '../router';
 import { resetSourceQueue } from '../sources/sourceQueue';
+import { forgetLists } from './listMemory';
 import { EMPTY_QUEUE, IDLE_STATE, emitEvent, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { useTrailerStore } from '../video/trailerStore';
@@ -37,12 +38,14 @@ export const AppShellWrapper = {
     useTrailerStore.getState().close();
     resetInstallQueue();
     resetSourceQueue();
+    forgetLists();
   },
 
   async mount(path = '/') {
     const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
     renderWithProviders(<RouterProvider router={router} />);
     await screen.findByTestId('page-content');
+    return router;
   },
 
   /** Simulates Rust pushing a queue where the item at `cursor` is current. */

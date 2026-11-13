@@ -1,4 +1,25 @@
 {
+  "videoCards": {
+    "title": "Video titles",
+    "view": "View",
+    "style": "Cards",
+    "styles": {
+      "landscape": "Landscape 16:9",
+      "poster": "Portrait posters",
+      "list": "Compact list"
+    },
+    "previews": "Previews",
+    "previewModes": {
+      "auto": "With a mouse",
+      "always": "Always",
+      "off": "Off"
+    },
+    "previewHints": {
+      "auto": "A title's trailer plays muted while the mouse rests on its card. None on touch screens.",
+      "always": "A title's trailer plays muted while the mouse rests on its card, or while the card is in the middle of a phone's screen.",
+      "off": "Cards never play trailers."
+    }
+  },
   "nav": {
     "home": "Home",
     "library": "Library",
@@ -2654,6 +2675,7 @@
     "cast": "Cast",
     "episodes": "Episodes",
     "seasons": "Seasons",
+    "pickSeason": "{{season}}, choose a season",
     "season": "Season {{number}}",
     "specials": "Specials",
     "streams": "Streams",

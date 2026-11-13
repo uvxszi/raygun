@@ -1499,6 +1499,11 @@ export const commands = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0). */
 	readerAi?: ReaderAiPrefs,
+	/**
+	 *  How video titles show in Search, sources, the Videos library and Continue watching, and
+	 *  their muted previews.
+	 */
+	videoCards?: VideoCardPrefs,
 	/**  Word lookups in the book reader. */
 	dictionary?: DictionaryPrefs,
 	/**  Answers to questions and calculations in Search. */
@@ -6558,7 +6563,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "answers"; value: AnswersPrefs } | { key: "youtube"; value: YouTubePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "videoCards"; value: VideoCardPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "answers"; value: AnswersPrefs } | { key: "youtube"; value: YouTubePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -6684,6 +6689,11 @@ export type Settings = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0). */
 	readerAi?: ReaderAiPrefs,
+	/**
+	 *  How video titles show in Search, sources, the Videos library and Continue watching, and
+	 *  their muted previews.
+	 */
+	videoCards?: VideoCardPrefs,
 	/**  Word lookups in the book reader. */
 	dictionary?: DictionaryPrefs,
 	/**  Answers to questions and calculations in Search. */
@@ -7581,6 +7591,10 @@ export type StremioItem = {
 	 *  prefixes), so it can play: Search's "Playable only" keeps these.
 	 */
 	playable?: boolean,
+	/**  A wide picture of it (the listing's `background`), for 16:9 cards. */
+	background?: string | null,
+	/**  Its YouTube trailer, when the listing names one: cards may play it muted as a preview. */
+	trailer?: string | null,
 };
 
 export type StremioMeta = {
@@ -8567,6 +8581,21 @@ export type VideoAspect =
 /**  The screen filled, the picture stretched. */
 "stretch";
 
+/**  How video titles show in Search, source pages, the Videos library and Continue watching. */
+export type VideoCardPrefs = {
+	style?: VideoCardStyle,
+	previews?: VideoPreviews,
+};
+
+/**  A video title's card. */
+export type VideoCardStyle = 
+/**  16:9, the title's backdrop when known; a portrait poster sits on a blurred fill of itself. */
+"landscape" | 
+/**  2:3 posters. */
+"poster" | 
+/**  Compact rows: a small picture, the name and its facts. */
+"list";
+
 /**  A chapter of a video (M45): from its source, or from AniSkip. */
 export type VideoChapter = {
 	/**  Milliseconds from the start. */
@@ -8872,6 +8901,13 @@ export type VideoPlayerPrefs = {
 	showFailedSources?: boolean,
 	showEmptySources?: boolean,
 };
+
+/**  Muted previews (a title's trailer) in video cards. */
+export type VideoPreviews = 
+/**  While a mouse rests on a card; none on touch screens. */
+"auto" | 
+/**  While a mouse rests on a card, and on touch screens while a card is in the screen's middle. */
+"always" | "off";
 
 /**  What to play in the video player. */
 export type VideoRequest = {

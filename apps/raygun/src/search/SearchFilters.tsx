@@ -109,9 +109,11 @@ export const SearchFiltersButton: FC<{ type: SearchType; view?: SearchView }> = 
       { key: 'searchFilter', value },
       {
         // Rust asks other sources under "18+ only", and what a filter left out comes back
-        // only when asked again; a filter turned on hides at once here.
+        // only when asked again; a filter turned on hides at once here. Whether a title plays
+        // is Rust's word as of the answer (addons added or failing since), so it's asked again.
         onSuccess: () => {
-          if (!on || field === 'adultOnly') void refreshSearches(client);
+          if (!on || field === 'adultOnly' || field === 'playableVideos')
+            void refreshSearches(client);
         },
       },
     );

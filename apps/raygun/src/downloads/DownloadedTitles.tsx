@@ -11,6 +11,7 @@ import { LibraryItems } from '../manga/LibraryItems';
 import { withLibraryDisplay } from '../manga/libraryDisplay';
 import { SelectionActions, SelectionTopBar } from '../manga/LibrarySelection';
 import { ROUTES } from '../manga/medium';
+import { entryPage, useOpenTitlePage } from '../manga/titleMenu';
 import type { Medium } from '../manga/medium';
 import { useCategories } from '../manga/useCategories';
 import { fetchContinue, useRemoveTitles } from '../manga/useLibraryActions';
@@ -72,10 +73,13 @@ export const DownloadedTitles: FC<{ medium: Medium; limit?: number }> = ({ mediu
     lastPicked.current = null;
   };
 
+  const openTitlePage = useOpenTitlePage();
   const onContinue = async (entry: MangaLibraryEntry) => {
     setNotice(null);
     try {
       if (video) {
+        // The title's page goes under the player: Back from it lands there.
+        await openTitlePage(entryPage(medium, entry));
         await unwrapResult(commands.videoSourceWatch(entry.titleId, null));
         return;
       }
@@ -84,6 +88,7 @@ export const DownloadedTitles: FC<{ medium: Medium; limit?: number }> = ({ mediu
         setNotice(t('library.noNextChapter'));
         return;
       }
+      await openTitlePage(entryPage(medium, entry));
       void navigate({ to: ROUTES[medium].read, search: { title: entry.titleId, chapter } });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));

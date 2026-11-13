@@ -7,6 +7,8 @@ import { useTranslation } from 'react-i18next';
 
 import { useCoverSheetStore } from '../music/coverSheetStore';
 import { useSettings } from '../settings/useSettings';
+import { LANDSCAPE_GRID, useVideoCardStyle } from '../watch/videoCards';
+import { VideoCover } from '../watch/VideoCover';
 import { appearItems } from '../shell/appear';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceTag } from '../shell/SourceTag';
@@ -129,19 +131,19 @@ const MangaGridView: FC<{
           },
     );
   const video = medium === 'video';
-  const compact = (settings?.coverStyle ?? 'compact') === 'compact';
+  // Video titles follow their card style (Settings::videoCards): 16:9, posters or a list.
+  const videoStyle = useVideoCardStyle();
+  const rows = video && videoStyle === 'list';
+  const wide = landscape || (video && videoStyle !== 'poster');
+  const compact = !rows && (settings?.coverStyle ?? 'compact') === 'compact';
   const unreadBadges = settings?.unreadBadges ?? true;
   const downloadBadges = settings?.downloadBadges ?? true;
   return (
     <>
       <ul
         {...(appear ? appearItems(true) : {})}
-        className={COVER_GRID_CLASS}
-        style={
-          landscape
-            ? { gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 13rem), 1fr))' }
-            : coverGridStyle(settings?.coverSize ?? 0)
-        }
+        className={rows ? 'flex flex-col gap-2' : COVER_GRID_CLASS}
+        style={rows ? undefined : wide ? LANDSCAPE_GRID : coverGridStyle(settings?.coverSize ?? 0)}
       >
         {items.map((item) => {
           const book = bookWords(medium, item.title, item.authors);
@@ -157,16 +159,25 @@ const MangaGridView: FC<{
                   data-testid="manga-card"
                   // A long press picks: the webview would start dragging the link instead.
                   draggable={false}
-                  className="flex flex-col gap-1"
+                  className={rows ? 'flex items-center gap-3' : 'flex flex-col gap-1'}
                 >
-                  <span className="relative overflow-hidden rounded-xl">
-                    <MangaCover
-                      url={item.coverUrl}
-                      video={medium === 'video'}
-                      landscape={landscape}
-                      book={book}
-                      className="w-full"
-                    />
+                  <span
+                    className={`relative overflow-hidden rounded-xl ${rows ? 'w-32 shrink-0 sm:w-40' : ''}`}
+                  >
+                    {video ? (
+                      <VideoCover
+                        poster={item.coverUrl}
+                        shape={landscape ? 'landscape' : 'poster'}
+                        style={wide ? 'landscape' : 'poster'}
+                      />
+                    ) : (
+                      <MangaCover
+                        url={item.coverUrl}
+                        landscape={landscape}
+                        book={book}
+                        className="w-full"
+                      />
+                    )}
                     {/* The pick circle takes the top left corner while it shows (its ⋮ keeps the
                       top right): the badges move over. */}
                     <span
@@ -221,19 +232,24 @@ const MangaGridView: FC<{
                       iconSize={16}
                     />
                   </span>
-                  {!compact && (
-                    <span className="line-clamp-2 text-xs font-medium">{item.title}</span>
-                  )}
-                  {compact && !titleOver && <span className="sr-only">{item.title}</span>}
-                  {item.subtitle && (
-                    <span className="text-muted line-clamp-1 text-2xs">{item.subtitle}</span>
-                  )}
-                  {(item.source || item.adult) && (
-                    <span className="flex min-w-0 items-center gap-1">
-                      {item.adult && <AdultMark />}
-                      {item.source && <SourceTag name={item.source} />}
-                    </span>
-                  )}
+                  {/* Beside the picture in a list, under it on a card. */}
+                  <span className={rows ? 'flex min-w-0 flex-1 flex-col gap-1' : 'contents'}>
+                    {!compact && (
+                      <span className={`line-clamp-2 font-medium ${rows ? 'text-sm' : 'text-xs'}`}>
+                        {item.title}
+                      </span>
+                    )}
+                    {compact && !titleOver && <span className="sr-only">{item.title}</span>}
+                    {item.subtitle && (
+                      <span className="text-muted line-clamp-1 text-2xs">{item.subtitle}</span>
+                    )}
+                    {(item.source || item.adult) && (
+                      <span className="flex min-w-0 items-center gap-1">
+                        {item.adult && <AdultMark />}
+                        {item.source && <SourceTag name={item.source} />}
+                      </span>
+                    )}
+                  </span>
                 </Link>
               </Selectable>
             </li>

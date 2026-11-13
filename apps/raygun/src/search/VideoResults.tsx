@@ -1,12 +1,14 @@
 import type { StremioCatalogRow, StremioItem } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { Compass } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { StremioCatalogRowView, StremioRow } from '../watch/StremioRow';
+import { VideoViewButton } from '../watch/VideoCardChoices';
 import { useStremioAddons, useStremioCatalogs, useStremioSearchRows } from '../watch/useStremio';
+import { useListMemory } from '../shell/listMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useGrouped } from './arrangement';
 import { ArrangeToggle } from './ArrangeToggle';
@@ -76,7 +78,11 @@ const AddonResultsView: FC<{
     [bySource, rows, query],
   );
   // Kinds whose See all opened them here, for this search.
-  const [opened, setOpened] = useState({ query: '', kinds: [] as string[] });
+  // Kept for the page: coming back from a title finds them still open.
+  const [opened, setOpened] = useListMemory('videoKinds:opened', {
+    query: '',
+    kinds: [] as string[],
+  });
   const openedKinds = opened.query === query ? opened.kinds : [];
   const onMore = useCallback(
     (key: string) => {
@@ -87,7 +93,7 @@ const AddonResultsView: FC<{
           kinds: [...(current.query === query ? current.kinds : []), key],
         }));
     },
-    [onKind, query],
+    [onKind, query, setOpened],
   );
   if (bySource) {
     return rows
@@ -160,8 +166,11 @@ const SearchRows: FC<Props> = ({ query, limit, kind, onKind }) => {
   }
   return (
     <div data-testid="video-results" className="flex flex-col gap-5">
-      {limit === undefined && addons > 1 && (
-        <ArrangeToggle grouped={grouped} onChange={setGrouped} className="self-end" />
+      {limit === undefined && (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <VideoViewButton />
+          {addons > 1 && <ArrangeToggle grouped={grouped} onChange={setGrouped} />}
+        </div>
       )}
       <AddonResults
         rows={rows}

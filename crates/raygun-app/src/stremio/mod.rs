@@ -874,9 +874,17 @@ impl StremioService {
             Ok(value) => (protocol::parse_metas(&value, &catalog.kind), None),
             Err(error) => (Vec::new(), Some(error.message)),
         };
+        // Addons that failed lately ("didn't work lately") don't make a title playable.
+        let health = self.health_now().await;
+        let now = now_ms();
         let streams: Vec<&Manifest> = addons
             .iter()
             .filter(|loaded| loaded.row.enabled)
+            .filter(|loaded| {
+                !health
+                    .get(&loaded.row.id)
+                    .is_some_and(|health| health.failing(now))
+            })
             .filter_map(Loaded::manifest)
             .collect();
         // Stream providers find movies and series by their IMDb or TMDB ids.
@@ -2119,6 +2127,7 @@ impl StremioService {
     fn listed(&self, item: StremioItem) -> StremioItem {
         StremioItem {
             poster: item.poster.map(|url| self.image(url)),
+            background: item.background.map(|url| self.image(url)),
             ..item
         }
     }
@@ -2333,6 +2342,8 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
             poster_shape: "poster".into(),
             release_info: fields.year.map(|year| year.to_string()),
             rating: None,
+            background: None,
+            trailer: None,
         },
         background: None,
         logo: None,
@@ -2562,6 +2573,8 @@ fn item(preview: MetaPreview) -> StremioItem {
         release_info: preview.release_info.as_deref().map(release_label),
         rating: preview.rating,
         playable: false,
+        background: preview.background,
+        trailer: preview.trailer,
     }
 }
 
@@ -2959,6 +2972,8 @@ mod tests {
             poster_shape: "poster".into(),
             release_info: Some(release.into()),
             rating: None,
+            background: None,
+            trailer: None,
         };
         assert_eq!(
             item(preview("2024 - ")).release_info.as_deref(),

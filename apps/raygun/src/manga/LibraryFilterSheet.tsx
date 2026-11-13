@@ -18,6 +18,7 @@ import {
 } from './libraryFilters';
 import type { LibraryFilter, LibrarySort, TriState } from './libraryFilters';
 import type { Medium } from './medium';
+import { VideoCardPills } from '../watch/VideoCardChoices';
 import { groupWords } from './groupWords';
 
 /** Words that read differently for videos ("Unwatched", "Last watched", "Latest episode"). */
@@ -321,6 +322,7 @@ export const LibraryFilterSheet: FC<{
               </button>
             ))}
           </Section>
+          {video && <VideoCardPills styles={['landscape', 'poster']} />}
           {mode !== 'list' && (
             <SizeField
               title={t('settings.coverWidth')}

@@ -888,6 +888,32 @@ fn addon_collections_list_their_addons() {
 }
 
 #[test]
+fn a_series_with_upcoming_episodes_keeps_its_seasons() {
+    // Cinemeta marks series with upcoming episodes `hasScheduledVideos` (the calendar hint):
+    // they're still seasons of episodes, not a channel's program guide.
+    let meta = parse_meta(
+        &json!({ "meta": {
+            "id": "tt0944947", "type": "series", "name": "Show",
+            "behaviorHints": { "defaultVideoId": null, "hasScheduledVideos": true },
+            "videos": [
+                { "id": "tt0944947:1:1", "name": "Pilot", "season": 1, "episode": 1,
+                  "released": "2011-04-17T00:00:00.000Z" },
+                { "id": "tt0944947:2:1", "name": "Return", "season": 2, "episode": 1,
+                  "released": "2012-04-01T00:00:00.000Z" },
+                { "id": "tt0944947:3:1", "name": "Soon", "season": 3, "episode": 1,
+                  "released": "2099-04-01T00:00:00.000Z" },
+            ],
+        } }),
+        "series",
+    )
+    .unwrap();
+    assert!(!meta.live);
+    assert!(meta.live_streams.is_empty());
+    let seasons: Vec<_> = meta.videos.iter().map(|video| video.season).collect();
+    assert_eq!(seasons, vec![Some(1), Some(2), Some(3)]);
+}
+
+#[test]
 fn a_channels_program_guide_plays_the_channel() {
     // An EPG provider's channel: its videos are the shows it airs, each with the channel's
     // stream; the channel plays as itself, with the stream of the show on now.

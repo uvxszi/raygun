@@ -945,6 +945,8 @@ mod tests {
                 poster_shape: "poster".into(),
                 release_info: Some(year.into()),
                 rating: None,
+                background: None,
+                trailer: None,
             };
         let found = vec![
             meta("movie", "tt2", "Sintel", "2012"),

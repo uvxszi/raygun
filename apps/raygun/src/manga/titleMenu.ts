@@ -7,7 +7,8 @@ import type {
 } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useRouter } from '@tanstack/react-router';
+import type { ParsedLocation } from '@tanstack/react-router';
 import {
   BookOpen,
   BookmarkMinus,
@@ -166,18 +167,49 @@ const attempt = (t: TFunction, name: string, run: () => Promise<unknown>) =>
  * Plays or reads a card's title: a video through a watching session (the next episode, the
  * best link), a comic or book at the chapter it continues at.
  */
+/** Whether the page shown is `page` (its route and every part of its query). */
+const showing = (location: ParsedLocation, page: { to: string; search: Record<string, string> }) =>
+  location.pathname === page.to &&
+  Object.entries(page.search).every(
+    ([key, value]) => String((location.search as Record<string, unknown>)[key]) === value,
+  );
+
+/**
+ * Opens a title's page before its player or reader opens over it (unless it's the page shown):
+ * Back from them lands on the page, and Back again returns to the list at its place.
+ */
+export const useOpenTitlePage = () => {
+  const navigate = useNavigate();
+  const router = useRouter();
+  return async (page: { to: string; search: Record<string, string> }) => {
+    if (!showing(router.state.location, page)) {
+      await navigate({ to: page.to, search: page.search } as never);
+    }
+  };
+};
+
+/** A library entry's title page. */
+export const entryPage = (medium: Medium, entry: MangaLibraryEntry) =>
+  medium === 'video'
+    ? videoTitleLink(entry.sourceId, entry.remoteId)
+    : { to: ROUTES[medium].title, search: { source: entry.sourceId, id: entry.remoteId } };
+
 export const usePlayTitle = () => {
   const { t } = useTranslation();
   const client = useQueryClient();
   const navigate = useNavigate();
+  const openTitlePage = useOpenTitlePage();
+  const openPage = (card: CardTitle) => openTitlePage(cardPage(card));
   return (card: CardTitle) =>
     attempt(t, card.title, async () => {
       if (card.sourceId === STREMIO_SOURCE) {
         const { kind, id } = stremioParts(card.id);
+        await openPage(card);
         await unwrapResult(commands.stremioWatch(kind, id, null));
         return;
       }
       if (card.medium === 'video') {
+        await openPage(card);
         const view = await videoView(client, card);
         await unwrapResult(commands.videoSourceWatch(view.id, null));
         return;
@@ -188,6 +220,7 @@ export const usePlayTitle = () => {
         showToast(t('menu.noChapters', { name: card.title }));
         return;
       }
+      await openPage(card);
       await navigate({
         to: ROUTES[card.medium].read,
         search: { title: view.id, chapter } as never,

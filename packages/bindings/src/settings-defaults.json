@@ -584,6 +584,10 @@
     "comic": [],
     "novel": []
   },
+  "videoCards": {
+    "style": "landscape",
+    "previews": "auto"
+  },
   "dictionary": {
     "enabled": true,
     "order": [],
