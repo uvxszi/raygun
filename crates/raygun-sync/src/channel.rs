@@ -14,7 +14,7 @@ use crate::protocol::Message;
 
 const PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
 /// Noise messages are at most this long.
-const MAX_NOISE: usize = 65_535;
+pub(crate) const MAX_NOISE: usize = 65_535;
 /// Plaintext per frame, leaving room for the flag byte and the 16-byte tag.
 const CHUNK: usize = 60_000;
 /// Largest message accepted, against a peer that never ends one.
@@ -164,6 +164,11 @@ impl<S: Stream> Channel<S> {
         Ok(())
     }
 
+    /// The stream and the keys, for a channel that frames its own messages (emote).
+    pub(crate) fn into_parts(self) -> (S, TransportState) {
+        (self.stream, self.transport)
+    }
+
     pub async fn recv(&mut self) -> Result<Message, SyncError> {
         let mut message = Vec::new();
         loop {
@@ -184,7 +189,10 @@ impl<S: Stream> Channel<S> {
     }
 }
 
-async fn write_frame(stream: &mut impl Stream, data: &[u8]) -> Result<(), SyncError> {
+pub(crate) async fn write_frame(
+    stream: &mut (impl AsyncWrite + Unpin),
+    data: &[u8],
+) -> Result<(), SyncError> {
     let length =
         u16::try_from(data.len()).map_err(|_| SyncError::Protocol("frame too large".into()))?;
     tokio::time::timeout(IO_TIMEOUT, async {
@@ -197,7 +205,9 @@ async fn write_frame(stream: &mut impl Stream, data: &[u8]) -> Result<(), SyncEr
     Ok(())
 }
 
-async fn read_frame(stream: &mut impl Stream) -> Result<Vec<u8>, SyncError> {
+pub(crate) async fn read_frame(
+    stream: &mut (impl AsyncRead + Unpin),
+) -> Result<Vec<u8>, SyncError> {
     tokio::time::timeout(IO_TIMEOUT, async {
         let length = stream.read_u16().await? as usize;
         let mut data = vec![0u8; length];

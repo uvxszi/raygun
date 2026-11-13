@@ -68,11 +68,12 @@ fn configs_keep_and_read_back() {
 }
 
 /// A browser stand-in: a full ICE agent that connects to the listener the way a page's
-/// RTCPeerConnection does (controlling, DTLS client, SCTP client, negotiated channel 0) and hands
-/// back the channel as a byte stream.
+/// RTCPeerConnection does (controlling, DTLS client, SCTP client, a negotiated channel: 0 for sync,
+/// 1 for the back end) and hands back the channel as a byte stream.
 async fn browser(
     server: &WebRunning,
     config: &WebConfig,
+    channel_id: u16,
 ) -> impl AsyncRead + AsyncWrite + Unpin + Send + 'static {
     let socket = Arc::new(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap());
     let local = socket.local_addr().unwrap();
@@ -101,7 +102,7 @@ async fn browser(
     api.start_sctp(true);
     let channel = api.create_data_channel(ChannelConfig {
         label: "raygun-sync".into(),
-        negotiated: Some(CHANNEL_ID),
+        negotiated: Some(channel_id),
         ..Default::default()
     });
 
@@ -226,7 +227,7 @@ async fn a_browser_links_over_webrtc_and_syncs() {
 
     let identity = Identity::generate().unwrap();
     let pairing = tokio::time::timeout(Duration::from_secs(20), async {
-        let stream = browser(&server, &config).await;
+        let stream = browser(&server, &config, CHANNEL_ID).await;
         let (mut channel, remote) = Channel::initiate(stream, &identity).await.unwrap();
         assert_eq!(crate::to_hex(&remote), param("key"));
         channel
@@ -248,7 +249,7 @@ async fn a_browser_links_over_webrtc_and_syncs() {
     assert_eq!(peers[0].address, None, "a browser can't be reached");
 
     let rows = tokio::time::timeout(Duration::from_secs(20), async {
-        let stream = browser(&server, &config).await;
+        let stream = browser(&server, &config, CHANNEL_ID).await;
         let (mut channel, _) = Channel::initiate(stream, &identity).await.unwrap();
         channel
             .send(&Message::Hello {
@@ -288,5 +289,58 @@ async fn a_browser_links_over_webrtc_and_syncs() {
         .find(|row| row.table == "music_favorite")
         .expect("the favorite came");
     assert_eq!(favorite.row["title"], "Song");
+    server.stop();
+}
+
+#[tokio::test]
+async fn a_linked_browser_reaches_the_back_end_over_webrtc() {
+    let temp = TempDir::new().unwrap();
+    let db = Arc::new(Db::open(&temp.path().join("laptop.db")).await.unwrap());
+    let laptop = Arc::new(Engine::new(
+        db,
+        Identity::generate().unwrap(),
+        "Laptop".into(),
+        SyncKind::ALL.to_vec(),
+    ));
+    laptop.on_remote(Some(crate::remote::tests::echo()));
+    let identity = Identity::generate().unwrap();
+    crate::remote::tests::link_browser(&laptop, &identity).await;
+    let config = WebConfig::generate().unwrap();
+    let server = laptop
+        .serve_web(config.clone(), vec![IpAddr::V4(Ipv4Addr::LOCALHOST)], 0..=0)
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let stream = browser(&server, &config, REMOTE_CHANNEL_ID).await;
+        let (mut page, _) = crate::remote::tests::Page::open(stream, &identity).await;
+        assert!(matches!(
+            page.recv().await,
+            crate::remote::tests::Received::Json(welcome) if welcome["t"] == "welcome"
+        ));
+        page.send(serde_json::json!({ "t": "ping" })).await;
+        assert!(matches!(
+            page.recv().await,
+            crate::remote::tests::Received::Json(echo) if echo["got"]["t"] == "ping"
+        ));
+        // More than the channel's send buffer holds at once: it waits for room, in order.
+        let size = 3 * 1024 * 1024;
+        page.send(serde_json::json!({ "t": "fetch", "id": 3, "size": size }))
+            .await;
+        let mut body = Vec::new();
+        loop {
+            match page.recv().await {
+                crate::remote::tests::Received::Body(3, bytes) => body.extend(bytes),
+                crate::remote::tests::Received::Json(end) => {
+                    assert_eq!(end["t"], "end");
+                    break;
+                }
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(body.len(), size);
+        assert!(body.iter().enumerate().all(|(at, byte)| *byte == at as u8));
+    })
+    .await
+    .expect("answered in time");
     server.stop();
 }

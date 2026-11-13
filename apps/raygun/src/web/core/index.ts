@@ -48,17 +48,31 @@ import type { Backend } from './store';
 
 export type Handler = (args: Record<string, unknown>) => unknown;
 
-/** What a remote answers: `handled: false` lets the page's own fallback answer stand. */
-export type RemoteAnswer = { handled: true; value: unknown } | { handled: false };
-/** Answers commands the page has no implementation of (a linked app; docs/WEB.md). */
+/**
+ * A linked app answering commands for the page (web/remote/): it returns its answer, or null to
+ * leave the command to the page; `local` is the page's own answer, for falling back to.
+ */
 export type RemoteHandler = (
   command: string,
   args: Record<string, unknown>,
-) => Promise<RemoteAnswer>;
+  local: () => Promise<unknown>,
+) => Promise<unknown> | null;
 
 let remoteHandler: RemoteHandler | null = null;
 
-/** Sets (or clears) where commands without a web implementation go before their fallback. */
+/**
+ * A linked app finding what a queued song plays from (web/remote/): null when it can't, and the
+ * page's own sources look.
+ */
+export type RemoteFinder = (item: QueueItem) => Promise<Found | null>;
+
+let remoteFinder: RemoteFinder | null = null;
+
+export const setRemoteFinder = (finder: RemoteFinder | null) => {
+  remoteFinder = finder;
+};
+
+/** Sets (or, with null, takes away) the linked app that answers for the page. */
 export const setRemoteHandler = (handler: RemoteHandler | null) => {
   remoteHandler = handler;
 };
@@ -135,6 +149,11 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
 
   const find = async (item: QueueItem): Promise<Found> => {
     const source = item.source;
+    // A linked app in use looks first: its sources, files and headers the page can't reach.
+    if (source.kind !== 'youTube') {
+      const remote = await remoteFinder?.(item).catch(() => null);
+      if (remote) return remote;
+    }
     switch (source.kind) {
       case 'url':
         return { kind: 'url', url: source.url };
@@ -682,13 +701,9 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     },
   };
 
-  const invoke = async (command: string, args: Record<string, unknown>) => {
+  const local = async (command: string, args: Record<string, unknown>) => {
     const handler = handlers[command];
     if (!handler) {
-      if (remoteHandler) {
-        const answer = await remoteHandler(command, args);
-        if (answer.handled) return answer.value;
-      }
       if (options.debug) console.debug('[raygun web] no web implementation:', command);
       // What fell back, for checking the web build's screens (docs/WEB.md, the audit).
       (globalThis as { __RAYGUN_WEB_FALLBACKS__?: string[] }).__RAYGUN_WEB_FALLBACKS__?.push(
@@ -698,6 +713,9 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     }
     return handler(args);
   };
+
+  const invoke = async (command: string, args: Record<string, unknown>) =>
+    remoteHandler?.(command, args, () => local(command, args)) ?? local(command, args);
 
   /**
    * Keeps linked devices in sync while the page is open and shown: soon after a change here, and

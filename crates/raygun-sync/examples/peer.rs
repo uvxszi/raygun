@@ -2,7 +2,7 @@
 //! the same engine and database code as the app, on a database in the folder you name.
 //!
 //! ```text
-//! cargo run -p raygun-sync --example peer -- <dir> serve [--port 8835] [--host 10.0.2.2] [--bind 127.0.0.1] [--web]
+//! cargo run -p raygun-sync --example peer -- <dir> serve [--port 8835] [--host 10.0.2.2] [--bind 127.0.0.1] [--web] [--remote]
 //! cargo run -p raygun-sync --example peer -- <dir> join <pairing text> [--via 127.0.0.1:8830]
 //! cargo run -p raygun-sync --example peer -- <dir> sync
 //! cargo run -p raygun-sync --example peer -- <dir> favorite <title> <artist>
@@ -15,7 +15,11 @@
 //! `adb forward tcp:8830 tcp:8830`, so serve on another port (8835).
 //!
 //! `--web` also listens for browsers (Raygun on the web, docs/WEB.md) on the bind address and prints
-//! the link code a browser takes: paste it into Devices → Scan link code there.
+//! the link code a browser takes: paste it into Devices → Scan link code there. `--remote` answers
+//! linked browsers' back-end channel (`raygun_sync::remote`) as a stand-in for the app: the command
+//! `test_echo` with its arguments, `video_play` opening the page's player on a tone with subtitles
+//! (and taking its reports), songs found as that tone (or an HLS playlist for one titled "Hls");
+//! every other command is refused, so the page answers it. Proxy paths are served with ranges.
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -25,7 +29,9 @@ use raygun_db::collections::{self, TrackFields};
 use raygun_db::sync::{self, SyncKind};
 use raygun_db::{Db, local_value, set_local_value};
 use raygun_sync::protocol::Offer;
+use raygun_sync::remote::{BODY_PART, Outgoing, RemoteSession};
 use raygun_sync::{Engine, Identity, fingerprint, to_hex};
+use serde_json::json;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +71,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let bind: IpAddr =
                 option("--bind").map_or(Ok(Ipv4Addr::LOCALHOST.into()), |bind| bind.parse())?;
             let _server = engine.serve_on(bind, port..=port).await?;
+            if rest.iter().any(|arg| arg == "--remote") {
+                engine.on_remote(Some(Arc::new(|session| {
+                    tokio::spawn(stand_in(session));
+                })));
+            }
             let web = if rest.iter().any(|arg| arg == "--web") {
                 let config = web_config(&db).await?;
                 let hosts = if bind.is_unspecified() {
@@ -211,6 +222,169 @@ async fn web_config(db: &Db) -> Result<raygun_sync::web::WebConfig, Box<dyn std:
     let config = raygun_sync::web::WebConfig::generate()?;
     set_local_value(db, "sync_web_config", &config.to_stored()).await?;
     Ok(config)
+}
+
+/// The stand-in back end (`--remote`).
+async fn stand_in(mut session: RemoteSession) {
+    println!(
+        "browser {} uses this peer as its back end",
+        session.peer.name
+    );
+    let out = session.outgoing.clone();
+    let send = move |value: serde_json::Value| {
+        let _ = out.send(Outgoing::Json(value));
+    };
+    send(
+        json!({ "t": "welcome", "deviceId": "pc-test-peer", "name": "PC test peer",
+        "proxy": "http://127.0.0.1:1" }),
+    );
+    while let Some(message) = session.incoming.recv().await {
+        let id = message["id"].as_u64().unwrap_or_default();
+        match message["t"].as_str().unwrap_or_default() {
+            "call" => {
+                let command = message["cmd"].as_str().unwrap_or_default();
+                println!("call {command}");
+                match command {
+                    "test_echo" => send(json!({ "t": "result", "id": id, "ok": {
+                        "command": command,
+                        "args": message["args"],
+                        "cover": "http://127.0.0.1:1/cover/test",
+                    }})),
+                    // A video session's opening, as `video::open_player` sends a linked browser's.
+                    "video_play" => {
+                        send(json!({ "t": "result", "id": id, "ok": null }));
+                        let request = json!({
+                            "id": "test:video",
+                            "url": "http://127.0.0.1:1/stream/song.wav",
+                            "title": "Test video",
+                            "autoplay": true,
+                            "subtitleMode": "always",
+                            "subtitleLanguage": "en",
+                            "subtitles": [{ "url": "http://127.0.0.1:1/subtitle/en",
+                                "lang": "en", "label": "English", "format": "vtt" }],
+                        });
+                        send(
+                            json!({ "t": "event", "event": "video-player-event", "payload": {
+                            "kind": "open", "json": request.to_string() } }),
+                        );
+                    }
+                    "video_player_report" => {
+                        println!(
+                            "report {}",
+                            message["args"]["report"].as_str().unwrap_or_default()
+                        );
+                        send(json!({ "t": "result", "id": id, "ok": null }));
+                    }
+                    _ => send(json!({ "t": "result", "id": id, "denied": "only on the device" })),
+                }
+            }
+            "resolve" => {
+                let title = message["item"]["title"].as_str().unwrap_or_default();
+                println!("resolve {title}");
+                let found = if title == "Hls" {
+                    json!({ "kind": "url", "url": "http://127.0.0.1:1/media/song/index.m3u8", "hls": true })
+                } else {
+                    json!({ "kind": "url", "url": "http://127.0.0.1:1/stream/song.wav", "hls": false })
+                };
+                send(json!({ "t": "result", "id": id, "ok": found }));
+            }
+            "fetch" => {
+                let path = message["path"].as_str().unwrap_or_default();
+                println!("fetch {path} {}", message["range"]);
+                let (kind, body) = stand_in_file(path);
+                let size = body.len() as u64;
+                let range = message["range"]
+                    .as_str()
+                    .and_then(|range| range.strip_prefix("bytes="))
+                    .and_then(|range| range.split_once('-'))
+                    .map(|(start, end)| {
+                        (
+                            start.parse().unwrap_or(0),
+                            end.parse().unwrap_or(size - 1).min(size - 1),
+                        )
+                    });
+                let (status, start, end) = match range {
+                    Some((start, end)) => (206, start, end),
+                    None => (200, 0, size - 1),
+                };
+                let mut headers = json!({ "content-type": kind, "accept-ranges": "bytes" });
+                if status == 206 {
+                    headers["content-range"] = json!(format!("bytes {start}-{end}/{size}"));
+                }
+                send(json!({ "t": "head", "id": id, "status": status, "headers": headers }));
+                for piece in body[start as usize..=end as usize].chunks(BODY_PART) {
+                    let _ = session.outgoing.send(Outgoing::Body {
+                        id: id as u32,
+                        bytes: piece.to_vec(),
+                    });
+                }
+                send(json!({ "t": "end", "id": id }));
+            }
+            "ping" => send(json!({ "t": "pong" })),
+            _ => {}
+        }
+    }
+    println!("browser {} stopped using this peer", session.peer.name);
+}
+
+/// What the stand-in serves for a proxy path: a three-second tone (`stream/`), a subtitle, an
+/// HLS playlist, a one-pixel PNG (`cover/`), else 3 MB of counting bytes.
+fn stand_in_file(path: &str) -> (&'static str, Vec<u8>) {
+    if path.starts_with("cover/") {
+        return (
+            "image/png",
+            vec![
+                0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+                0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+                0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78,
+                0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
+                0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+            ],
+        );
+    }
+    if path.starts_with("stream/") {
+        const RATE: u32 = 8_000;
+        let samples: Vec<i16> = (0..RATE * 3)
+            .map(|at| {
+                ((at as f32 * 440.0 * std::f32::consts::TAU / RATE as f32).sin() * 8_000.0) as i16
+            })
+            .collect();
+        let data = (samples.len() * 2) as u32;
+        let mut wav = Vec::with_capacity(44 + data as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&RATE.to_le_bytes());
+        wav.extend_from_slice(&(RATE * 2).to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data.to_le_bytes());
+        for sample in samples {
+            wav.extend_from_slice(&sample.to_le_bytes());
+        }
+        return ("audio/wav", wav);
+    }
+    if path.starts_with("subtitle/") {
+        return (
+            "text/vtt",
+            b"WEBVTT\n\n00:00.000 --> 00:02.500\nHello from the app\n".to_vec(),
+        );
+    }
+    if path.ends_with(".m3u8") {
+        let playlist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:3\n#EXTINF:3.0,\nhttp://127.0.0.1:1/media/song/piece.aac\n#EXT-X-ENDLIST\n";
+        return (
+            "application/vnd.apple.mpegurl",
+            playlist.as_bytes().to_vec(),
+        );
+    }
+    (
+        "video/mp4",
+        (0..3_000_000u64).map(|at| (at % 251) as u8).collect(),
+    )
 }
 
 /// Percent-encodes what isn't plain in a query value.

@@ -1748,6 +1748,17 @@
   },
   "devices": {
     "title": "Devices",
+    "webBackend": {
+      "title": "Sources from your apps",
+      "summary": "While a linked Raygun app is reachable, its sources, searches, catalogues and downloads work here. Your library and settings stay in this browser.",
+      "use": "Use {{name}}",
+      "inUse": "In use",
+      "connecting": "Connecting…",
+      "unreachable": "Not reachable: {{reason}}",
+      "waiting": "Not reachable now",
+      "useInstead": "Use {{name}} instead",
+      "via": "via {{name}}"
+    },
     "sync": "Device sync",
     "description": "Keep settings, favorites, playlists and history the same on your devices, over your own network.",
     "off": "Off",

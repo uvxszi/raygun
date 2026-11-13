@@ -19,7 +19,7 @@ import type { Effect } from './playbackCore';
 
 /** What a song plays from, once found. */
 export type Found =
-  | { kind: 'url'; url: string; onDevice?: boolean; label?: string | null }
+  | { kind: 'url'; url: string; onDevice?: boolean; label?: string | null; hls?: boolean }
   | { kind: 'youTube'; videoId: string }
   | { kind: 'error'; message: string };
 
@@ -336,6 +336,7 @@ export class PlaybackService {
           type: 'load',
           loadId,
           url: found.url,
+          ...(found.hls ? { hls: true } : {}),
           title: item.title,
           artist: item.artist,
           artworkUrl: item.artworkUrl,

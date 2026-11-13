@@ -41,16 +41,24 @@ export const answerFor = (offer: string, invite: WebInvite): string => {
   return `${lines.join('\r\n')}\r\n`;
 };
 
+/** Which of the app's data channels to open: sync's (0), or the back end's (1, `web/remote/`). */
+export type ChannelChoice = { id: number; label: string; timeoutMs?: number };
+
+const SYNC_CHANNEL: ChannelChoice = { id: 0, label: 'raygun-sync' };
+
 /** Opens a data channel to the app `invite` names. */
-export const connectWebRtc = async (invite: WebInvite): Promise<Connection> => {
+export const connectWebRtc = async (
+  invite: WebInvite,
+  choice: ChannelChoice = SYNC_CHANNEL,
+): Promise<Connection> => {
   if (typeof RTCPeerConnection === 'undefined') {
     throw new SyncError("This browser can't make the connection Raygun needs (WebRTC).");
   }
   const connection = new RTCPeerConnection({ iceServers: [] });
-  // Negotiated: both sides know channel 0 without a message to open it.
-  const channel = connection.createDataChannel('raygun-sync', {
+  // Negotiated: both sides know the channel without a message to open it.
+  const channel = connection.createDataChannel(choice.label, {
     negotiated: true,
-    id: 0,
+    id: choice.id,
     ordered: true,
   });
   channel.binaryType = 'arraybuffer';
@@ -92,7 +100,10 @@ export const connectWebRtc = async (invite: WebInvite): Promise<Connection> => {
     close();
     throw error;
   }
-  const stream = new ByteStream((bytes) => channel.send(bytes as Uint8Array<ArrayBuffer>));
+  const stream = new ByteStream(
+    (bytes) => channel.send(bytes as Uint8Array<ArrayBuffer>),
+    choice.timeoutMs,
+  );
   channel.onmessage = (event: MessageEvent<ArrayBuffer>) => stream.push(new Uint8Array(event.data));
   channel.onclose = () => stream.close();
   connection.onconnectionstatechange = () => {

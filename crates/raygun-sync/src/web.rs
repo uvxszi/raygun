@@ -2,8 +2,10 @@
 //! https: it can't open a socket to a device on the local network, but it can make a WebRTC
 //! connection to one. This listener is an ICE-lite peer with fixed ICE credentials and a fixed
 //! DTLS certificate, so everything a browser needs to connect fits in the device's link code and
-//! nothing travels back before the connection is up. Each browser gets a negotiated data channel
-//! (id 0) whose bytes are a sync connection like a TCP one: the Noise handshake, then messages.
+//! nothing travels back before the connection is up. Each browser gets two negotiated data
+//! channels: id 0's bytes are a sync connection like a TCP one (the Noise handshake, then
+//! messages), id 1's a back-end channel for a page using this device (`remote`). Each starts with
+//! its first bytes, so a connection carries either or both.
 //!
 //! The browser's own DTLS certificate isn't known beforehand, so it isn't checked: the Noise
 //! handshake inside authenticates both devices (the browser checks this device's key from the
@@ -14,7 +16,7 @@
 //! adapted from str0m-rust-crypto (str0m, MIT OR Apache-2.0), which can't be used as it is because
 //! it builds aws-lc for its certificates.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::RangeInclusive;
 use std::sync::{Arc, OnceLock};
@@ -47,8 +49,14 @@ const IDLE: Duration = Duration::from_secs(120);
 const LINGER: Duration = Duration::from_secs(5);
 /// The data channel both sides agree on without a message (`negotiated: true, id: 0`).
 const CHANNEL_ID: u16 = 0;
+/// The back-end channel (`negotiated: true, id: 1`, `remote`).
+const REMOTE_CHANNEL_ID: u16 = 1;
+/// The back end's lane; sync's is 0.
+const REMOTE_LANE: usize = 1;
 /// Bytes read from the sync side per data channel message.
 const CHUNK: usize = 16 * 1024;
+/// Bytes waiting for room in a connection's send buffer before it's given up on.
+const MAX_PENDING: usize = 64 * 1024 * 1024;
 
 const STUN_BINDING_REQUEST: [u8; 2] = [0x00, 0x01];
 const STUN_MAGIC: [u8; 4] = [0x21, 0x12, 0xA4, 0x42];
@@ -262,16 +270,77 @@ pub(crate) fn binding_request_ufrag(data: &[u8], ufrag: &str) -> Option<String> 
     None
 }
 
+/// One data channel of a connection and the connection behind it.
+struct Lane {
+    channel: ChannelId,
+    /// Bytes from the browser, on their way to the connection.
+    to: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    /// Bytes for the browser waiting for room in the channel's send buffer, in order.
+    pending: VecDeque<Vec<u8>>,
+    pending_bytes: usize,
+    started: bool,
+    ended: bool,
+}
+
+impl Lane {
+    fn new(channel: ChannelId) -> Self {
+        Self {
+            channel,
+            to: None,
+            pending: VecDeque::new(),
+            pending_bytes: 0,
+            started: false,
+            ended: false,
+        }
+    }
+}
+
 /// One browser's connection.
 struct Session {
     rtc: Rtc,
-    channel: ChannelId,
-    /// Bytes from the browser, on their way to the sync connection.
-    to_sync: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    /// Sync's, then [`REMOTE_LANE`].
+    lanes: [Lane; 2],
     next: Option<Instant>,
     active_at: Instant,
     ended_at: Option<Instant>,
     alive: bool,
+}
+
+impl Session {
+    /// Writes what waits, in order, while the send buffers take it (SCTP frees room as the
+    /// browser acknowledges; each packet in comes back here through `drain`).
+    fn flush(&mut self) {
+        for lane in &mut self.lanes {
+            while let Some(bytes) = lane.pending.front() {
+                let written = self
+                    .rtc
+                    .channel(lane.channel)
+                    .map(|mut channel| channel.write(true, bytes));
+                match written {
+                    Some(Ok(true)) => {
+                        lane.pending_bytes -= bytes.len();
+                        lane.pending.pop_front();
+                    }
+                    // Full: the rest goes when there's room.
+                    Some(Ok(false)) => break,
+                    _ => {
+                        tracing::info!("couldn't send to a browser");
+                        self.alive = false;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// A lane ended: the connection ends once none that started is still open.
+    fn lane_ended(&mut self, lane: usize) {
+        self.lanes[lane].to = None;
+        self.lanes[lane].ended = true;
+        if self.lanes.iter().all(|lane| !lane.started || lane.ended) {
+            self.ended_at.get_or_insert_with(Instant::now);
+        }
+    }
 }
 
 fn new_session(
@@ -310,15 +379,19 @@ fn new_session(
     });
     api.start_dtls(false)?;
     api.start_sctp(false);
-    let channel = api.create_data_channel(ChannelConfig {
+    let sync = api.create_data_channel(ChannelConfig {
         label: "raygun-sync".into(),
         negotiated: Some(CHANNEL_ID),
         ..Default::default()
     });
+    let remote = api.create_data_channel(ChannelConfig {
+        label: "raygun-remote".into(),
+        negotiated: Some(REMOTE_CHANNEL_ID),
+        ..Default::default()
+    });
     Ok(Session {
         rtc,
-        channel,
-        to_sync: None,
+        lanes: [Lane::new(sync), Lane::new(remote)],
         next: None,
         active_at: now,
         ended_at: None,
@@ -367,7 +440,7 @@ async fn run(
         }));
     }
     drop(packets_in);
-    let (written, mut writes) = mpsc::unbounded_channel::<(u64, Vec<u8>)>();
+    let (written, mut writes) = mpsc::unbounded_channel::<(u64, usize, Vec<u8>)>();
     let mut sessions: HashMap<u64, Session> = HashMap::new();
     let mut next_id = 0u64;
     loop {
@@ -427,21 +500,19 @@ async fn run(
                 }
             }
             write = writes.recv() => {
-                let Some((id, bytes)) = write else { break };
+                let Some((id, lane, bytes)) = write else { break };
                 let Some(session) = sessions.get_mut(&id) else { continue };
                 session.active_at = Instant::now();
                 if bytes.is_empty() {
-                    // The sync connection ended.
-                    session.ended_at.get_or_insert_with(Instant::now);
+                    // The lane's connection ended.
+                    session.lane_ended(lane);
                     continue;
                 }
-                let channel = session.channel;
-                let sent = session
-                    .rtc
-                    .channel(channel)
-                    .map(|mut channel| channel.write(true, &bytes));
-                if !matches!(sent, Some(Ok(true))) {
-                    tracing::info!("couldn't send to a browser");
+                let waiting = &mut session.lanes[lane];
+                waiting.pending_bytes += bytes.len();
+                waiting.pending.push_back(bytes);
+                if waiting.pending_bytes > MAX_PENDING {
+                    tracing::info!("a browser stopped taking what was sent");
                     session.alive = false;
                 }
                 drain(id, session, &sockets, &engine, &written);
@@ -480,8 +551,9 @@ fn drain(
     session: &mut Session,
     sockets: &[Arc<UdpSocket>],
     engine: &Arc<Engine>,
-    written: &mpsc::UnboundedSender<(u64, Vec<u8>)>,
+    written: &mpsc::UnboundedSender<(u64, usize, Vec<u8>)>,
 ) {
+    session.flush();
     loop {
         let output = match session.rtc.poll_output() {
             Ok(output) => output,
@@ -506,19 +578,35 @@ fn drain(
                 }
             }
             Output::Event(event) => match event {
-                Event::ChannelOpen(channel, _) if channel == session.channel => {
-                    session.to_sync = Some(bridge(id, engine.clone(), written.clone()));
-                }
-                Event::ChannelData(data) if data.id == session.channel => {
-                    if let Some(to_sync) = &session.to_sync
-                        && to_sync.send(data.data).is_err()
+                Event::ChannelData(data) => {
+                    let Some(index) = session
+                        .lanes
+                        .iter()
+                        .position(|lane| lane.channel == data.id)
+                    else {
+                        continue;
+                    };
+                    let lane = &mut session.lanes[index];
+                    // A lane's connection starts with its first bytes: a browser opens the
+                    // channels it uses, and both are always negotiated.
+                    if !lane.started {
+                        lane.started = true;
+                        lane.to = Some(bridge(id, index, engine.clone(), written.clone()));
+                    }
+                    if let Some(to) = &lane.to
+                        && to.send(data.data).is_err()
                     {
-                        session.to_sync = None;
+                        lane.to = None;
                     }
                 }
-                Event::ChannelClose(channel) if channel == session.channel => {
-                    session.to_sync = None;
-                    session.ended_at.get_or_insert_with(Instant::now);
+                Event::ChannelClose(channel) => {
+                    if let Some(index) = session
+                        .lanes
+                        .iter()
+                        .position(|lane| lane.channel == channel)
+                    {
+                        session.lane_ended(index);
+                    }
                 }
                 Event::IceConnectionStateChange(IceConnectionState::Disconnected) => {
                     session.alive = false;
@@ -529,12 +617,14 @@ fn drain(
     }
 }
 
-/// Runs a sync connection over a browser's data channel: bytes from the browser go in through
-/// the returned sender, bytes the connection writes come back on `written` (empty when it ends).
+/// Runs a lane's connection (sync, or the back end) over a browser's data channel: bytes from the
+/// browser go in through the returned sender, bytes the connection writes come back on `written`
+/// (empty when it ends).
 fn bridge(
     id: u64,
+    lane: usize,
     engine: Arc<Engine>,
-    written: mpsc::UnboundedSender<(u64, Vec<u8>)>,
+    written: mpsc::UnboundedSender<(u64, usize, Vec<u8>)>,
 ) -> mpsc::UnboundedSender<Vec<u8>> {
     let (ours, theirs) = tokio::io::duplex(256 * 1024);
     let (mut reader, mut writer) = tokio::io::split(ours);
@@ -552,11 +642,11 @@ fn bridge(
         loop {
             match reader.read(&mut buffer).await {
                 Ok(0) | Err(_) => {
-                    let _ = written.send((id, Vec::new()));
+                    let _ = written.send((id, lane, Vec::new()));
                     break;
                 }
                 Ok(size) => {
-                    if written.send((id, buffer[..size].to_vec())).is_err() {
+                    if written.send((id, lane, buffer[..size].to_vec())).is_err() {
                         break;
                     }
                 }
@@ -564,8 +654,13 @@ fn bridge(
         }
     });
     tokio::spawn(async move {
-        if let Err(error) = engine.handle_stream(theirs, None).await {
-            tracing::info!(%error, "browser sync connection ended");
+        let result = if lane == REMOTE_LANE {
+            engine.handle_remote(theirs).await
+        } else {
+            engine.handle_stream(theirs, None).await
+        };
+        if let Err(error) = result {
+            tracing::info!(%error, lane, "browser connection ended");
         }
     });
     to_sync

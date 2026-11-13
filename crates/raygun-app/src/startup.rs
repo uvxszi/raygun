@@ -113,6 +113,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Converted sources' hidden web views (`raygun_ext_host::webview`).
     crate::web_views::install(app.handle(), paths.root().join("web").join("views"));
     crate::caches::sweep_later(app.handle());
+    app.manage(crate::web_remote::ProxyOrigin(proxy.address()));
     app.manage(proxy.images());
     app.manage(proxy.pdfs());
     app.manage(proxy.media());

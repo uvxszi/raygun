@@ -81,7 +81,7 @@ export class ByteStream {
   }
 }
 
-const writeFrame = (stream: ByteStream, data: Uint8Array) => {
+export const writeFrame = (stream: ByteStream, data: Uint8Array) => {
   if (data.length > 0xffff) throw new SyncError('frame too large');
   const frame = new Uint8Array(2 + data.length);
   new DataView(frame.buffer).setUint16(0, data.length);
@@ -89,7 +89,7 @@ const writeFrame = (stream: ByteStream, data: Uint8Array) => {
   stream.write(frame);
 };
 
-const readFrame = async (stream: ByteStream) => {
+export const readFrame = async (stream: ByteStream) => {
   const head = await stream.read(2);
   const length = new DataView(head.buffer, head.byteOffset).getUint16(0);
   return stream.read(length);

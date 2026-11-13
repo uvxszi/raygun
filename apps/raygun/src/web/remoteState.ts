@@ -1,22 +1,68 @@
-// Whether a linked Raygun app answers this page's commands (docs/WEB.md). While one does, what
-// needs the app works through it, so buttons that say "needs the app" are enabled instead.
+// Whether Raygun on the web is using a linked app as its back end (web/remote/), for the screens
+// that show it. Outside the web build nothing sets it, so it stays off.
 import { useSyncExternalStore } from 'react';
 
-let connected = false;
-const listeners = new Set<() => void>();
-
-export const remoteConnected = () => connected;
-
-export const setRemoteConnected = (value: boolean) => {
-  if (connected === value) return;
-  connected = value;
-  for (const listener of listeners) listener();
+export type RemoteState = {
+  /** A linked app could be used (the page is linked with one). */
+  available: boolean;
+  /** The switch: use a linked app when it's reachable. */
+  enabled: boolean;
+  /** The app in use, or tried. */
+  deviceId: string | null;
+  device: string | null;
+  connected: boolean;
+  connecting: boolean;
+  /** Why the last try failed. */
+  error: string | null;
 };
+
+export type RemoteControls = {
+  setEnabled: (enabled: boolean) => void;
+  /** Uses this linked app from now on. */
+  choose: (deviceId: string) => void;
+};
+
+const OFF: RemoteState = {
+  available: false,
+  enabled: false,
+  deviceId: null,
+  device: null,
+  connected: false,
+  connecting: false,
+  error: null,
+};
+
+let state: RemoteState = OFF;
+let controls: RemoteControls | null = null;
+const listeners = new Set<() => void>();
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 };
 
-export const useRemoteConnected = () =>
-  useSyncExternalStore(subscribe, remoteConnected, () => false);
+export const remoteState = (): RemoteState => state;
+
+export const setRemoteState = (next: Partial<RemoteState>) => {
+  state = { ...state, ...next };
+  for (const listener of [...listeners]) listener();
+};
+
+export const setRemoteControls = (next: RemoteControls | null) => {
+  controls = next;
+};
+
+export const remoteControls = (): RemoteControls | null => controls;
+
+export const useRemoteState = (): RemoteState => useSyncExternalStore(subscribe, remoteState);
+
+export const useRemoteConnected = (): boolean =>
+  useSyncExternalStore(subscribe, () => state.connected);
+
+/** Whether a linked app answers for the page now. */
+export const remoteConnected = (): boolean => state.connected;
+
+/** Marks a linked app as answering (or not), as `setRemoteState` does with more. */
+export const setRemoteConnected = (connected: boolean) => setRemoteState({ connected });

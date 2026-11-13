@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LinkedDevices } from '../devices/LinkedDevices';
+import { WebBackendCard } from '../devices/WebBackend';
 import {
   useRenameDevice,
   useSetSyncKinds,
@@ -128,6 +129,7 @@ export const DevicesPage: FC = () => {
     <section data-testid="devices-page" className="flex max-w-2xl flex-col">
       <TopBar back fallback="/settings" title={t('devices.title')} />
       <LinkedDevices />
+      <WebBackendCard />
       {data && <ThisDevice status={data} />}
       {(data?.error || status.error) && (
         <div className="px-1 py-2">
