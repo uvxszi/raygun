@@ -55,7 +55,10 @@ export const NEEDS_APP_SITE =
 export const NEEDS_APP_KIND = 'Raygun on the web doesn’t use this kind of source yet.';
 
 /** Why an entry can't run in a browser, or null when it can. */
+export const NEEDS_APP_PDF = 'Its books are PDF documents, which only the Raygun app shows.';
+
 export const webRefusal = (id: string, provides: string[] | undefined): string | null => {
+  if (id === 'dev.raygun.archive-books') return NEEDS_APP_PDF;
   if (APP_ONLY_SOURCES.has(id)) return NEEDS_APP_SITE;
   if (provides && provides.length > 0 && !provides.some((kind) => WEB_KINDS.has(kind))) {
     return NEEDS_APP_KIND;
