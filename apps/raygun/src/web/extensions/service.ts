@@ -24,6 +24,8 @@ import type {
 import { uuidV7Of } from '../core/context';
 import type { CoreContext } from '../core/context';
 import { Sandbox } from './sandbox';
+import type { RegisteredProvider } from './sandbox';
+import { WEB_STARTER_SOURCES, webRefusal } from './webSources';
 import { readZip } from './zip';
 
 export const PARALINE_URL =
@@ -35,6 +37,7 @@ const PARALINE: SuggestedRepo = {
   added: false,
 };
 const REPOS = 'ext.repos';
+const STARTERS = 'ext.startersInstalled';
 const NOT_HERE = "Only Raygun's own sources run in the browser; this one needs the app.";
 
 type ManifestSetting = {
@@ -384,15 +387,59 @@ export class ExtensionsService {
     const format = entry.format ?? 'raygun';
     if (format !== 'raygun' || !entry.package) return NOT_HERE;
     if (entry.runtime && entry.runtime !== 'js') return NOT_HERE;
-    return null;
+    return webRefusal(entry.id, entry.provides);
   }
 
-  async catalog(refresh: boolean): Promise<RepoCatalog[]> {
+  /**
+   * A browser's first start installs the first-party sources that work in browsers from Paraline,
+   * as the apps start with Paraline's. Once: removing one later keeps it removed.
+   */
+  async installStarters(): Promise<void> {
+    if (this.context.meta<boolean>(STARTERS) || typeof document === 'undefined') return;
+    const paraline = this.repos().find((repo) => repo.url === PARALINE_URL);
+    if (!paraline) return;
+    let index: RepoIndex;
+    try {
+      index = await this.index(paraline.url);
+    } catch {
+      return; // Offline: the next start tries again.
+    }
+    this.context.setMeta(STARTERS, true);
+    const have = new Set(this.installed().map((extension) => extension.manifest.id));
+    const wanted = (index.extensions ?? []).filter(
+      (entry) =>
+        WEB_STARTER_SOURCES.includes(entry.id) && !have.has(entry.id) && !this.unsupported(entry),
+    );
+    if (wanted.length === 0) return;
+    this.enqueue(
+      wanted.map((entry) => ({
+        repoId: paraline.id,
+        extensionId: entry.id,
+        name: entry.name ?? entry.id,
+      })),
+    );
+  }
+
+  /** What a repository lists, read without adding it. */
+  async preview(url: string): Promise<RepoCatalog> {
+    const address = url.trim();
+    const repo = this.repos().find((candidate) => candidate.url === address) ?? {
+      id: `preview:${address}`,
+      url: address,
+      name: new URL(address).hostname,
+    };
+    const [listing] = await this.catalog(false, [repo]);
+    if (!listing) throw new Error("That address isn't a Raygun repository.");
+    if (listing.error) throw new Error(listing.error);
+    return listing;
+  }
+
+  async catalog(refresh: boolean, repos = this.repos()): Promise<RepoCatalog[]> {
     const installed = new Map(
       this.installed().map((extension) => [extension.manifest.id, extension]),
     );
     return Promise.all(
-      this.repos().map(async (repo) => {
+      repos.map(async (repo) => {
         try {
           const index = await this.index(repo.url, refresh);
           const entries: CatalogEntry[] = (index.extensions ?? []).map((entry) => {
@@ -424,6 +471,7 @@ export class ExtensionsService {
               installedVersion: have?.manifest.version ?? null,
               icon: httpUrl(entry.icon),
               unsupported,
+              unsupportedKind: unsupported ? 'cantRun' : null,
             };
           });
           return { repo, entries, error: null };
@@ -531,6 +579,28 @@ export class ExtensionsService {
     return this.installStatus();
   }
 
+  /** Takes a waiting install (or every waiting one) out of the queue. */
+  cancel(extensionId: string | null): ExtensionInstallStatus {
+    this.queue = this.queue.filter(
+      (item) =>
+        item.state !== 'queued' || (extensionId !== null && item.extensionId !== extensionId),
+    );
+    this.context.emit('extensionInstallsEvent', this.installStatus());
+    return this.installStatus();
+  }
+
+  /** Queues the failed installs again. */
+  retry(): ExtensionInstallStatus {
+    for (const item of this.queue) {
+      if (item.state !== 'failed') continue;
+      item.state = 'queued';
+      item.error = null;
+      item.finishedAt = null;
+    }
+    void this.work();
+    return this.installStatus();
+  }
+
   private async work() {
     if (this.running) return;
     this.running = true;
@@ -556,6 +626,59 @@ export class ExtensionsService {
   }
 
   // ---- Using sources ----
+
+  /** A provider as the bindings describe it. */
+  infoOf(extension: InstalledExtension, provider: RegisteredProvider): ProviderInfo_Serialize {
+    return {
+      id: `${extension.manifest.id}/${provider.id}`,
+      extensionId: extension.manifest.id,
+      kind: provider.kind,
+      name: provider.name ?? extension.manifest.name,
+      searchPill: provider.searchPill ?? null,
+      adult: this.adult(extension.manifest),
+    };
+  }
+
+  /** Every loaded provider of `kind` with whether it's switched on (Settings' disabled sources). */
+  async listed(kind: string): Promise<Array<{ info: ProviderInfo_Serialize; enabled: boolean }>> {
+    await this.start();
+    const showNsfw = this.settings().showNsfw;
+    const disabled = new Set(this.settings().disabledSources);
+    return this.installed().flatMap((extension) => {
+      const id = extension.manifest.id;
+      const sandbox = this.sandboxes.get(id);
+      if (!sandbox || this.failures.has(id)) return [];
+      if (this.adult(extension.manifest) && !showNsfw) return [];
+      return sandbox.providers
+        .filter((provider) => provider.kind === kind)
+        .map((provider) => {
+          const info = this.infoOf(extension, provider);
+          return { info, enabled: !disabled.has(id) && !disabled.has(info.id) };
+        });
+    });
+  }
+
+  /** Calls one provider (`<extension>/<provider>`) of an installed, loaded source. */
+  async call<T>(providerId: string, method: string, args: unknown): Promise<T> {
+    const slash = providerId.indexOf('/');
+    const extensionId = slash < 0 ? providerId : providerId.slice(0, slash);
+    const extension = this.context.store.get<InstalledExtension>('extensions', extensionId);
+    if (!extension) throw new Error('That source isn’t installed in this browser.');
+    const sandbox = this.sandboxFor(extension);
+    await sandbox.ready();
+    const own = providerId.slice(slash + 1);
+    return sandbox.call<T>(own, method, args);
+  }
+
+  /** A provider's name, for messages. */
+  nameOf(providerId: string): string {
+    const extensionId = providerId.split('/')[0] ?? providerId;
+    const extension = this.context.store.get<InstalledExtension>('extensions', extensionId);
+    const provider = this.sandboxes
+      .get(extensionId)
+      ?.providers.find((candidate) => `${extensionId}/${candidate.id}` === providerId);
+    return provider?.name ?? extension?.manifest.name ?? providerId;
+  }
 
   /** Every loaded provider of `kind`, the content filter applied. */
   private async providersOf(kind: string) {

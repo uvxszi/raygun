@@ -1456,6 +1456,7 @@
     "upToDate": "Installed",
     "newerInstalled": "Newer version installed",
     "cantInstall": "Can't install",
+    "needsApp": "Needs the app",
     "notForRaygun": "Not for Raygun",
     "notForRaygunWhy": "Not for Raygun: {{reason}}",
     "remove": "Remove",

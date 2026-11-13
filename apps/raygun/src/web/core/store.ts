@@ -17,6 +17,7 @@ export const TABLES = [
   'files',
   'extensions',
   'ext_storage',
+  'titles',
 ] as const;
 
 export type TableName = (typeof TABLES)[number];

@@ -23,7 +23,7 @@ export type RegisteredProvider = {
 };
 
 /** The sandbox's side, as one document. Kept to plain ES2020 that every browser runs. */
-const SANDBOX_PAGE = `<!doctype html><meta charset="utf-8"><script>
+export const SANDBOX_PAGE = `<!doctype html><meta charset="utf-8"><script>
 'use strict';
 (() => {
   const send = (message) => parent.postMessage(Object.assign({ raygunSandbox: true }, message), '*');
@@ -61,15 +61,36 @@ const SANDBOX_PAGE = `<!doctype html><meta charset="utf-8"><script>
     bytes: async () => raw.bytes || null,
   });
 
+  // MediaWiki's APIs answer web pages only when asked with origin=* (anonymous requests).
+  const WIKI = /(^|\\.)(wikipedia|wikimedia|wikibooks|wikisource|wikidata|wiktionary|wikiquote|wikiversity|wikivoyage|mediawiki)\\.org$/;
+  const forBrowsers = (address) => {
+    try {
+      const parsed = new URL(address);
+      if (WIKI.test(parsed.hostname) && /\\/api\\.php$/.test(parsed.pathname) && !parsed.searchParams.has('origin')) {
+        parsed.searchParams.set('origin', '*');
+        return parsed.href;
+      }
+    } catch (error) {
+      return address;
+    }
+    return address;
+  };
+
   const httpFetch = async (url, init) => {
     init = init || {};
-    const address = String(url);
+    const address = forBrowsers(String(url));
     if (!allowed(address)) {
       throw new Error('this extension may not reach ' + address + ' (its permissions)');
     }
+    // The browser names itself: a User-Agent of the source's own would only make the browser ask
+    // the site first (a preflight), which many sites never answer.
+    const sent = {};
+    for (const [name, value] of Object.entries(init.headers || {})) {
+      if (String(name).toLowerCase() !== 'user-agent') sent[name] = value;
+    }
     const options = {
       method: init.method || 'GET',
-      headers: init.headers || {},
+      headers: sent,
       credentials: 'omit',
       redirect: init.redirect === 'manual' ? 'manual' : 'follow',
     };

@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { nativeName } from '../i18n/languages';
+import { isWebBuild } from '../lib/webBuild';
 import { useSettings } from '../settings/useSettings';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
@@ -148,7 +149,13 @@ const EntryAction: FC<{
   if (entry.unsupported) {
     return (
       <span className="text-muted text-sm whitespace-nowrap">
-        {t(isNotForRaygun(entry) ? 'extensions.notForRaygun' : 'extensions.cantInstall')}
+        {t(
+          isNotForRaygun(entry)
+            ? 'extensions.notForRaygun'
+            : isWebBuild()
+              ? 'extensions.needsApp'
+              : 'extensions.cantInstall',
+        )}
       </span>
     );
   }

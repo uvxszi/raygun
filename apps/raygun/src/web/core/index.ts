@@ -7,6 +7,11 @@ import type {
   DeviceState,
   EngineReport,
   ExtensionInstallRequest,
+  FilterValue,
+  LibraryList,
+  MangaBrowseMode,
+  ReaderMode,
+  VideoSourcePlay,
   PlayContext,
   PlaybackControl,
   QueueItem,
@@ -27,6 +32,8 @@ import { SyncEngine } from '../sync/engine';
 import type { Connect } from '../sync/engine';
 import { isLinkText, parseInvite } from '../sync/protocol';
 import { connectWebRtc } from '../sync/webrtc';
+import { CatalogService, mediumOf } from './catalog';
+import { ChartsService } from './charts';
 import { CollectionsService, queueItemOf } from './collections';
 import { SyncedRows, createContext, fail } from './context';
 import type { CoreContext } from './context';
@@ -39,6 +46,21 @@ import { Store } from './store';
 import type { Backend } from './store';
 
 export type Handler = (args: Record<string, unknown>) => unknown;
+
+/** What a remote answers: `handled: false` lets the page's own fallback answer stand. */
+export type RemoteAnswer = { handled: true; value: unknown } | { handled: false };
+/** Answers commands the page has no implementation of (a linked app; docs/WEB.md). */
+export type RemoteHandler = (
+  command: string,
+  args: Record<string, unknown>,
+) => Promise<RemoteAnswer>;
+
+let remoteHandler: RemoteHandler | null = null;
+
+/** Sets (or clears) where commands without a web implementation go before their fallback. */
+export const setRemoteHandler = (handler: RemoteHandler | null) => {
+  remoteHandler = handler;
+};
 
 export type WebCoreOptions = {
   backend: Backend;
@@ -100,6 +122,10 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
   const settings = new SettingsService(context);
   const collections = new CollectionsService(context);
   const extensions = new ExtensionsService(context, () => settings.stored());
+  const catalog = new CatalogService(context, extensions, () => settings.stored(), (request) =>
+    context.emit('videoPlayerEvent', { kind: 'open', json: JSON.stringify(request) }),
+  );
+  const charts = new ChartsService(extensions);
 
   const find = async (item: QueueItem): Promise<Found> => {
     const source = item.source;
@@ -409,9 +435,21 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
       extensions.enqueue(entries as ExtensionInstallRequest[]),
     extension_installs_status: () => extensions.installStatus(),
     extension_installs_dismiss: () => extensions.dismiss(),
-    extension_installs_cancel: () => extensions.installStatus(),
-    extension_installs_cancel_all: () => extensions.installStatus(),
-    extension_installs_retry: () => extensions.installStatus(),
+    extension_installs_cancel: ({ extensionId }) => extensions.cancel(String(extensionId)),
+    extension_installs_cancel_all: () => extensions.cancel(null),
+    extension_installs_retry: () => extensions.retry(),
+    extension_repo_preview: ({ url }) => extensions.preview(String(url)),
+    extension_catalog_refresh_repo: async ({ repoId }) => {
+      const repo = extensions.repos().find((candidate) => candidate.id === repoId);
+      if (repo) await extensions.catalog(true, [repo]);
+      return extensions.catalog(false);
+    },
+    extension_open_website: ({ id }) => {
+      const website = extensions.list().find((extension) => extension.id === id)?.website;
+      if (!website) fail('This source has no website.');
+      window.open(String(website), '_blank', 'noopener');
+      return null;
+    },
     online_search: async ({ query }) => {
       const trimmed = String(query).trim();
       const providers = trimmed ? await extensions.searchMusic(trimmed) : [];
@@ -422,11 +460,145 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
         .slice(0, 5);
       return { library: [], top, providers };
     },
+    music_charts: ({ region }) => charts.charts((region as string | null) ?? null),
+    music_chart: ({ providerId, chartId, region }) =>
+      charts.chart(String(providerId), String(chartId), (region as string | null) ?? null),
+
+    // ---- Comics, books and videos from sources ----
+    manga_sources: () => catalog.sources('manga'),
+    novel_sources: () => catalog.sources('novel'),
+    video_sources: () => catalog.sources('video'),
+    manga_browse: ({ sourceId, mode, query, page }) =>
+      catalog.browse('manga', String(sourceId), mode as MangaBrowseMode, query as string | null, Number(page) || 1),
+    novel_browse: ({ sourceId, mode, query, page }) =>
+      catalog.browse('novel', String(sourceId), mode as MangaBrowseMode, query as string | null, Number(page) || 1),
+    video_browse: ({ sourceId, mode, query, page }) =>
+      catalog.browse('video', String(sourceId), mode as MangaBrowseMode, query as string | null, Number(page) || 1),
+    catalog_search: ({ medium, sourceId, query, page, filters }) =>
+      catalog.search(
+        mediumOf(medium),
+        String(sourceId),
+        String(query ?? ''),
+        Number(page) || 1,
+        (filters as Record<string, FilterValue> | null) ?? {},
+      ),
+    catalog_filters: ({ sourceId }) => catalog.filters(String(sourceId)),
+    catalog_global_search: ({ medium, query, sources }) =>
+      catalog.globalSearch(mediumOf(medium), String(query ?? ''), (sources as string[] | null) ?? []),
+    catalog_open_page: async ({ sourceId, url }) => {
+      const address =
+        (url as string | null) ??
+        extensions.list().find((extension) => String(sourceId).startsWith(`${extension.id}/`))
+          ?.website ??
+        null;
+      if (!address) fail('This source has no website.');
+      window.open(String(address), '_blank', 'noopener');
+      return null;
+    },
+    manga_title: ({ sourceId, mangaId, refresh }) =>
+      catalog.mangaTitle('manga', String(sourceId), String(mangaId), refresh === true),
+    novel_title: ({ sourceId, novelId, refresh }) =>
+      catalog.mangaTitle('novel', String(sourceId), String(novelId), refresh === true),
+    video_title: ({ sourceId, remoteId, refresh }) =>
+      catalog.videoTitle(String(sourceId), String(remoteId), refresh === true),
+    manga_chapters: ({ titleId }) => catalog.chapters(String(titleId)),
+    manga_chapter: ({ titleId, chapterId }) =>
+      catalog.chapterPages(String(titleId), String(chapterId)),
+    novel_chapter: ({ titleId, chapterId }) =>
+      catalog.novelChapter(String(titleId), String(chapterId)),
+    manga_set_reader_mode: ({ titleId, mode }) => {
+      catalog.setReaderMode(String(titleId), (mode as ReaderMode | null) ?? null);
+      return null;
+    },
+    manga_set_progress: ({ chapterId, page, total }) => {
+      catalog.setProgress(String(chapterId), Number(page), Number(total));
+      return null;
+    },
+    novel_set_progress: ({ chapterId, offset, total }) => {
+      catalog.setProgress(String(chapterId), Number(offset), Number(total));
+      return null;
+    },
+    manga_set_read: ({ chapterId, read }) => {
+      catalog.setRead([String(chapterId)], read === true);
+      return null;
+    },
+    novel_set_read: ({ chapterId, read }) => {
+      catalog.setRead([String(chapterId)], read === true);
+      return null;
+    },
+    library_set_chapters_read: ({ chapterIds, read }) => {
+      catalog.setRead(chapterIds as string[], read === true);
+      return null;
+    },
+    library_mark_read: ({ titleIds, read }) => {
+      catalog.markTitlesRead(titleIds as string[], read === true);
+      return null;
+    },
+    library_mark_previous_read: ({ chapterId }) => {
+      catalog.markPreviousRead(String(chapterId));
+      return null;
+    },
+    manga_set_in_library: ({ titleId, inLibrary }) => {
+      catalog.setInLibrary(String(titleId), inLibrary === true);
+      return null;
+    },
+    novel_set_in_library: ({ titleId, inLibrary }) => {
+      catalog.setInLibrary(String(titleId), inLibrary === true);
+      return null;
+    },
+    video_set_in_library: ({ titleId, inLibrary }) => {
+      catalog.setInLibrary(String(titleId), inLibrary === true);
+      return null;
+    },
+    manga_library: () => catalog.library('manga'),
+    novel_library: () => catalog.library('novel'),
+    video_library: () => catalog.library('video'),
+    library_title_marks: ({ titleId }) => catalog.marks(String(titleId)),
+    library_set_list: ({ titleIds, list }) => {
+      catalog.setMark(titleIds as string[], { list: (list as LibraryList | null) ?? null });
+      return null;
+    },
+    library_set_favorite: ({ titleIds, favorite }) => {
+      catalog.setMark(titleIds as string[], { favorite: favorite === true });
+      return null;
+    },
+    library_set_pinned: ({ titleIds, pinned }) => {
+      catalog.setMark(titleIds as string[], { pinned: pinned === true });
+      return null;
+    },
+    library_remove: ({ titleIds }) => {
+      catalog.remove(titleIds as string[]);
+      return null;
+    },
+    library_continue: ({ titleId }) => catalog.continueChapter(String(titleId)),
+    video_servers: ({ sourceId, episodeId }) =>
+      catalog.servers(String(sourceId), String(episodeId)),
+    video_links: ({ sourceId, serverId }) => catalog.links(String(sourceId), String(serverId)),
+    video_source_play: ({ request }) => {
+      catalog.play(request as VideoSourcePlay);
+      return null;
+    },
+    video_source_watch: async ({ titleId, episodeId }) => {
+      await catalog.watch(String(titleId), (episodeId as string | null) ?? null);
+      return null;
+    },
+    video_set_episode_watched: ({ titleId, episodeId, watched }) => {
+      catalog.setWatched(String(titleId), String(episodeId), watched === true);
+      return null;
+    },
+    video_player_report: ({ report }) => {
+      catalog.report(String(report));
+      return null;
+    },
   };
 
   const invoke = async (command: string, args: Record<string, unknown>) => {
     const handler = handlers[command];
     if (!handler) {
+      if (remoteHandler) {
+        const answer = await remoteHandler(command, args);
+        if (answer.handled) return answer.value;
+      }
       if (options.debug) console.debug('[raygun web] no web implementation:', command);
       return fallbackAnswer(options.answers, command);
     }
@@ -463,7 +635,7 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     start: () => {
       playback.start();
       autoSync();
-      void extensions.start();
+      void extensions.start().then(() => extensions.installStarters());
     },
     flush: () => store.flush(),
   };

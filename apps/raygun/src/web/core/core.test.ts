@@ -2,6 +2,7 @@ import { commands, events } from '@raygun/bindings';
 import type { EngineCommand, PlaybackState, TrackInput } from '@raygun/bindings';
 
 import { NOT_ON_THE_WEB } from './fallback';
+import { setRemoteHandler } from './index';
 import { openCore } from '../test/webCore';
 import type { TestCore } from '../test/webCore';
 
@@ -118,6 +119,29 @@ describe('the web core behind the bindings', () => {
     const refused = await commands.podcastSetSubscribed('feed', true);
     expect(refused).toEqual({ status: 'error', error: NOT_ON_THE_WEB });
     await expect(commands.ttsSetAvailable(true)).resolves.toBeNull();
+  });
+
+  it('asks a remote first for commands it has no implementation of', async () => {
+    await start();
+    const asked: string[] = [];
+    setRemoteHandler(async (command) => {
+      asked.push(command);
+      return command === 'podcast_set_subscribed'
+        ? { handled: true, value: null }
+        : { handled: false };
+    });
+    try {
+      expect(await commands.podcastSetSubscribed('feed', true)).toEqual({
+        status: 'ok',
+        data: null,
+      });
+      expect(ok(await commands.libraryStatus()).trackCount).toBe(0);
+      // Commands the page answers itself never go to the remote.
+      ok(await commands.playlistsList());
+      expect(asked).toEqual(['podcast_set_subscribed', 'library_status']);
+    } finally {
+      setRemoteHandler(null);
+    }
   });
 
   it('plays through the page’s engine and counts the play in history', async () => {

@@ -3,6 +3,7 @@
 // same app as on a phone or computer starts.
 import answers from 'virtual:raygun-web-answers';
 
+import { markWebBuild } from '../lib/webBuild';
 import { createWebCore } from './core';
 import { indexedDbBackend, memoryBackend } from './core/store';
 import type { Backend } from './core/store';
@@ -26,6 +27,7 @@ const registerServiceWorker = () => {
 };
 
 const start = async () => {
+  markWebBuild();
   // Asks the browser not to clear Raygun's data when space runs low.
   void navigator.storage?.persist?.().catch(() => false);
   const core = await createWebCore({

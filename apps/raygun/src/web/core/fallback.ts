@@ -7,7 +7,7 @@ export type CommandAnswer = { result: boolean; empty: unknown };
 export type CommandAnswers = Record<string, CommandAnswer>;
 
 export const NOT_ON_THE_WEB =
-  "This isn't available in Raygun on the web. Use the app on a phone or computer.";
+  'This needs the Raygun app on a phone or computer; a browser can’t do it. Link one in More → Devices.';
 
 /** Words in a command's name that make it an action, not a read. */
 const ACTIONS = new Set([
