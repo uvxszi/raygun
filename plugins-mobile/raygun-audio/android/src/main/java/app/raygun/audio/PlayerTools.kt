@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
@@ -20,6 +21,7 @@ import android.provider.MediaStore
 import android.util.Rational
 import android.view.PixelCopy
 import android.view.SurfaceView
+import android.view.View
 import androidx.annotation.RequiresApi
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -101,11 +103,30 @@ internal class PlayerTools(private val host: VideoPlayerActivity) {
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(ratio)
             .setActions(actions)
+        // Where the picture is on screen: the small window grows out of it and back into it,
+        // never from the whole (wider) window, whose sides would show as black and a crop.
+        sourceHint()?.let { builder.setSourceRectHint(it) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setAutoEnterEnabled(host.prefs.pipOnLeave && playing)
-            builder.setSeamlessResizeEnabled(true)
+            // A video redraws only with its next frame (never while paused): the system
+            // cross-fades its resizes instead of stretching the last drawing.
+            builder.setSeamlessResizeEnabled(false)
         }
         return builder.build()
+    }
+
+    /** The video's place on screen inside the player's frame, fitted to its aspect. */
+    private fun sourceHint(): Rect? {
+        val frame = host.playerView.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame) ?: host.playerView
+        if (frame.width <= 0 || frame.height <= 0) return null
+        val at = IntArray(2)
+        frame.getLocationInWindow(at)
+        val size = host.player.videoSize
+        val (left, top, right, bottom) = pipSourceRect(
+            at[0], at[1], frame.width, frame.height,
+            (size.width * size.pixelWidthHeightRatio).toInt(), size.height,
+        )
+        return Rect(left, top, right, bottom)
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -259,5 +280,34 @@ internal class PlayerTools(private val host: VideoPlayerActivity) {
             durationMs = number("extra_duration") ?: number("duration"),
             finished = extras.getString("end_by") == "playback_completion",
         )
+    }
+}
+
+/**
+ * The picture's rectangle (left, top, right, bottom) inside a frame at (`left`, `top`) of
+ * `width` × `height`, the video (`videoWidth` × `videoHeight`) fitted in it and centred; the whole
+ * frame when the video's size isn't known.
+ */
+internal fun pipSourceRect(
+    left: Int,
+    top: Int,
+    width: Int,
+    height: Int,
+    videoWidth: Int,
+    videoHeight: Int,
+): List<Int> {
+    if (videoWidth <= 0 || videoHeight <= 0 || width <= 0 || height <= 0) {
+        return listOf(left, top, left + width, top + height)
+    }
+    val video = videoWidth.toDouble() / videoHeight
+    val box = width.toDouble() / height
+    return if (video > box) {
+        val shown = (width / video).toInt()
+        val y = top + (height - shown) / 2
+        listOf(left, y, left + width, y + shown)
+    } else {
+        val shown = (height * video).toInt()
+        val x = left + (width - shown) / 2
+        listOf(x, top, x + shown, top + height)
     }
 }
