@@ -148,6 +148,8 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
   );
 };
 
+const SHOWN_MEDIA = ['all', 'music', 'websites', 'manga', 'novel', 'video'] as const;
+
 /**
  * The library: what you have, by kind of media (one top bar, one row of media tabs): Audio
  * (music and podcasts), Comics, Books, Videos and Websites.
@@ -157,7 +159,9 @@ export const LibraryPage: FC = () => {
   const layout = useLayout();
   // Without a tab in the address, the first one the user shows (M46.5); a view means Audio.
   const firstMedia = layout.libraryMedia.find((item) => item.visible)?.id ?? 'music';
-  const media = search.media ?? (search.view ? 'music' : firstMedia);
+  // Only the tabs drawn here; an address naming another (an old or mistyped one) gets the first.
+  const asked = SHOWN_MEDIA.find((item) => item === search.media);
+  const media = asked ?? (search.view ? 'music' : firstMedia);
   const firstView = layout.audioViews.find((item) => item.visible)?.id;
   const view: LibraryView = search.view ?? (isLibraryView(firstView) ? firstView : 'all');
   return (

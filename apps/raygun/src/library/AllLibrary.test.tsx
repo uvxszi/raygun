@@ -103,6 +103,12 @@ describe('Library → All', () => {
     commands.websiteList.mockResolvedValue(ok([SITE]));
   });
 
+  it('opens the first tab for an address naming a tab it has not', async () => {
+    await AppShellWrapper.mount('/library?media=audio');
+    const all = await screen.findByTestId('library-all');
+    expect(await within(all).findByText('Frieren')).toBeInTheDocument();
+  });
+
   it('picks items like other lists, with what the picked kinds share', async () => {
     const user = userEvent.setup();
     const all = await mountAll();
