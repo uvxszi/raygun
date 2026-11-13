@@ -197,6 +197,12 @@ jobs:
           $env:RAYGUN_HOME = Join-Path $env:RUNNER_TEMP raygun-home
           $app = Start-Process -FilePath "out/Raygun_${env:VERSION}_${{ matrix.arch }}_portable.exe" -PassThru
           Start-Sleep -Seconds 40
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $shot.Save("shots/windows-${{ matrix.arch }}.png")
           $logs = Join-Path $env:RAYGUN_HOME logs
           if (Test-Path $logs) { Get-ChildItem -Recurse $logs | Where-Object { -not $_.PSIsContainer } | ForEach-Object { Get-Content $_.FullName -Tail 40 } }
           if ($app.HasExited) { Write-Error "Raygun stopped by itself (exit $($app.ExitCode))"; exit 1 }
@@ -208,6 +214,13 @@ jobs:
           name: windows-${{ matrix.arch }}
           path: out/*
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && matrix.starts }}
+        with:
+          name: screenshots-windows-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
 
   linux:
     name: Linux ${{ matrix.arch }}
@@ -242,7 +255,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev patchelf file libfuse2 desktop-file-utils xvfb dbus \
+            librsvg2-dev patchelf file libfuse2 desktop-file-utils xvfb dbus imagemagick \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
 
       - uses: pnpm/action-setup@v6
@@ -284,31 +297,17 @@ jobs:
           ls -la out
           dpkg-deb --info out/*.deb
 
-      # Starts each build for 40 s in a virtual display: still running then (and no panic in its
-      # log) passes. Its data goes to a folder of its own (`RAYGUN_HOME`).
+      # Each build starts in a virtual display (.github/scripts/start-test.sh): still running 40 s
+      # later with no crash log passes; the screenshots are kept with the run.
       - name: Start the AppImage
-        run: |
-          home=$(mktemp -d)
-          set +e
-          RAYGUN_HOME="$home" APPIMAGE_EXTRACT_AND_RUN=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 \
-            timeout 40 dbus-run-session -- xvfb-run -a "out/Raygun_${VERSION}_${{ matrix.appimage }}.AppImage"
-          status=$?
-          set -e
-          find "$home/logs" -type f -exec tail -n 40 {} + || true
-          if [ "$status" -ne 124 ]; then echo "::error::The AppImage stopped by itself (exit $status)"; exit 1; fi
-          if [ -d "$home/logs/crashes" ] && [ -n "$(ls -A "$home/logs/crashes")" ]; then echo "::error::The AppImage wrote a crash log"; exit 1; fi
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: bash .github/scripts/start-test.sh "shots/linux-${{ matrix.arch }}-appimage.png" "out/Raygun_${VERSION}_${{ matrix.appimage }}.AppImage"
 
       - name: Install the deb and start it
         run: |
           sudo apt-get install -y "./out/Raygun_${VERSION}_${{ matrix.deb }}.deb"
-          home=$(mktemp -d)
-          set +e
-          RAYGUN_HOME="$home" WEBKIT_DISABLE_DMABUF_RENDERER=1 timeout 40 dbus-run-session -- xvfb-run -a raygun
-          status=$?
-          set -e
-          find "$home/logs" -type f -exec tail -n 20 {} + || true
-          if [ "$status" -ne 124 ]; then echo "::error::The installed deb stopped by itself (exit $status)"; exit 1; fi
-          if [ -d "$home/logs/crashes" ] && [ -n "$(ls -A "$home/logs/crashes")" ]; then echo "::error::The installed deb wrote a crash log"; exit 1; fi
+          bash .github/scripts/start-test.sh "shots/linux-${{ matrix.arch }}-deb.png" raygun
 
       - uses: actions/upload-artifact@v7
         with:
@@ -316,15 +315,23 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots-linux-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
+
   linux-riscv64:
     name: Linux riscv64
     needs: meta
     if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',linux-riscv64,') }}
     # Cross-compiled against Ubuntu's riscv64 ports (no riscv64 runners); no AppImage (linuxdeploy
-    # has no riscv64 build) and no start test. In a plain Ubuntu container: the runner's own
-    # packages hold versions the riscv64 ones can't sit beside.
-    runs-on: ubuntu-22.04
-    container: ubuntu:22.04
+    # has no riscv64 build) and no start test. Ubuntu 24.04 (glibc 2.39): 22.04's riscv64 ports
+    # lag its amd64 updates, and a library must have one version for both. In a plain container,
+    # since the runner's own packages are newer still.
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       TARGET: riscv64gc-unknown-linux-gnu
@@ -342,17 +349,17 @@ jobs:
         run: |
           dpkg --add-architecture riscv64
           # The archive's mirrors carry amd64; ports.ubuntu.com has riscv64.
-          sed -i -E 's/^deb ([^[])/deb [arch=amd64] \1/' /etc/apt/sources.list
-          for suite in jammy jammy-updates jammy-security; do
-            echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $suite main restricted universe multiverse"
-          done > /etc/apt/sources.list.d/riscv64.list
+          sed -i '/^Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+          printf '%s\n' 'Types: deb' 'URIs: http://ports.ubuntu.com/ubuntu-ports/' \
+            'Suites: noble noble-updates noble-security' 'Components: main restricted universe multiverse' \
+            'Architectures: riscv64' 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+            > /etc/apt/sources.list.d/riscv64.sources
           apt-get update
           apt-get dist-upgrade -y
           apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd \
             build-essential pkg-config file dpkg-dev \
             gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross \
-            libwebkit2gtk-4.1-dev:riscv64 libgtk-3-dev:riscv64 librsvg2-dev:riscv64 libdbus-1-dev:riscv64 \
-          || { apt-cache policy libtinfo6 libtinfo6:riscv64 libncurses6:riscv64; exit 1; }
+            libwebkit2gtk-4.1-dev:riscv64 libgtk-3-dev:riscv64 librsvg2-dev:riscv64 libdbus-1-dev:riscv64
 
       - uses: actions/checkout@v7
         with:
@@ -461,6 +468,8 @@ jobs:
           "target/${{ matrix.target }}/release/bundle/macos/Raygun.app/Contents/MacOS/raygun" &
           pid=$!
           sleep 40
+          mkdir -p shots
+          screencapture -x "shots/macos-${{ matrix.arch }}.png" || echo "No screenshot was taken"
           find "$RAYGUN_HOME/logs" -type f -exec tail -n 40 {} + || true
           if ! kill -0 "$pid" 2>/dev/null; then
             wait "$pid"; echo "::error::Raygun stopped by itself (exit $?)"; exit 1
@@ -473,6 +482,13 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: out/*
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots-macos-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
 
   flatpak:
     name: Flatpak ${{ matrix.arch }}
@@ -578,21 +594,21 @@ jobs:
         if: ${{ matrix.arch == 'x86_64' }}
         run: |
           pacman -U --noconfirm out/*.pkg.tar.zst
-          pacman -S --noconfirm --needed xorg-server-xvfb dbus ttf-dejavu
-          home=$(mktemp -d)
-          set +e
-          RAYGUN_HOME="$home" WEBKIT_DISABLE_DMABUF_RENDERER=1 timeout 40 dbus-run-session -- xvfb-run -a raygun
-          status=$?
-          set -e
-          find "$home/logs" -type f -exec tail -n 20 {} + || true
-          if [ "$status" -ne 124 ]; then echo "::error::The Arch package stopped by itself (exit $status)"; exit 1; fi
-          if [ -d "$home/logs/crashes" ] && [ -n "$(ls -A "$home/logs/crashes")" ]; then echo "::error::The Arch package wrote a crash log"; exit 1; fi
+          pacman -S --noconfirm --needed xorg-server-xvfb xorg-xauth dbus imagemagick ttf-dejavu
+          bash .github/scripts/start-test.sh shots/arch-x86_64.png raygun
 
       - uses: actions/upload-artifact@v7
         with:
           name: arch-${{ matrix.arch }}
           path: out/*
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && matrix.arch == 'x86_64' }}
+        with:
+          name: screenshots-arch
+          path: shots/*
+          if-no-files-found: ignore
 
   freebsd:
     name: FreeBSD x86_64
@@ -631,8 +647,14 @@ jobs:
           mem: 12288
           cpu: 4
           envs: 'VERSION'
+          # freetype2.pc requires a bzip2.pc, which FreeBSD's own bzip2 (in base) doesn't have.
           prepare: |
             pkg install -y curl pkgconf dbus webkit2-gtk_41
+            if ! pkg-config --exists bzip2; then
+              printf '%s\n' 'prefix=/usr' 'libdir=${prefix}/lib' 'includedir=${prefix}/include' \
+                'Name: bzip2' 'Description: bzip2 (FreeBSD base)' 'Version: 1.0.8' \
+                'Libs: -L${libdir} -lbz2' 'Cflags: -I${includedir}' > /usr/local/libdata/pkgconfig/bzip2.pc
+            fi
             curl --proto '=https' -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
             . "$HOME/.cargo/env"
@@ -767,6 +789,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The start tests' screenshots stay with the run.
+          find files -name '*.png' -delete
           ls -la files
           notes="docs/releases/${TAG}.md"
           if [ ! -f "$notes" ]; then echo "::error::$notes is missing"; exit 1; fi
