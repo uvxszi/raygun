@@ -80,7 +80,7 @@ const STATE_PREFIX: &str = "video.playerState.";
 /// The brightness the player last had, for "remember brightness".
 const BRIGHTNESS_KEY: &str = "video.brightness";
 /// What a title remembers: speed, aspect, subtitle and audio choices, subtitle delay, intro length.
-const STATE_KEYS: [&str; 8] = [
+const STATE_KEYS: [&str; 10] = [
     "speed",
     "aspect",
     "subtitle",
@@ -90,6 +90,9 @@ const STATE_KEYS: [&str; 8] = [
     "introMs",
     // Subtitle lines changed by hand in the desktop player, per episode and track (M46.12).
     "subtitleEdits",
+    // The title's own picture effects and smart audio (`raygun_model::PictureEffects`).
+    "pictureEffects",
+    "smartAudio",
 ];
 
 async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
@@ -1768,6 +1771,36 @@ mod tests {
                 "subtitleEdits": { "ep1|English|en": [{ "at": 1000, "startMs": 1200, "endMs": 3000, "text": "Hi" }] },
             })
         );
+    }
+
+    #[test]
+    fn effects_are_kept_per_title_and_as_defaults() {
+        let mut saved = object(json!({ "speed": 125 }));
+        merge_state(
+            &mut saved,
+            &object(json!({
+                "pictureEffects": { "deflicker": 40, "look": "sepia" },
+                "smartAudio": { "night": true },
+            })),
+        );
+        assert_eq!(saved["pictureEffects"]["deflicker"], 40);
+        assert_eq!(saved["smartAudio"]["night"], true);
+        // Following the defaults again forgets the title's own.
+        merge_state(&mut saved, &object(json!({ "pictureEffects": null })));
+        assert!(!saved.contains_key("pictureEffects"));
+
+        // "Make default" from the player: field by field into the saved settings.
+        let mut prefs = serde_json::to_value(VideoPlayerPrefs::default()).unwrap();
+        merge_prefs(
+            &mut prefs,
+            &object(
+                json!({ "pictureEffects": { "sharpen": 30 }, "smartAudio": { "dialogue": true } }),
+            ),
+        );
+        let prefs: VideoPlayerPrefs = serde_json::from_value(prefs).unwrap();
+        assert_eq!(prefs.picture_effects.sharpen, 30);
+        assert!(prefs.smart_audio.dialogue && !prefs.smart_audio.night);
+        assert!(prefs.validate().is_ok());
     }
 
     #[test]

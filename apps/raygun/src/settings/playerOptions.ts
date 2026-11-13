@@ -19,14 +19,22 @@ import {
   PictureInPicture2,
   SkipForward,
   SlidersHorizontal,
+  Wand2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import type { PlatformOnly } from '../shell/useIsDesktop';
+import {
+  NO_EFFECTS,
+  NO_SMART_AUDIO,
+  withAudioDefaults,
+  withEffectDefaults,
+} from '../video/effects/effectParams';
+import type { Audio, Effects } from '../video/effects/effectParams';
 
 /** Settings → Video player's screens after Playback (`/settings/video/<id>`), as in Aniyomi. */
 export type PlayerSettingsPage =
-  'controls' | 'gestures' | 'subtitles' | 'audio' | 'skip' | 'pip' | 'advanced';
+  'controls' | 'gestures' | 'subtitles' | 'audio' | 'skip' | 'pip' | 'effects' | 'advanced';
 
 /** Where Settings → Video player and its screens live (`/settings/player/…` redirects there). */
 export const VIDEO_SETTINGS_PATH = '/settings/video';
@@ -40,6 +48,7 @@ export const PLAYER_PAGES: { id: PlayerSettingsPage; icon: LucideIcon; only?: Pl
   { id: 'audio', icon: AudioLines },
   { id: 'skip', icon: SkipForward },
   { id: 'pip', icon: PictureInPicture2, only: 'phone' },
+  { id: 'effects', icon: Wand2 },
   { id: 'advanced', icon: Cog },
 ];
 
@@ -153,8 +162,12 @@ export const withAlpha = (rgb: number, alpha: number) =>
 
 /** The player's settings with every field: Rust always sends them all, but the generated type
  * marks them optional because the stored row may lack ones added later. */
-export type PlayerPrefs = Required<Omit<VideoPlayerPrefs, 'subtitleStyle'>> & {
+export type PlayerPrefs = Required<
+  Omit<VideoPlayerPrefs, 'subtitleStyle' | 'pictureEffects' | 'smartAudio'>
+> & {
   subtitleStyle: Required<SubtitleStyle>;
+  pictureEffects: Effects;
+  smartAudio: Audio;
 };
 
 /** Matches `SubtitleStyle::default()` in raygun-model. */
@@ -198,6 +211,8 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   doubleTapRight: 'seek',
   mediaKeys: 'switchEpisode',
   volumeBoost: 100,
+  pictureEffects: NO_EFFECTS,
+  smartAudio: NO_SMART_AUDIO,
   skipButton: true,
   introSeconds: 85,
   autoSkip: false,
@@ -229,4 +244,6 @@ export const withDefaults = (prefs: VideoPlayerPrefs | undefined): PlayerPrefs =
   ...PLAYER_DEFAULTS,
   ...prefs,
   subtitleStyle: { ...DEFAULT_SUBTITLE_STYLE, ...prefs?.subtitleStyle },
+  pictureEffects: withEffectDefaults(prefs?.pictureEffects),
+  smartAudio: withAudioDefaults(prefs?.smartAudio),
 });

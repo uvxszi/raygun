@@ -1,5 +1,7 @@
 import { commands } from '@raygun/bindings';
 import type {
+  PictureEffects,
+  SmartAudio,
   SubtitleMode,
   VideoAspect,
   VideoChapter,
@@ -28,6 +30,9 @@ export type TitleState = {
   introMs?: number;
   /** Subtitle lines changed by hand (M46.12), per episode and track. */
   subtitleEdits?: CueEdits;
+  /** The title's own picture effects and smart audio (`effects/useVideoEffects.ts`). */
+  pictureEffects?: PictureEffects | null;
+  smartAudio?: SmartAudio | null;
 };
 
 /** A request (`prepare` in `video.rs`), or a session's shell before its first video. */

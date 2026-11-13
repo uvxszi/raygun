@@ -5534,6 +5534,31 @@ export type PickedPath = {
 };
 
 /**
+ *  The picture's adjustments, each 0 while untouched. Brightness, contrast, saturation and gamma go
+ *  from −100 to 100, the hue from −180° to 180°, and the strengths from 0 to 100.
+ */
+export type PictureEffects = {
+	brightness?: number,
+	contrast?: number,
+	saturation?: number,
+	/**  Midtones lighter (above 0) or darker, black and white kept. */
+	gamma?: number,
+	/**  Degrees the colours turn round the colour wheel. */
+	hue?: number,
+	sharpen?: number,
+	look?: PictureLook,
+	/**  Evens out the frame-to-frame brightness changes of old film. */
+	deflicker?: number,
+	/**  Smooths grain and noise over neighbouring pixels and frames. */
+	denoise?: number,
+};
+
+/**  A colour look laid over the picture. */
+export type PictureLook = "none" | "warm" | "cool" | 
+/**  Richer colours and a little more contrast. */
+"vivid" | "grayscale" | "sepia";
+
+/**
  *  Where something was played from (M46.37: Home's Your music shows the latest): an album, a
  *  playlist, a mix, an artist, a chart, a podcast or a book, with the page that opens it.
  */
@@ -6744,6 +6769,18 @@ export type SkippedSource = {
 
 /**  The sleep timer (M46.8). */
 export type SleepTimer = { kind: "off" } | { kind: "minutes"; minutes: number } | { kind: "endOfTrack" };
+
+/**  Smart audio in the video player, each on or off. */
+export type SmartAudio = {
+	/**  Speech brought forward: the voice band lifted, the centre over the sides. */
+	dialogue?: boolean,
+	/**  Loud parts quieter and quiet ones louder (dynamic range compression). */
+	night?: boolean,
+	/**  Every video at about the same loudness, measured as it plays. */
+	normalize?: boolean,
+	/**  Quiet and loud scenes evened out as they come. */
+	leveling?: boolean,
+};
 
 /**  One source's answer for an imported song (M46.31). */
 export type SongCandidate = {
@@ -8712,6 +8749,10 @@ export type VideoPlayerPrefs = {
 	mediaKeys?: MediaKeyAction,
 	/**  Percent the volume may go past 100 %, 0–100. */
 	volumeBoost?: number,
+	/**  The picture's effects for titles without their own (all off unless changed). */
+	pictureEffects?: PictureEffects,
+	/**  Smart audio for titles without their own (all off unless changed). */
+	smartAudio?: SmartAudio,
 	/**  The skip button: "Skip opening" in a chapter, else the intro length. */
 	skipButton?: boolean,
 	/**  The skip button's jump outside chapters, for titles without their own. */

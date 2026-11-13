@@ -8,10 +8,12 @@ use specta::Type;
 
 mod answers;
 mod dictionary;
+mod video_effects;
 mod years;
 
 pub use answers::*;
 pub use dictionary::*;
+pub use video_effects::*;
 pub use years::year_range_label;
 
 /// Build and runtime facts about the running app.
@@ -2886,6 +2888,10 @@ pub struct VideoPlayerPrefs {
     pub media_keys: MediaKeyAction,
     /// Percent the volume may go past 100 %, 0–100.
     pub volume_boost: u32,
+    /// The picture's effects for titles without their own (all off unless changed).
+    pub picture_effects: PictureEffects,
+    /// Smart audio for titles without their own (all off unless changed).
+    pub smart_audio: SmartAudio,
 
     /// The skip button: "Skip opening" in a chapter, else the intro length.
     pub skip_button: bool,
@@ -2958,6 +2964,8 @@ impl Default for VideoPlayerPrefs {
             double_tap_right: TapAction::Seek,
             media_keys: MediaKeyAction::SwitchEpisode,
             volume_boost: 100,
+            picture_effects: PictureEffects::default(),
+            smart_audio: SmartAudio::default(),
             skip_button: true,
             intro_seconds: 85,
             auto_skip: false,
@@ -3025,6 +3033,7 @@ impl VideoPlayerPrefs {
                 self.volume_boost
             ));
         }
+        self.picture_effects.validate()?;
         if !(5..=600).contains(&self.intro_seconds) {
             return Err("Intros are 5 seconds to 10 minutes long".into());
         }

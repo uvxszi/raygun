@@ -59,6 +59,12 @@ import { usePictureBox } from './pictureBox';
 import { VIGNETTE } from './vignette';
 import { CueEditor } from './CueEditor';
 import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
+import { EffectsPanel, SmartAudioOptions } from './effects/EffectsPanel';
+import { ADJUSTMENT_LABEL } from './effects/effectLabels';
+import { isNeutral } from './effects/effectParams';
+import { useVideoAudio } from './effects/useVideoAudio';
+import { useVideoEffects } from './effects/useVideoEffects';
+import { VideoEffectsLayer } from './effects/VideoEffectsLayer';
 import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, latestCueAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
@@ -107,6 +113,7 @@ type PanelKind =
   | 'keys'
   | 'cast'
   | 'more'
+  | 'effects'
   | 'settings';
 
 const VOLUME_KEY = 'raygun.video.volume';
@@ -408,7 +415,6 @@ const VideoStage: FC<StageProps> = ({
   // The engine for rendering; the ref for callbacks that may run before a render.
   const [engine, setEngine] = useState<MediaEngine | null>(null);
   const engineRef = useRef<MediaEngine | null>(null);
-  const boostRef = useRef<{ context: AudioContext; gain: GainNode } | null>(null);
   const hideTimer = useRef<number | undefined>(undefined);
   const clickTimer = useRef<number | undefined>(undefined);
   const hintTimer = useRef<number | undefined>(undefined);
@@ -565,6 +571,8 @@ const VideoStage: FC<StageProps> = ({
     sendRequest(id, 'state', positionOf(videoRef.current).positionMs, { group, change });
   const savePrefs = (change: Record<string, unknown>) =>
     sendRequest(id, 'prefs', positionOf(videoRef.current).positionMs, { change });
+  // The picture's effects and smart audio (`effects/`): the title's own, else the settings'.
+  const effects = useVideoEffects({ titleState, defaults: prefs, remember, savePrefs });
   const showHint = (text: string) => {
     setHint(text);
     window.clearTimeout(hintTimer.current);
@@ -1009,27 +1017,10 @@ const VideoStage: FC<StageProps> = ({
     [],
   );
 
-  // Volume, past 100 % through a gain node when boosting.
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.volume = Math.min(1, volume);
-    video.muted = muted;
-    if (volume > 1 && !boostRef.current && typeof AudioContext !== 'undefined') {
-      try {
-        const context = new AudioContext();
-        const gain = context.createGain();
-        context.createMediaElementSource(video).connect(gain).connect(context.destination);
-        boostRef.current = { context, gain };
-      } catch {
-        // No boost; 100 % is the most.
-      }
-    }
-    if (boostRef.current) boostRef.current.gain.gain.value = Math.max(1, volume);
-  }, [volume, muted, videoRef]);
+  // Volume, past 100 % through Web Audio when boosting, and smart audio.
+  useVideoAudio(videoRef, volume, muted, effects.audio);
   useEffect(
     () => () => {
-      void boostRef.current?.context.close();
       window.clearTimeout(hideTimer.current);
       window.clearTimeout(clickTimer.current);
       window.clearTimeout(hintTimer.current);
@@ -1317,6 +1308,16 @@ const VideoStage: FC<StageProps> = ({
           toggleFullscreen();
         }}
       />
+      <VideoEffectsLayer
+        videoRef={videoRef}
+        fit={FIT[aspect]}
+        effects={effects.applied}
+        onTooSlow={(kind) => {
+          effects.drop(kind);
+          showHint(t('videoPlayer.effectsDropped', { n: t(ADJUSTMENT_LABEL[kind]) }));
+        }}
+        onUnavailable={effects.markUnavailable}
+      />
       {/* The shade behind the controls, under the subtitles (`vignette.ts`). */}
       <div
         aria-hidden
@@ -1543,14 +1544,13 @@ const VideoStage: FC<StageProps> = ({
             >
               {speed / 100}×
             </button>
-            {audioTracks.length > 1 && (
-              <IconButton
-                label={t('videoPlayer.audio')}
-                onClick={() => setPanel(panel === 'audio' ? null : 'audio')}
-              >
-                <AudioLines aria-hidden size={20} />
-              </IconButton>
-            )}
+            {/* Always there: smart audio is in it beside the tracks. */}
+            <IconButton
+              label={t('videoPlayer.audio')}
+              onClick={() => setPanel(panel === 'audio' ? null : 'audio')}
+            >
+              <AudioLines aria-hidden size={20} />
+            </IconButton>
             {/* Quality, then subtitles, beside the picture's aspect. */}
             {(session || qualities.length > 1) && (
               <IconButton
@@ -1704,6 +1704,7 @@ const VideoStage: FC<StageProps> = ({
               }}
             />
           ))}
+          <SmartAudioOptions effects={effects} />
         </PlayerPanel>
       )}
       {panel === 'quality' && (
@@ -1765,6 +1766,11 @@ const VideoStage: FC<StageProps> = ({
               />
             </>
           )}
+          <PanelOption
+            label={t('videoPlayer.effects')}
+            hint={t(isNeutral(effects.picture) ? 'videoPlayer.off' : 'videoPlayer.effectsOn')}
+            onSelect={() => setPanel('effects')}
+          />
           <PanelOption label={t('videoPlayer.playOnTv')} onSelect={() => setPanel('cast')} />
           <PanelOption
             label={t('videoPlayer.loop')}
@@ -1782,6 +1788,7 @@ const VideoStage: FC<StageProps> = ({
         </PlayerPanel>
       )}
       {panel === 'settings' && <VideoSettingsPanel onClose={() => setPanel(null)} />}
+      {panel === 'effects' && <EffectsPanel effects={effects} onClose={() => setPanel(null)} />}
       {panel === 'cast' && (
         <CastPanel
           positionMs={timeMs}

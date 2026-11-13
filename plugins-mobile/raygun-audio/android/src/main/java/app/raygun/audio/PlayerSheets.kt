@@ -85,6 +85,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 sheet.dismiss()
             }
         }
+        host.effects.audioRows(sheet) { audio() }
         sheet.show()
     }
 
@@ -742,6 +743,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.toggleLoop()
             more()
         }
+        sheet.row(label("effects", "Effects"), host.effects.summary()) { host.effects.open() }
         sheet.row(label("sleepTimer", "Sleep timer"), host.sleepNote() ?: label("off", "Off")) { sleep() }
         sheet.row(label("screenshot", "Screenshot")) { screenshot() }
         sheet.row(label("openElsewhere", "Open in another app")) {
