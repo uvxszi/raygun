@@ -229,6 +229,17 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         }
     }
 
+    /**
+     * Paused, the picture's surface changed (picture-in-picture and back): the pipeline draws its
+     * last frames again at the new size when its graph keeps them. False when it can't (no
+     * pipeline, or one without a replay cache, as with smooth motion): the caller seeks instead.
+     */
+    fun redrawPaused(): Boolean {
+        if (!pipeline || failedThisRun || !graph.replayable) return false
+        host.player.setVideoEffects(VideoFrameProcessor.REDRAW)
+        return true
+    }
+
     private var listening = false
 
     /** Smooth motion's switch and what it follows: the screen's refresh rate and the speed. */

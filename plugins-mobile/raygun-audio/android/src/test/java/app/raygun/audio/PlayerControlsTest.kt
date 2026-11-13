@@ -40,6 +40,13 @@ class PlayerControlsTest {
     }
 
     @Test
+    fun aPausedFrameIsDrawnAgainTheBestWayThereIs() {
+        assertEquals(PausedRedraw.REPLAY, pausedRedrawWay(replayed = true, seekable = true))
+        assertEquals(PausedRedraw.SEEK, pausedRedrawWay(replayed = false, seekable = true))
+        assertEquals(PausedRedraw.NUDGE, pausedRedrawWay(replayed = false, seekable = false))
+    }
+
+    @Test
     fun speedsCompareByStep() {
         assertTrue(sameSpeed(1.25f, 125 / 100f))
         assertTrue(sameSpeed(0.3f, (25 + 1 * 5) / 100f))

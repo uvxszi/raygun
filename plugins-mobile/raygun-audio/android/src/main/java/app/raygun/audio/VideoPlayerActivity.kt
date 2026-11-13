@@ -79,6 +79,26 @@ private const val PIP_SETTINGS_WAIT_MS = 1500L
 /** How long a resized surface settles before a paused frame is drawn again on it. */
 private const val REDRAW_WAIT_MS = 120L
 
+/** How long a paused redraw may take to bring a frame before the video plays a moment for one. */
+private const val FRAME_WAIT_MS = 600L
+
+/** How long the video plays muted for a frame on a paused video's new surface. */
+private const val NUDGE_MS = 180L
+
+/** How a paused video's frame is drawn again on a new surface. */
+internal enum class PausedRedraw { REPLAY, SEEK, NUDGE }
+
+/**
+ * The way to draw a paused frame again: the effects pipeline's replay when it did it
+ * (`replayed`), else a seek to the same place, else (a live edge, nothing to seek in) a moment's
+ * muted play.
+ */
+internal fun pausedRedrawWay(replayed: Boolean, seekable: Boolean): PausedRedraw = when {
+    replayed -> PausedRedraw.REPLAY
+    seekable -> PausedRedraw.SEEK
+    else -> PausedRedraw.NUDGE
+}
+
 /** How often a dragged seek bar seeks the frame behind it, at most. */
 private const val DRAG_SEEK_MS = 60L
 private const val DEFAULT_SEEK_STEP_MS = 10_000L
@@ -1630,14 +1650,46 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     // ---- The paused frame ----
 
+    /**
+     * A paused decoder draws nothing on a surface that changed size (picture-in-picture and
+     * back). The effects pipeline replays its last frames when it keeps them, else the same place
+     * is sought again; when no frame comes of that (a pipeline holding frames back, as smooth
+     * motion's does), the video plays muted for a moment and pauses again ([nudgeFrame]).
+     */
     private val redrawFrame = Runnable {
-        if (!::player.isInitialized || controlsDragging) return@Runnable
+        if (!stillPaused()) return@Runnable
+        frameShown = false
+        val way = pausedRedrawWay(effects.redrawPaused(), player.isCurrentMediaItemSeekable)
+        if (way == PausedRedraw.SEEK) player.seekTo(player.currentPosition)
+        main.removeCallbacks(checkFrame)
+        if (way == PausedRedraw.NUDGE) nudgeFrame() else main.postDelayed(checkFrame, FRAME_WAIT_MS)
+    }
+
+    /** A frame came since the last redraw was asked for. */
+    private var frameShown = false
+
+    private val checkFrame = Runnable { if (!frameShown && stillPaused()) nudgeFrame() }
+
+    private fun stillPaused(): Boolean {
+        if (!::player.isInitialized || controlsDragging || nudging) return false
         val state = player.playbackState
-        if (player.playWhenReady || state == Player.STATE_IDLE || state == Player.STATE_ENDED) return@Runnable
-        if (!player.isCurrentMediaItemSeekable) return@Runnable
-        // A paused decoder draws nothing on a surface that changed size (picture-in-picture
-        // and back): seeking to the same place draws the frame there again.
-        player.seekTo(player.currentPosition)
+        return !player.playWhenReady && state != Player.STATE_IDLE && state != Player.STATE_ENDED
+    }
+
+    /** Playing muted for a moment, the last way to get a frame on a paused video's new surface. */
+    private var nudging = false
+
+    private fun nudgeFrame() {
+        if (nudging) return
+        nudging = true
+        val volume = player.volume
+        player.volume = 0f
+        player.play()
+        main.postDelayed({
+            player.pause()
+            player.volume = volume
+            nudging = false
+        }, NUDGE_MS)
     }
 
     /**
@@ -1675,6 +1727,10 @@ class VideoPlayerActivity : AppCompatActivity() {
     private val surfaceListener = object : Player.Listener {
         override fun onSurfaceSizeChanged(width: Int, height: Int) {
             if (width > 0 && height > 0) redrawPausedFrame()
+        }
+
+        override fun onRenderedFirstFrame() {
+            frameShown = true
         }
     }
 
