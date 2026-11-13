@@ -3,11 +3,12 @@ import type { FC, ReactNode } from 'react';
 import { SelectCircle } from './SelectCircle';
 import type { CirclePlace } from './SelectCircle';
 import { usePickPress } from './usePickPress';
-import type { PickState } from './usePickPress';
+import type { MenuPoint, PickState } from './usePickPress';
 
 /**
  * A card or row that can be picked (`usePickPress`): its circle on the cover's top left (or at
  * the row's start), and a ring and tint while picked. Its ⋮ and buttons keep their own presses.
+ * With `onMenu`, a hold or a right click opens the item's menu rather than picking it.
  */
 export const PickTarget: FC<{
   pick: PickState;
@@ -18,9 +19,19 @@ export const PickTarget: FC<{
   circleClassName?: string;
   className?: string;
   testId?: string;
+  onMenu?: (at: MenuPoint) => void;
   children: ReactNode;
-}> = ({ pick, label, place = 'cover', circleClassName, className = '', testId, children }) => {
-  const press = usePickPress(pick);
+}> = ({
+  pick,
+  label,
+  place = 'cover',
+  circleClassName,
+  className = '',
+  testId,
+  onMenu,
+  children,
+}) => {
+  const press = usePickPress(pick, onMenu);
   return (
     <div
       data-selected={pick.selected || undefined}

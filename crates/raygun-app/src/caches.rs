@@ -205,6 +205,14 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
     for artwork in raygun_db::podcasts::library_artwork(&db).await? {
         kept.insert(proxy_image_token(&artwork, &Default::default()));
     }
+    // Downloaded videos' posters show offline too.
+    for row in raygun_db::video_downloads::all(&db).await? {
+        if row.state == raygun_db::video_downloads::DONE
+            && let Some(poster) = &row.download.poster
+        {
+            kept.insert(proxy_image_token(poster, &Default::default()));
+        }
+    }
     // Downloaded songs' covers show offline (M46.26).
     let downloads = raygun_db::music_downloads::all(&db).await?;
     for row in &downloads {
@@ -258,24 +266,30 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
     Ok(kept)
 }
 
+/// Sorts the cover cache by what's kept now: covers newly kept go to `keep/`, and those no
+/// longer kept (a title that left the library, a downloaded video deleted) back among the rest.
+pub async fn sort_kept(app: &AppHandle) {
+    match kept_tokens(app).await {
+        Ok(kept) => {
+            let (kept_in, released) = app.state::<Caches>().covers.sync_kept(kept).await;
+            if kept_in + released > 0 {
+                tracing::info!(
+                    kept_in,
+                    released,
+                    "library covers sorted in the cover cache"
+                );
+            }
+        }
+        Err(error) => tracing::warn!(%error, "could not read the library's covers"),
+    }
+}
+
 /// After start, the library's covers are kept and covers of titles that left it are released.
 pub fn sweep_later(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(SWEEP_DELAY).await;
-        match kept_tokens(&app).await {
-            Ok(kept) => {
-                let (kept_in, released) = app.state::<Caches>().covers.sync_kept(kept).await;
-                if kept_in + released > 0 {
-                    tracing::info!(
-                        kept_in,
-                        released,
-                        "library covers sorted in the cover cache"
-                    );
-                }
-            }
-            Err(error) => tracing::warn!(%error, "could not read the library's covers"),
-        }
+        sort_kept(&app).await;
         // Covers stored before JPEG XL, or whose conversion never ran, are converted in the
         // background (paced by the conversion's own rest).
         let queued = app.state::<Caches>().covers.convert_pending().await;

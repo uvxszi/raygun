@@ -69,6 +69,21 @@ export const useRail = () => {
       },
       unpin: (target: Page) =>
         save({ ...prefs, pins: prefs.pins.filter((existing) => !samePin(existing, target)) }),
+      /** Pins pages at once, after the other pins, or takes their pins away (a selection's Pin). */
+      setPinned: (targets: PinTarget[], pinned: boolean) => {
+        if (!pinned) {
+          const pins = prefs.pins.filter(
+            (existing) => !targets.some((target) => samePin(existing, target)),
+          );
+          if (pins.length !== prefs.pins.length) save({ ...prefs, pins });
+          return;
+        }
+        const fresh = targets.filter(
+          (target, index) =>
+            !isPinned(target) && targets.findIndex((other) => samePin(other, target)) === index,
+        );
+        if (fresh.length > 0) save({ ...prefs, pins: [...prefs.pins, ...fresh.map(pinOf)] });
+      },
       /** Moves a pin before another (or to the end of the pins). */
       move: (moved: Page, before: Page | null) => {
         const pinned = prefs.pins.find((existing) => samePin(existing, moved));

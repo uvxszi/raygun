@@ -1,7 +1,7 @@
 import type { ContentOverride, ExtensionInfo, RepoCatalog, ServerInfo } from '@raygun/bindings';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ChevronRight, LoaderCircle, Plus, RefreshCw } from 'lucide-react';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -43,6 +43,8 @@ import {
   mediaOfAll,
 } from '../sources/sourceMedia';
 import type { SourceMedia, SourceType, SourcesTab } from '../sources/sourceMedia';
+import { useLastSourcesTab, useTabScroll, viewKey } from '../sources/sourcesMemory';
+import type { SourcesView } from '../sources/sourcesMemory';
 import { AddonItem, AddonSuggestions } from '../watch/AddonRows';
 import { useSetAddonEnabled, useSetAddonOrder, useStremioAddons } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
@@ -146,6 +148,19 @@ export const SourcesPage: FC = () => {
   const catalogRefresh = useCatalogRefresh(list);
   const [adding, setAdding] = useState(add === true);
   const [signingIn, setSigningIn] = useState<ServerInfo | null>(null);
+  // Each tab comes back where it was scrolled, and Sources opens on the tab it was on last.
+  const page = useRef<HTMLElement>(null);
+  const view: SourcesView = {
+    ...(type ? { type } : {}),
+    ...(media ? { media } : {}),
+    ...(catalogue && list !== 'all' ? { list } : {}),
+  };
+  useTabScroll(viewKey(view), page);
+  const openTab = useCallback(
+    (last: SourcesView) => void navigate({ search: last, replace: true }),
+    [navigate],
+  );
+  useLastSourcesTab(view, add === true, openTab);
 
   const repos = useRepos();
   const catalog = useCatalog();
@@ -276,7 +291,7 @@ export const SourcesPage: FC = () => {
   });
 
   return (
-    <section data-testid="sources-page" className="flex flex-col gap-3">
+    <section ref={page} data-testid="sources-page" className="flex flex-col gap-3">
       <PageHeader
         back
         fallback="/browse"

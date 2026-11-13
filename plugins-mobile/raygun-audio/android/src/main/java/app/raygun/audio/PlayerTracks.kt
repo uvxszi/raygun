@@ -16,9 +16,12 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.LanguageFeatureSpan
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.text.TextOutput
@@ -52,11 +55,26 @@ internal class OffsetTextRenderer(inner: TextRenderer) : ForwardingRenderer(inne
     }
 }
 
-/** The renderers: hardware decoders falling back to software, and the delayable text renderer. */
+/**
+ * The renderers: hardware decoders falling back to software, the delayable text renderer, and the
+ * sound through smart audio ([SmartAudioProcessor]) before the sink's own processors.
+ */
 internal class PlayerRenderers(
     context: Context,
+    private val smartAudio: AudioProcessor,
     private val onText: (OffsetTextRenderer) -> Unit,
 ) : DefaultRenderersFactory(context) {
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioTrackPlaybackParams: Boolean,
+    ): AudioSink =
+        DefaultAudioSink.Builder(context)
+            .setAudioProcessors(arrayOf(smartAudio))
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+            .build()
+
     override fun buildTextRenderers(
         context: Context,
         output: TextOutput,

@@ -336,6 +336,14 @@ fn piece_limit(lead: Duration, pace: f64, rate: f64) -> usize {
     (affordable as usize).clamp(SHORT_PIECE, PIECE)
 }
 
+/// Whether the next piece may end at a comma: when asked (`ReadAloudPrefs::split_at_commas`), and
+/// otherwise only while less than [`SHORT_LEAD`] waits to be heard (reading starting, or a voice
+/// that can't keep up), so a long first sentence starts as soon as with commas. Else a voice
+/// reads a long sentence on to a semicolon, colon or dash, as one sentence.
+fn cuts_at_commas(asked: bool, lead: Duration) -> bool {
+    asked || lead < SHORT_LEAD
+}
+
 /// Speech made lately, by what was read and how ([`speech_key`]), the oldest used going first
 /// past [`KEPT_BYTES`].
 #[derive(Default)]
@@ -521,7 +529,7 @@ impl Voices {
     /// The next piece of `rest` (what's left of a sentence) read by `voice`, and how much of
     /// `rest` it read (bytes): all of it when it was made lately or fits, else up to a pause
     /// within what `voice` can make before the `lead` waiting to be heard runs out
-    /// ([`piece_limit`]).
+    /// ([`piece_limit`]); a comma is one only as [`cuts_at_commas`] says.
     async fn piece(
         &self,
         voice: &ModelVoice,
@@ -529,6 +537,7 @@ impl Voices {
         lead: Duration,
         rate: f64,
         pitch: f64,
+        commas: bool,
     ) -> Result<(Clip, usize), String> {
         let whole = speech_key(voice, rate, pitch, rest);
         if let Some(clip) = self
@@ -540,7 +549,7 @@ impl Voices {
             return Ok((clip, rest.len()));
         }
         let limit = piece_limit(lead, self.pace(voice), rate);
-        let end = sentences::piece_end(rest, limit);
+        let end = sentences::piece_end(rest, limit, cuts_at_commas(commas, lead));
         let clip = self.speak(voice, &rest[..end], rate, pitch).await?;
         Ok((clip, end))
     }
@@ -654,7 +663,14 @@ impl ReadAloud {
                 handed = true;
                 let made = self
                     .voices
-                    .piece(speaker, rest, lead(heard_by), plan.rate, plan.pitch)
+                    .piece(
+                        speaker,
+                        rest,
+                        lead(heard_by),
+                        plan.rate,
+                        plan.pitch,
+                        plan.commas,
+                    )
                     .await;
                 let clip = match made {
                     Ok((clip, read)) => {
@@ -758,6 +774,26 @@ mod tests {
         assert_eq!(piece_limit(Duration::from_secs(4), 1.0, 1.0), SHORT_PIECE);
         // Faster reading: less speech to make for each character, so more fit.
         assert!(piece_limit(Duration::from_secs(8), 1.0, 2.0) > 91);
+    }
+
+    #[test]
+    fn cuts_at_commas_when_asked_or_while_nothing_waits() {
+        assert!(cuts_at_commas(true, LEAD));
+        // Reading starts (or the voice fell behind): a comma cuts, so it starts as soon.
+        assert!(cuts_at_commas(false, Duration::ZERO));
+        assert!(cuts_at_commas(false, SHORT_LEAD - Duration::from_millis(1)));
+        // Speech waits to be heard: only stronger breaks.
+        assert!(!cuts_at_commas(false, SHORT_LEAD));
+        assert!(!cuts_at_commas(false, LEAD));
+        // The first piece of a long sentence is as short either way.
+        let sentence = "It was a dark and stormy night, the rain fell in torrents, except at \
+                        occasional intervals, when it was checked by a violent gust of wind.";
+        let limit = piece_limit(Duration::ZERO, 1.0, 1.0);
+        assert_eq!(
+            sentences::piece_end(sentence, limit, cuts_at_commas(false, Duration::ZERO)),
+            sentences::piece_end(sentence, limit, true),
+        );
+        assert!(sentences::piece_end(sentence, limit, true) < sentence.len());
     }
 
     #[test]

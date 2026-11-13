@@ -48,6 +48,7 @@ import { SubtitlePreview } from '../settings/SubtitlePreview';
 import { useSettings, useUpdateSetting, useUpdateSettings } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
 import { useIsPhone } from '../shell/useIsDesktop';
+import { EffectsSettings } from '../video/effects/EffectsSettings';
 import { useSubtitleFamily } from '../video/subtitleLook';
 import { ORIGINAL_AUDIO } from '../video/trackPicking';
 
@@ -113,6 +114,7 @@ const PAGE_RESETS: Record<
     ],
   },
   pip: { fields: ['pipOnLeave', 'pipOnBack'] },
+  effects: { fields: ['pictureEffects', 'smartAudio'] },
   advanced: {
     fields: ['decoder', 'videoCodec', 'externalPlayer', 'externalPackage', 'titleTrailers'],
   },
@@ -745,6 +747,7 @@ export const PlayerPageScreen: FC<{ page: Page }> = ({ page }) => {
       {page === 'audio' && <AudioScreen {...props} />}
       {page === 'skip' && <SkipScreen {...props} />}
       {page === 'pip' && <PipScreen {...props} />}
+      {page === 'effects' && <EffectsSettings {...props} />}
       {page === 'advanced' && <AdvancedScreen {...props} />}
     </>
   );

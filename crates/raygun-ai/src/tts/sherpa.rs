@@ -618,8 +618,9 @@ mod tests {
         }
         assert!(!voices.is_empty(), "set PIPER_MODEL and/or KOKORO_MODEL");
         let long = SENTENCES[3];
-        // As `raygun-app`'s `tts/voices.rs` cuts it with nothing waiting (its `SHORT_PIECE`).
-        let first_clause = &long[..super::super::sentences::piece_end(long, 60)];
+        // As `raygun-app`'s `tts/voices.rs` cuts it with nothing waiting (its `SHORT_PIECE`, at
+        // a comma too).
+        let first_clause = &long[..super::super::sentences::piece_end(long, 60, true)];
         for (engine, dir, setup, speaker) in voices {
             for &count in &threads {
                 let started = std::time::Instant::now();

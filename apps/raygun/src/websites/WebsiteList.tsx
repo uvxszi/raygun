@@ -1,20 +1,14 @@
 import type { Website } from '@raygun/bindings';
-import { Pencil, RotateCcw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { MenuItem } from '../shell/contextMenuStore';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { SourceIssue } from '../shell/SourceIssue';
-import { usePinMenuItem } from '../shell/usePinMenuItem';
+import { useWebsiteMenuItems } from './useWebsiteMenu';
 import { RemoveWebsiteSheet, WebsiteSheet } from './WebsiteSheets';
-import { websitePin } from './websitePin';
-import { useOpenWebsite, useResetWebsite, useSetWebsiteBlocking } from './useWebsites';
-
-type Item = Extract<MenuItem, { onSelect: () => void }>;
-const isItem = (item: MenuItem): item is Item => 'onSelect' in item;
+import { useOpenWebsite } from './useWebsites';
 
 /**
  * Saved websites as rows (M46.3): a tap opens one in the built-in browser; its ⋮ menu (or a
@@ -23,32 +17,13 @@ const isItem = (item: MenuItem): item is Item => 'onSelect' in item;
 export const WebsiteList: FC<{ sites: Website[]; large?: boolean }> = ({ sites, large }) => {
   const { t } = useTranslation();
   const open = useOpenWebsite();
-  const reset = useResetWebsite();
-  const blocking = useSetWebsiteBlocking();
-  const pinItems = usePinMenuItem();
+  const { items, reset, blocking } = useWebsiteMenuItems();
   const [editing, setEditing] = useState<Website | null>(null);
   const [removing, setRemoving] = useState<Website | null>(null);
   const opened = sites.find((site) => site.id === open.variables);
 
-  const itemsFor = (site: Website): Item[] => [
-    { label: t('websites.edit'), icon: Pencil, onSelect: () => setEditing(site) },
-    ...pinItems(websitePin(site)).filter(isItem),
-    site.blockAds
-      ? {
-          label: t('websites.allowHere'),
-          icon: ShieldOff,
-          onSelect: () => blocking.mutate({ id: site.id, on: false }),
-        }
-      : {
-          label: t('websites.blockHere'),
-          icon: ShieldCheck,
-          onSelect: () => blocking.mutate({ id: site.id, on: true }),
-        },
-    ...(site.lastUrl
-      ? [{ label: t('websites.startOver'), icon: RotateCcw, onSelect: () => reset.mutate(site.id) }]
-      : []),
-    { label: t('websites.remove'), icon: Trash2, onSelect: () => setRemoving(site) },
-  ];
+  const itemsFor = (site: Website) =>
+    items(site, { edit: () => setEditing(site), remove: () => setRemoving(site) });
 
   return (
     <>

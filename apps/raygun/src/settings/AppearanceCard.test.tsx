@@ -107,7 +107,7 @@ const DEFAULT_SETTINGS: Settings = {
     font: 'serif',
     width: 'narrow',
     paged: false,
-    ttsRate: 10,
+    ttsSpeed: 100,
     indent: 0,
   },
 };

@@ -5,8 +5,10 @@ import { create } from 'zustand';
 
 import { PLAYER_DEFAULTS, withDefaults } from '../settings/playerOptions';
 import type { PlayerPrefs } from '../settings/playerOptions';
+import { rememberedOffer } from './externalAudio';
 import type { MediaEngine } from './mediaEngine';
 import type {
+  AudioOffer,
   EpisodeItem,
   PlayerRequest,
   PlayerUpdate,
@@ -60,8 +62,17 @@ type VideoPlayerState = {
   sourcesFallback: boolean;
   /** The Quality menu's steps, as Rust lists them. */
   qualities: QualityRow[];
+  /** The step asked for in Quality (Rust's `wanted`); null while it picks by itself. */
+  qualityWanted: string | null;
   /** Why a step tapped in Quality can't play, with when it came (each one shows once). */
   qualityNotice: { text: string; at: number } | null;
+  /** Other streams of the episode for their sound, and the video they're for. */
+  audioOffers: { id: string | null; items: AudioOffer[] };
+  /** When the video playing loaded (ms since the epoch). */
+  loadedAt: number;
+  /** The offer bringing back the sound its title remembers (`externalAudio`), found when the
+   * offers came soon after the video loaded; null once later or when none does. */
+  rememberedSound: AudioOffer | null;
   /** The engine playing now (live streams' clock and anchor, the connection's speed). */
   engine: MediaEngine | null;
   chapters: VideoChapter[];
@@ -111,7 +122,13 @@ const loaded = (request: PlayerRequest, state: VideoPlayerState) => ({
   loadingText: null,
   notice: null,
   transfer: null,
+  loadedAt: Date.now(),
+  rememberedSound: null,
 });
+
+/** How long after a video loads the sound its title remembers may still join it: a source that
+ * answers later doesn't change the sound under the viewer. */
+const REMEMBERED_WINDOW_MS = 15_000;
 
 const CLOSED = {
   open: false,
@@ -139,7 +156,11 @@ const CLOSED = {
   sourcesAlone: false,
   sourcesFallback: true,
   qualities: [],
+  qualityWanted: null,
   qualityNotice: null,
+  audioOffers: { id: null, items: [] },
+  loadedAt: 0,
+  rememberedSound: null,
   engine: null,
   chapters: [],
   showSources: 0,
@@ -207,10 +228,22 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
         case 'qualities':
           return {
             qualities: update.items,
+            qualityWanted: update.wanted ?? null,
             qualityNotice: update.notice ? { text: update.notice, at: Date.now() } : null,
             // A step asked for that nothing else plays: the video playing goes on as it was.
             pickedSource: update.notice ? false : state.pickedSource,
           };
+        case 'audioSources': {
+          const items = update.items ?? [];
+          const fresh =
+            update.id === state.request?.id && Date.now() - state.loadedAt < REMEMBERED_WINDOW_MS;
+          return {
+            audioOffers: { id: update.id ?? null, items },
+            rememberedSound:
+              state.rememberedSound ??
+              (fresh ? rememberedOffer(items, state.request?.titleState?.externalAudio) : null),
+          };
+        }
         case 'prefs': {
           // Only what settings say; the session's own fields stay.
           const { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode } = settingsFrom(

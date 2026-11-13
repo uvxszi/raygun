@@ -6,11 +6,12 @@ import type {
   ServerInfo,
   StremioAddon,
 } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
+import { forgetSourcesMemory } from './sourcesMemory';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -552,5 +553,43 @@ describe('Sources', () => {
     // The top bar's Reload reads the installed extensions again.
     await user.click(within(page).getByRole('button', { name: 'Reload' }));
     expect(commands.extensionsReload).toHaveBeenCalled();
+  });
+
+  it('opens on the tab it was on last, each tab where it was scrolled', async () => {
+    const user = userEvent.setup();
+    forgetSourcesMemory();
+    await AppShellWrapper.mount('/sources');
+    const page = await screen.findByTestId('sources-page');
+    await within(page).findByRole('listitem', { name: 'Home Music' });
+    const main = page.closest('main') as HTMLElement;
+    const kinds = within(page).getByRole('navigation', { name: 'Kinds of sources' });
+    const scrollTo = (top: number) => {
+      main.scrollTop = top;
+      fireEvent.scroll(main);
+    };
+
+    // All scrolled down, then Extensions scrolled a little.
+    scrollTo(480);
+    await user.click(within(kinds).getByRole('link', { name: /^Extensions/ }));
+    scrollTo(120);
+    // Each comes back where it was.
+    await user.click(within(kinds).getByRole('link', { name: 'All' }));
+    expect(main.scrollTop).toBe(480);
+    await user.click(within(kinds).getByRole('link', { name: /^Extensions/ }));
+    expect(main.scrollTop).toBe(120);
+
+    // Sources opened again (More → Sources): the tab it was on, where it was.
+    await AppShellWrapper.tapTab('more');
+    await user.click(await screen.findByRole('link', { name: 'Sources' }));
+    const again = await screen.findByTestId('sources-page');
+    await vi.waitFor(() =>
+      expect(
+        within(within(again).getByRole('navigation', { name: 'Kinds of sources' })).getByRole(
+          'link',
+          { name: /^Extensions/ },
+        ),
+      ).toHaveAttribute('aria-current', 'page'),
+    );
+    await vi.waitFor(() => expect((again.closest('main') as HTMLElement).scrollTop).toBe(120));
   });
 });

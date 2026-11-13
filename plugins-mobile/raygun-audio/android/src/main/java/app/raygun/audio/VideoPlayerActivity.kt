@@ -141,6 +141,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal lateinit var tools: PlayerTools
     /** Play on TV: the devices sheet and the TV's remote. */
     internal lateinit var cast: PlayerCast
+    /** The picture's effects and smart audio ([PlayerEffects]). */
+    internal lateinit var effects: PlayerEffects
     internal lateinit var second: SecondSubtitles
     /** AI subtitles and translations made as the video plays. */
     internal lateinit var liveTracks: LiveSubtitles
@@ -150,6 +152,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal lateinit var quality: PlayerQuality
     /** Sources: clean names with their options, or the raw list. */
     internal lateinit var sourcesSheet: PlayerSourcesSheet
+    /** Audio: the video's tracks, another source's sound beside the picture, the audio delay. */
+    internal lateinit var audio: PlayerAudio
     /** Subtitles over the part of the picture on screen (crop makes the picture larger). */
     internal lateinit var subtitleView: SubtitleView
     private lateinit var secondView: SubtitleView
@@ -298,6 +302,9 @@ class VideoPlayerActivity : AppCompatActivity() {
     private val subtitleFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { addSubtitleFile(it) }
     }
+    private val audioFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { addAudioFile(it) }
+    }
     private val externalApp = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         onExternalResult(result.resultCode, result.data)
     }
@@ -333,9 +340,10 @@ class VideoPlayerActivity : AppCompatActivity() {
 
         tracks = PlayerTracks(this)
         softwareFirst = prefs.decoder == "software"
+        effects = PlayerEffects(this)
         // A hardware decoder that fails (some phones, the emulator at 1080p) hands over to the
         // next one, ending with the software decoders.
-        val renderers = PlayerRenderers(this) { tracks.text = it }
+        val renderers = PlayerRenderers(this, effects.audio) { tracks.text = it }
             .setEnableDecoderFallback(true)
             .setMediaCodecSelector(codecSelector)
         player = ExoPlayer.Builder(this, renderers)
@@ -426,6 +434,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         liveStream = PlayerLive(this)
         quality = PlayerQuality(this)
         sourcesSheet = PlayerSourcesSheet(this)
+        audio = PlayerAudio(this)
         controls = PlayerControls(this)
         gestures = PlayerGestures(this)
         cast = PlayerCast(this)
@@ -608,10 +617,18 @@ class VideoPlayerActivity : AppCompatActivity() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // The picture effects' pipeline failed: the video goes on without them.
+            if (effects.onPlayerError(error)) return
             // A live stream fell behind its window: back to its live edge.
             if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                 player.seekToDefaultPosition()
                 player.prepare()
+                return
+            }
+            // Another source's sound in the source: it goes, and the video plays on with its own
+            // (should the video fail again, that's the video's own failure).
+            if (audio.dropAfterError()) {
+                Log.w("RaygunVideo", "the sound from another source failed: ${error.errorCodeName}", error)
                 return
             }
             val rendererFailed = error is ExoPlaybackException &&
@@ -641,7 +658,10 @@ class VideoPlayerActivity : AppCompatActivity() {
                 tracksPicked = true
                 choices.pick(state, prefs, languages)
             }
-            controls.setAudioChoice(choices.list(C.TRACK_TYPE_AUDIO).size > 1)
+            // Another source's sound just added plays; Audio has it, the delay, the files and
+            // smart audio.
+            audio.onTracksChanged()
+            controls.setAudioChoice(true)
             // The stream's own sizes go into the Quality menu.
             controls.setQualityChoice(quality.offered)
             quality.reportVariants()
@@ -770,6 +790,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             "castDevices", "cast", "castError" -> cast.onUpdate(update)
             // The Quality menu's steps (`video_quality::rows`).
             "qualities" -> quality.onUpdate(update)
+            // Other sources' streams of the episode, for their sound (`video_session::audio`).
+            "audioSources" -> audio.onUpdate(update)
             "subtitleTools", "subtitleTrack", "subtitleAsk", "subtitleNotice" -> {
                 // A live stream's AI subtitles say how far behind live the picture must play.
                 if (update.optString("id") == videoId) liveStream.onSubtitleUpdate(update)
@@ -813,7 +835,10 @@ class VideoPlayerActivity : AppCompatActivity() {
         applySubtitleStyle()
 
         state = TitleState(request.optJSONObject("titleState"))
+        effects.onLoad(request)
         group = request.optString("group").ifBlank { videoId }
+        // Another episode starts with its own sound; the title's audio delay applies.
+        audio.onLoad(videoId, state)
         chapters = Chapter.list(request.optJSONArray("chapters"))
         controls.setChapters(chapters)
         countdownChapter = -1
@@ -868,6 +893,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         // A live stream (or a start at 0) begins where Media3 begins it: a live stream's live edge.
         val source = buildSource(request, cached = !request.optBoolean("live"))
         if (liveStream.keepsStart(startMs)) player.setMediaSource(source, startMs) else player.setMediaSource(source)
+        effects.beforePrepare()
         player.prepare()
         player.playWhenReady = true
         applySpeed(state.speed ?: prefs.defaultSpeed)
@@ -920,7 +946,8 @@ class VideoPlayerActivity : AppCompatActivity() {
         val upstream = DefaultDataSource.Factory(this, http)
         val data = if (cached) VideoCache.wrap(this, Uri.parse(request.optString("url")), upstream) else upstream
         cachedSource = cached
-        return DefaultMediaSourceFactory(data).createMediaSource(item)
+        // Another source's sound beside the picture, and the audio delay ([PlayerAudio]).
+        return audio.wrap(DefaultMediaSourceFactory(data).createMediaSource(item))
     }
 
     /** Prepares the same video again from `positionMs` (another decoder, an added subtitle file, a retry). */
@@ -1399,6 +1426,7 @@ class VideoPlayerActivity : AppCompatActivity() {
      */
     private fun settingsChanged(update: JSONObject) {
         readSettings(update)
+        effects.onPrefs(update)
         languages = LanguagePrefs.from(prefs, appLanguage, subtitleLanguage, subtitleMode, spokenLanguage)
         controls.setSeekStep(seekStepMs)
         applySubtitleStyle()
@@ -1439,6 +1467,34 @@ class VideoPlayerActivity : AppCompatActivity() {
         } catch (_: ActivityNotFoundException) {
             showHint(label("noFilePicker", "No app here can pick a file"))
         }
+    }
+
+    internal fun pickAudioFile() {
+        try {
+            audioFile.launch(arrayOf("audio/*", "video/*"))
+        } catch (_: ActivityNotFoundException) {
+            showHint(label("noFilePicker", "No app here can pick a file"))
+        }
+    }
+
+    /** A sound file chosen on the device plays beside the picture ([PlayerAudio]). */
+    private fun addAudioFile(uri: Uri) {
+        val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: uri.lastPathSegment ?: label("audioFile", "Audio file")
+        audio.addFile(uri, name)
+    }
+
+    /** The User-Agent the video's source was asked with (its own when it names one). */
+    internal val sourceUserAgent: String get() = userAgent
+
+    /** The same video built again from where it is (another sound, a first audio delay), playing as it was. */
+    internal fun reloadKeepingPlace() {
+        // A TV plays it: nothing here is built again.
+        if (::cast.isInitialized && cast.active) return
+        val playing = player.playWhenReady
+        reload(player.currentPosition)
+        player.playWhenReady = playing
     }
 
     /** A subtitle file chosen on the device joins the video's tracks and plays. */

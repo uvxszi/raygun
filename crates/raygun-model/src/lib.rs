@@ -8,10 +8,12 @@ use specta::Type;
 
 mod answers;
 mod dictionary;
+mod video_effects;
 mod years;
 
 pub use answers::*;
 pub use dictionary::*;
+pub use video_effects::*;
 pub use years::year_range_label;
 
 /// Build and runtime facts about the running app.
@@ -2567,9 +2569,10 @@ pub struct NovelReaderPrefs {
     pub width: NovelWidth,
     /// Pages turned sideways instead of one scrolling column.
     pub paged: bool,
-    /// Reading-aloud speed in tenths, 5–20 (0.5×–2×).
-    #[serde(default = "normal_rate")]
-    pub tts_rate: u32,
+    /// Reading-aloud speed in hundredths, within [`TTS_SPEEDS`] (0.5×–3×). Older versions stored
+    /// `ttsRate` in tenths, which loading settings reads as this.
+    #[serde(default = "normal_speed")]
+    pub tts_speed: u32,
     /// How far the first line of each paragraph starts in, as in printed books (M46.10), in
     /// tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
     /// stored a switch, which loading settings reads as [`NOVEL_INDENT_SWITCHED_ON`] when on.
@@ -2594,8 +2597,11 @@ pub const NOVEL_INDENTS: std::ops::RangeInclusive<u32> = 0..=40;
 /// The indent of the old on/off switch (2 em), which a stored `true` becomes.
 pub const NOVEL_INDENT_SWITCHED_ON: u32 = 20;
 
-fn normal_rate() -> u32 {
-    10
+/// Reading-aloud speeds offered, in hundredths (0.5×–3×).
+pub const TTS_SPEEDS: std::ops::RangeInclusive<u32> = 50..=300;
+
+fn normal_speed() -> u32 {
+    100
 }
 
 fn screen_kept_on() -> bool {
@@ -2610,7 +2616,7 @@ impl Default for NovelReaderPrefs {
             font: NovelFont::Serif,
             width: NovelWidth::Narrow,
             paged: false,
-            tts_rate: 10,
+            tts_speed: 100,
             indent: 0,
             theme: NovelTheme::App,
             justify: false,
@@ -2888,6 +2894,10 @@ pub struct VideoPlayerPrefs {
     pub media_keys: MediaKeyAction,
     /// Percent the volume may go past 100 %, 0–100.
     pub volume_boost: u32,
+    /// The picture's effects for titles without their own (all off unless changed).
+    pub picture_effects: PictureEffects,
+    /// Smart audio for titles without their own (all off unless changed).
+    pub smart_audio: SmartAudio,
 
     /// The skip button: "Skip opening" in a chapter, else the intro length.
     pub skip_button: bool,
@@ -2960,6 +2970,8 @@ impl Default for VideoPlayerPrefs {
             double_tap_right: TapAction::Seek,
             media_keys: MediaKeyAction::SwitchEpisode,
             volume_boost: 100,
+            picture_effects: PictureEffects::default(),
+            smart_audio: SmartAudio::default(),
             skip_button: true,
             intro_seconds: 85,
             auto_skip: false,
@@ -3027,6 +3039,7 @@ impl VideoPlayerPrefs {
                 self.volume_boost
             ));
         }
+        self.picture_effects.validate()?;
         if !(5..=600).contains(&self.intro_seconds) {
             return Err("Intros are 5 seconds to 10 minutes long".into());
         }
@@ -3575,7 +3588,7 @@ impl SettingChange {
                     ))
                 } else if !(12..=22).contains(&prefs.line_spacing) {
                     Err("That line spacing isn't offered".into())
-                } else if !(5..=20).contains(&prefs.tts_rate) {
+                } else if !TTS_SPEEDS.contains(&prefs.tts_speed) {
                     Err("That reading speed isn't offered".into())
                 } else if !NOVEL_INDENTS.contains(&prefs.indent) {
                     Err("That paragraph indent isn't offered".into())
@@ -8060,7 +8073,7 @@ pub struct TtsParagraph {
 }
 
 /// What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
-/// settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+/// settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TtsRequest {
@@ -8206,7 +8219,7 @@ impl ReadAloudEngine {
     }
 }
 
-/// How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). Set in
+/// How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_speed`). Set in
 /// Settings → AI → Reading aloud and in the reader's options.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
@@ -8227,6 +8240,10 @@ pub struct ReadAloudPrefs {
     pub roman_everywhere: bool,
     /// Numbered titles as ordinals ("Chapter the fourth").
     pub roman_ordinals: bool,
+    /// Downloaded voices make long sentences in pieces cut at commas too: they start sooner on
+    /// slow devices, but each cut sounds like a sentence's end. Off, pieces end at semicolons,
+    /// colons and dashes, and at a comma only while nothing waits to be heard (reading starts).
+    pub split_at_commas: bool,
 }
 
 /// Read-aloud volumes offered, in percent.
@@ -8243,6 +8260,7 @@ impl Default for ReadAloudPrefs {
             roman_titles: true,
             roman_everywhere: false,
             roman_ordinals: false,
+            split_at_commas: false,
         }
     }
 }
@@ -9758,6 +9776,16 @@ pub struct VideoDownloads {
     pub items: Vec<VideoDownloadItem>,
 }
 
+/// What deleted videos left behind and was removed: folders no download owns (and the bytes in
+/// them), and finished downloads whose files were gone.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoDownloadsSwept {
+    pub folders: u32,
+    pub bytes: f64,
+    pub entries: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -9923,6 +9951,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(missing.indent, 0);
+    }
+
+    #[test]
+    fn reading_speeds_are_hundredths_from_half_to_three_times() {
+        let speed = |tts_speed| {
+            SettingChange::NovelReader(NovelReaderPrefs {
+                tts_speed,
+                ..NovelReaderPrefs::default()
+            })
+            .validate()
+        };
+        assert!(speed(50).is_ok());
+        assert!(speed(125).is_ok());
+        assert!(speed(300).is_ok());
+        assert!(speed(45).is_err());
+        assert!(speed(305).is_err());
+        let missing: NovelReaderPrefs = serde_json::from_str(
+            r#"{"lineSpacing":16,"font":"serif","width":"narrow","paged":false}"#,
+        )
+        .unwrap();
+        assert_eq!(missing.tts_speed, 100);
+        assert!(!ReadAloudPrefs::default().split_at_commas);
     }
 
     #[test]

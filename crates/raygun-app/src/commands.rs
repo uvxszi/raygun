@@ -6262,6 +6262,36 @@ pub async fn video_download_remove(
     downloads.remove(&id).await
 }
 
+/// The desktop player's address for another source's stream picked for its sound: linked
+/// through the stream proxy with its headers (Android's player opens the address itself).
+#[tauri::command]
+#[specta::specta]
+pub fn video_media_link(
+    app: tauri::AppHandle,
+    url: String,
+    headers: std::collections::BTreeMap<String, String>,
+) -> Result<String, String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::video_desktop::media_link(&app, &url, &headers)
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, headers);
+        Ok(url)
+    }
+}
+
+/// Removes what deleted videos left behind (Settings → Data): folders no download owns, and
+/// finished downloads whose files are gone.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_downloads_sweep(
+    downloads: VideoDownloadsState<'_>,
+) -> Result<raygun_model::VideoDownloadsSwept, String> {
+    downloads.sweep().await
+}
+
 /// Plays a download (from the device once it's finished).
 #[tauri::command]
 #[specta::specta]

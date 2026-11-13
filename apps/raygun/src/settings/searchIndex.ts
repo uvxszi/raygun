@@ -180,6 +180,23 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.videoCodec',
     'settings.player.titleTrailers',
   ),
+  ...on(player('effects'), 'settings.player.effects.picture')(
+    'settings.player.effects.look',
+    'videoPlayer.effectBrightness',
+    'videoPlayer.effectContrast',
+    'videoPlayer.effectSaturation',
+    'videoPlayer.effectGamma',
+    'videoPlayer.effectHue',
+    'videoPlayer.effectSharpen',
+    'videoPlayer.effectDeflicker',
+    'videoPlayer.effectDenoise',
+  ),
+  ...on(player('effects'), 'settings.player.effects.sound')(
+    'videoPlayer.smartDialogue',
+    'videoPlayer.smartNight',
+    'videoPlayer.smartNormalize',
+    'videoPlayer.smartLeveling',
+  ),
 
   ...on('library')(
     'library.display.mode',

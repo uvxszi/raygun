@@ -9,6 +9,16 @@ rust-version.workspace = true
 [dependencies]
 raygun-db.workspace = true
 snow = "0.10"
+# Browsers reach sync over WebRTC (docs/WEB.md): str0m's ICE-lite, DTLS (dimpl with RustCrypto)
+# and SCTP, all Rust. No str0m crypto feature: its RustCrypto crate pulls in aws-lc for
+# certificates, so web::provider gives str0m dimpl's backend and rcgen on ring instead.
+str0m = { version = "0.25", default-features = false }
+dimpl = { version = "0.9", default-features = false, features = ["rust-crypto"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
+hmac = "0.13"
+sha1 = "0.11"
+sha2 = "0.11"
+if-addrs = "0.15"
 mdns-sd = "0.21"
 serde.workspace = true
 serde_json.workspace = true

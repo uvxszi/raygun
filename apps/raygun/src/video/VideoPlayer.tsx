@@ -40,7 +40,11 @@ import { useTranslation } from 'react-i18next';
 
 import { formatTime } from '../player/formatTime';
 import { useCaptions } from '../player/spoken';
+import { AudioPanel } from './AudioPanel';
 import { CastPanel, CastStage } from './Cast';
+import { MAX_AUDIO_DELAY_MS, rememberOf } from './externalAudio';
+import type { SoundSource } from './externalAudio';
+import { useExternalAudio } from './useExternalAudio';
 import { LiveBadge, LiveDelayPrompt } from './LiveControls';
 import { DVR_MIN_MS, HOLD_STEP_MS, readLive, useLiveStream } from './liveStream';
 import type { LiveView } from './liveStream';
@@ -50,7 +54,7 @@ import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { QualityPanel } from './QualityPanel';
 import { SourcesPanel } from './SourcesPanel';
 import { sendReport, sendRequest } from './protocol';
-import type { PlayerRequest, Position, TitleState } from './protocol';
+import type { AudioOffer, PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
 import { transferText } from './transferText';
 import { SubtitlesPanel } from './SubtitlesPanel';
@@ -59,6 +63,12 @@ import { usePictureBox } from './pictureBox';
 import { VIGNETTE } from './vignette';
 import { CueEditor } from './CueEditor';
 import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
+import { EffectsPanel, SmartAudioOptions } from './effects/EffectsPanel';
+import { ADJUSTMENT_LABEL } from './effects/effectLabels';
+import { isNeutral } from './effects/effectParams';
+import { useVideoAudio } from './effects/useVideoAudio';
+import { useVideoEffects } from './effects/useVideoEffects';
+import { VideoEffectsLayer } from './effects/VideoEffectsLayer';
 import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, latestCueAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
@@ -107,6 +117,7 @@ type PanelKind =
   | 'keys'
   | 'cast'
   | 'more'
+  | 'effects'
   | 'settings';
 
 const VOLUME_KEY = 'raygun.video.volume';
@@ -408,7 +419,6 @@ const VideoStage: FC<StageProps> = ({
   // The engine for rendering; the ref for callbacks that may run before a render.
   const [engine, setEngine] = useState<MediaEngine | null>(null);
   const engineRef = useRef<MediaEngine | null>(null);
-  const boostRef = useRef<{ context: AudioContext; gain: GainNode } | null>(null);
   const hideTimer = useRef<number | undefined>(undefined);
   const clickTimer = useRef<number | undefined>(undefined);
   const hintTimer = useRef<number | undefined>(undefined);
@@ -460,6 +470,35 @@ const VideoStage: FC<StageProps> = ({
   const [liveView, setLiveView] = useState<LiveView | null>(null);
   const sources = useVideoPlayerStore((state) => state.sources);
   const pickedSource = useVideoPlayerStore((state) => state.pickedSource);
+
+  // ---- The sound: another source's stream or a file beside the picture, and the audio delay
+  // (the video's own stream played again, when only its sound moves) ----
+  const audioOffers = useVideoPlayerStore((state) => state.audioOffers);
+  const rememberedSound = useVideoPlayerStore((state) => state.rememberedSound);
+  const offers = audioOffers.id === id ? audioOffers.items : [];
+  const [audioDelayMs, setAudioDelayMs] = useState(titleState.audioDelayMs ?? 0);
+  const [chosenSound, setChosenSound] = useState<SoundSource | null>(null);
+  /** The sound the title remembers was let go (another picked, or it failed). */
+  const [rememberedDropped, setRememberedDropped] = useState(false);
+  /** The video's own stream couldn't be played again to move its sound. */
+  const [ownSoundFailed, setOwnSoundFailed] = useState(false);
+  const soundSource = useMemo<SoundSource | null>(() => {
+    if (chosenSound) return chosenSound;
+    if (rememberedSound && !rememberedDropped) {
+      return { url: rememberedSound.url, format: rememberedSound.format, offer: rememberedSound };
+    }
+    return audioDelayMs !== 0 && request.url && !ownSoundFailed
+      ? { url: request.url, format: request.format ?? null, own: true }
+      : null;
+  }, [
+    chosenSound,
+    rememberedSound,
+    rememberedDropped,
+    audioDelayMs,
+    request.url,
+    request.format,
+    ownSoundFailed,
+  ]);
 
   const heading = request.subtitle
     ? `${request.title ?? ''} · ${request.subtitle}`
@@ -565,6 +604,8 @@ const VideoStage: FC<StageProps> = ({
     sendRequest(id, 'state', positionOf(videoRef.current).positionMs, { group, change });
   const savePrefs = (change: Record<string, unknown>) =>
     sendRequest(id, 'prefs', positionOf(videoRef.current).positionMs, { change });
+  // The picture's effects and smart audio (`effects/`): the title's own, else the settings'.
+  const effects = useVideoEffects({ titleState, defaults: prefs, remember, savePrefs });
   const showHint = (text: string) => {
     setHint(text);
     window.clearTimeout(hintTimer.current);
@@ -617,6 +658,36 @@ const VideoStage: FC<StageProps> = ({
   const changeDelay = (next: number) => {
     setDelayMs(next);
     remember({ subtitleDelayMs: next });
+  };
+  /** Positive plays the sound later than the picture; kept for the title. */
+  const changeAudioDelay = (next: number) => {
+    const delay = Math.max(-MAX_AUDIO_DELAY_MS, Math.min(MAX_AUDIO_DELAY_MS, Math.round(next)));
+    setAudioDelayMs(delay);
+    remember({ audioDelayMs: delay });
+  };
+  /** Another source's stream plays its sound over this picture; the title takes it again next
+   * time its source offers the language. */
+  const pickSoundOffer = (offer: AudioOffer) => {
+    setChosenSound({ url: offer.url, format: offer.format, offer });
+    setRememberedDropped(true);
+    remember({ externalAudio: rememberOf(offer) });
+  };
+  /** A sound file from this device, for this video. */
+  const pickSoundFile = (file: File) => {
+    setChosenSound({ url: URL.createObjectURL(file), format: null, file: file.name });
+    setRememberedDropped(true);
+  };
+  /** The video's own sound again: a track of it (`-1` for a stream that lists none). */
+  const pickOwnSound = (trackId: number) => {
+    setChosenSound(null);
+    setRememberedDropped(true);
+    const track = engineRef.current?.audioTracks().find((candidate) => candidate.id === trackId);
+    if (track) engineRef.current?.setAudioTrack(track.id);
+    remember({
+      ...(track ? { audio: { language: track.language, label: track.label } } : {}),
+      externalAudio: null,
+    });
+    setTracksVersion((version) => version + 1);
   };
   const changeVolume = (level: number) => {
     const clamped = Math.max(0, Math.min(maxVolume, Math.round(level * 100) / 100));
@@ -1009,27 +1080,38 @@ const VideoStage: FC<StageProps> = ({
     [],
   );
 
-  // Volume, past 100 % through a gain node when boosting.
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.volume = Math.min(1, volume);
-    video.muted = muted;
-    if (volume > 1 && !boostRef.current && typeof AudioContext !== 'undefined') {
-      try {
-        const context = new AudioContext();
-        const gain = context.createGain();
-        context.createMediaElementSource(video).connect(gain).connect(context.destination);
-        boostRef.current = { context, gain };
-      } catch {
-        // No boost; 100 % is the most.
+  // Volume, past 100 % through Web Audio when boosting, and smart audio, the sound beside the
+  // picture's too; the video's own is muted while that plays.
+  const sound = useVideoAudio(videoRef, volume, muted || soundSource !== null, effects.audio);
+  // The sound beside the picture plays in step with it; the video's own is muted meanwhile.
+  useExternalAudio({
+    videoRef,
+    source: soundSource,
+    delayMs: audioDelayMs,
+    // Through smart audio, the graph's last gain is the volume.
+    volume: sound.routed ? 1 : volume,
+    muted,
+    onElement: sound.setExternal,
+    onFailed: () => {
+      if (soundSource?.own) {
+        setOwnSoundFailed(true);
+        return;
       }
-    }
-    if (boostRef.current) boostRef.current.gain.gain.value = Math.max(1, volume);
-  }, [volume, muted, videoRef]);
+      setChosenSound(null);
+      setRememberedDropped(true);
+      showHint(t('videoPlayer.audioFailed'));
+    },
+  });
+  // A sound file's address lives as long as it's the one chosen.
+  useEffect(() => {
+    const address = chosenSound?.file ? chosenSound.url : null;
+    return () => {
+      if (address) URL.revokeObjectURL(address);
+    };
+  }, [chosenSound]);
+
   useEffect(
     () => () => {
-      void boostRef.current?.context.close();
       window.clearTimeout(hideTimer.current);
       window.clearTimeout(clickTimer.current);
       window.clearTimeout(hintTimer.current);
@@ -1317,6 +1399,16 @@ const VideoStage: FC<StageProps> = ({
           toggleFullscreen();
         }}
       />
+      <VideoEffectsLayer
+        videoRef={videoRef}
+        fit={FIT[aspect]}
+        effects={effects.applied}
+        onTooSlow={(kind) => {
+          effects.drop(kind);
+          showHint(t('videoPlayer.effectsDropped', { n: t(ADJUSTMENT_LABEL[kind]) }));
+        }}
+        onUnavailable={effects.markUnavailable}
+      />
       {/* The shade behind the controls, under the subtitles (`vignette.ts`). */}
       <div
         aria-hidden
@@ -1543,14 +1635,13 @@ const VideoStage: FC<StageProps> = ({
             >
               {speed / 100}×
             </button>
-            {audioTracks.length > 1 && (
-              <IconButton
-                label={t('videoPlayer.audio')}
-                onClick={() => setPanel(panel === 'audio' ? null : 'audio')}
-              >
-                <AudioLines aria-hidden size={20} />
-              </IconButton>
-            )}
+            {/* Its tracks, another source's sound, a file, the audio delay and smart audio. */}
+            <IconButton
+              label={t('videoPlayer.audio')}
+              onClick={() => setPanel(panel === 'audio' ? null : 'audio')}
+            >
+              <AudioLines aria-hidden size={20} />
+            </IconButton>
             {/* Quality, then subtitles, beside the picture's aspect. */}
             {(session || qualities.length > 1) && (
               <IconButton
@@ -1691,19 +1782,30 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'audio' && (
         <PlayerPanel title={t('videoPlayer.audio')} onClose={() => setPanel(null)}>
-          {audioTracks.map((track, index) => (
-            <PanelOption
-              key={track.id}
-              label={audioNames[index]?.name ?? track.label}
-              hint={audioNames[index]?.detail}
-              selected={engine?.audioTrack() === track.id}
-              onSelect={() => {
-                engineRef.current?.setAudioTrack(track.id);
-                remember({ audio: { language: track.language, label: track.label } });
-                setTracksVersion((version) => version + 1);
-              }}
-            />
-          ))}
+          <AudioPanel
+            tracks={audioTracks.map((track, index) => ({
+              id: track.id,
+              name: audioNames[index]?.name ?? track.label,
+              detail: audioNames[index]?.detail ?? null,
+            }))}
+            playingTrack={engine?.audioTrack() ?? null}
+            onTrack={pickOwnSound}
+            sound={soundSource}
+            offers={offers}
+            session={session}
+            onOffer={(offer) => {
+              pickSoundOffer(offer);
+              setPanel(null);
+            }}
+            onFile={(file) => {
+              pickSoundFile(file);
+              setPanel(null);
+            }}
+            delayMs={audioDelayMs}
+            onDelay={changeAudioDelay}
+          />
+          {/* Whichever sound plays goes through it. */}
+          <SmartAudioOptions effects={effects} />
         </PlayerPanel>
       )}
       {panel === 'quality' && (
@@ -1765,6 +1867,11 @@ const VideoStage: FC<StageProps> = ({
               />
             </>
           )}
+          <PanelOption
+            label={t('videoPlayer.effects')}
+            hint={t(isNeutral(effects.picture) ? 'videoPlayer.off' : 'videoPlayer.effectsOn')}
+            onSelect={() => setPanel('effects')}
+          />
           <PanelOption label={t('videoPlayer.playOnTv')} onSelect={() => setPanel('cast')} />
           <PanelOption
             label={t('videoPlayer.loop')}
@@ -1782,6 +1889,7 @@ const VideoStage: FC<StageProps> = ({
         </PlayerPanel>
       )}
       {panel === 'settings' && <VideoSettingsPanel onClose={() => setPanel(null)} />}
+      {panel === 'effects' && <EffectsPanel effects={effects} onClose={() => setPanel(null)} />}
       {panel === 'cast' && (
         <CastPanel
           positionMs={timeMs}

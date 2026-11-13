@@ -2,7 +2,7 @@
 //! the same engine and database code as the app, on a database in the folder you name.
 //!
 //! ```text
-//! cargo run -p raygun-sync --example peer -- <dir> serve [--port 8835] [--host 10.0.2.2] [--bind 127.0.0.1]
+//! cargo run -p raygun-sync --example peer -- <dir> serve [--port 8835] [--host 10.0.2.2] [--bind 127.0.0.1] [--web]
 //! cargo run -p raygun-sync --example peer -- <dir> join <pairing text> [--via 127.0.0.1:8830]
 //! cargo run -p raygun-sync --example peer -- <dir> sync
 //! cargo run -p raygun-sync --example peer -- <dir> favorite <title> <artist>
@@ -13,6 +13,9 @@
 //!
 //! An emulator reaches the PC at 10.0.2.2. The PC reaches the emulator's sync port through
 //! `adb forward tcp:8830 tcp:8830`, so serve on another port (8835).
+//!
+//! `--web` also listens for browsers (Raygun on the web, docs/WEB.md) on the bind address and prints
+//! the link code a browser takes: paste it into Devices → Scan link code there.
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -62,12 +65,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let bind: IpAddr =
                 option("--bind").map_or(Ok(Ipv4Addr::LOCALHOST.into()), |bind| bind.parse())?;
             let _server = engine.serve_on(bind, port..=port).await?;
+            let web = if rest.iter().any(|arg| arg == "--web") {
+                let config = web_config(&db).await?;
+                let hosts = if bind.is_unspecified() {
+                    raygun_sync::web::local_hosts()
+                } else {
+                    vec![bind]
+                };
+                Some(
+                    engine
+                        .serve_web(config, hosts, raygun_sync::web::PORTS)
+                        .await?,
+                )
+            } else {
+                None
+            };
             println!(
                 "device {} key {}",
                 engine.device_id(),
                 fingerprint(&engine.identity().public)
             );
             println!("{}", engine.open_pairing(host)?);
+            if let Some(web) = &web {
+                let params = web.link_params(&engine).ok_or("no pairing code is open")?;
+                let query: Vec<String> = params
+                    .iter()
+                    .map(|(key, value)| format!("{key}={}", encode(value)))
+                    .collect();
+                println!("raygun:link?name=PC%20test%20peer&{}", query.join("&"));
+                println!("browsers on UDP port {}", web.port);
+            }
             println!("serving on port {port}; Ctrl-C to stop");
             tokio::signal::ctrl_c().await?;
         }
@@ -173,6 +200,30 @@ async fn identity(db: &Db) -> Result<Identity, Box<dyn std::error::Error>> {
     set_local_value(db, "sync_private_key", &to_hex(&identity.private)).await?;
     set_local_value(db, "sync_public_key", &to_hex(&identity.public)).await?;
     Ok(identity)
+}
+
+/// The browser listener's credentials and certificate, kept like the app keeps them.
+async fn web_config(db: &Db) -> Result<raygun_sync::web::WebConfig, Box<dyn std::error::Error>> {
+    let stored = local_value(db, "sync_web_config").await?;
+    if let Some(config) = stored.and_then(|text| raygun_sync::web::WebConfig::from_stored(&text)) {
+        return Ok(config);
+    }
+    let config = raygun_sync::web::WebConfig::generate()?;
+    set_local_value(db, "sync_web_config", &config.to_stored()).await?;
+    Ok(config)
+}
+
+/// Percent-encodes what isn't plain in a query value.
+fn encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 fn track(title: &str, artist: &str) -> TrackFields {

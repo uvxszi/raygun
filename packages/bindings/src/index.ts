@@ -1841,6 +1841,16 @@ export const commands = {
 	videoDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_retry", { id })),
 	/**  Cancels a download or deletes a downloaded video. */
 	videoDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_remove", { id })),
+	/**
+	 *  Removes what deleted videos left behind (Settings → Data): folders no download owns, and
+	 *  finished downloads whose files are gone.
+	 */
+	videoDownloadsSweep: () => typedError<VideoDownloadsSwept, string>(__TAURI_INVOKE("video_downloads_sweep")),
+	/**
+	 *  The desktop player's address for another source's stream picked for its sound: linked
+	 *  through the stream proxy with its headers (Android's player opens the address itself).
+	 */
+	videoMediaLink: (url: string, headers: { [key in string]: string }) => typedError<string, string>(__TAURI_INVOKE("video_media_link", { url, headers })),
 	/**  Plays a download (from the device once it's finished). */
 	videoDownloadPlay: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_play", { id })),
 	/**  Marks a downloaded video watched or not. */
@@ -5308,8 +5318,11 @@ export type NovelReaderPrefs = {
 	width: NovelWidth,
 	/**  Pages turned sideways instead of one scrolling column. */
 	paged: boolean,
-	/**  Reading-aloud speed in tenths, 5–20 (0.5×–2×). */
-	ttsRate?: number,
+	/**
+	 *  Reading-aloud speed in hundredths, within [`TTS_SPEEDS`] (0.5×–3×). Older versions stored
+	 *  `ttsRate` in tenths, which loading settings reads as this.
+	 */
+	ttsSpeed?: number,
 	/**
 	 *  How far the first line of each paragraph starts in, as in printed books (M46.10), in
 	 *  tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
@@ -5534,6 +5547,31 @@ export type PickedPath = {
 	/**  Its name, as the picker showed it. */
 	name: string,
 };
+
+/**
+ *  The picture's adjustments, each 0 while untouched. Brightness, contrast, saturation and gamma go
+ *  from −100 to 100, the hue from −180° to 180°, and the strengths from 0 to 100.
+ */
+export type PictureEffects = {
+	brightness?: number,
+	contrast?: number,
+	saturation?: number,
+	/**  Midtones lighter (above 0) or darker, black and white kept. */
+	gamma?: number,
+	/**  Degrees the colours turn round the colour wheel. */
+	hue?: number,
+	sharpen?: number,
+	look?: PictureLook,
+	/**  Evens out the frame-to-frame brightness changes of old film. */
+	deflicker?: number,
+	/**  Smooths grain and noise over neighbouring pixels and frames. */
+	denoise?: number,
+};
+
+/**  A colour look laid over the picture. */
+export type PictureLook = "none" | "warm" | "cool" | 
+/**  Richer colours and a little more contrast. */
+"vivid" | "grayscale" | "sepia";
 
 /**
  *  Where something was played from (M46.37: Home's Your music shows the latest): an album, a
@@ -6036,7 +6074,7 @@ export type ReadAloudEngine =
 "kokoro";
 
 /**
- *  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). Set in
+ *  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_speed`). Set in
  *  Settings → AI → Reading aloud and in the reader's options.
  */
 export type ReadAloudPrefs = {
@@ -6058,6 +6096,12 @@ export type ReadAloudPrefs = {
 	romanEverywhere?: boolean,
 	/**  Numbered titles as ordinals ("Chapter the fourth"). */
 	romanOrdinals?: boolean,
+	/**
+	 *  Downloaded voices make long sentences in pieces cut at commas too: they start sooner on
+	 *  slow devices, but each cut sounds like a sentence's end. Off, pieces end at semicolons,
+	 *  colons and dashes, and at a comma only while nothing waits to be heard (reading starts).
+	 */
+	splitAtCommas?: boolean,
 };
 
 /**  What an AI layer in a reader does. */
@@ -6746,6 +6790,18 @@ export type SkippedSource = {
 
 /**  The sleep timer (M46.8). */
 export type SleepTimer = { kind: "off" } | { kind: "minutes"; minutes: number } | { kind: "endOfTrack" };
+
+/**  Smart audio in the video player, each on or off. */
+export type SmartAudio = {
+	/**  Speech brought forward: the voice band lifted, the centre over the sides. */
+	dialogue?: boolean,
+	/**  Loud parts quieter and quiet ones louder (dynamic range compression). */
+	night?: boolean,
+	/**  Every video at about the same loudness, measured as it plays. */
+	normalize?: boolean,
+	/**  Quiet and loud scenes evened out as they come. */
+	leveling?: boolean,
+};
 
 /**  One source's answer for an imported song (M46.31). */
 export type SongCandidate = {
@@ -8312,13 +8368,13 @@ export type TtsParagraph_Serialize = {
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest = TtsRequest_Serialize | TtsRequest_Deserialize;
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest_Deserialize = {
 	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
@@ -8346,7 +8402,7 @@ export type TtsRequest_Deserialize = {
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest_Serialize = {
 	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
@@ -8554,6 +8610,16 @@ export type VideoDownloads = {
 /**  The video downloads changed; carries the download's id when one did (else empty) (M43). */
 export type VideoDownloadsEvent = string;
 
+/**
+ *  What deleted videos left behind and was removed: folders no download owns (and the bytes in
+ *  them), and finished downloads whose files were gone.
+ */
+export type VideoDownloadsSwept = {
+	folders: number,
+	bytes: number | null,
+	entries: number,
+};
+
 export type VideoEpisodeView = {
 	/**  The stored episode's id. */
 	id: string,
@@ -8714,6 +8780,10 @@ export type VideoPlayerPrefs = {
 	mediaKeys?: MediaKeyAction,
 	/**  Percent the volume may go past 100 %, 0–100. */
 	volumeBoost?: number,
+	/**  The picture's effects for titles without their own (all off unless changed). */
+	pictureEffects?: PictureEffects,
+	/**  Smart audio for titles without their own (all off unless changed). */
+	smartAudio?: SmartAudio,
 	/**  The skip button: "Skip opening" in a chapter, else the intro length. */
 	skipButton?: boolean,
 	/**  The skip button's jump outside chapters, for titles without their own. */

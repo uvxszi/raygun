@@ -25,6 +25,13 @@ android {
     }
 }
 
+// The video player's effect shaders, the same files the desktop player loads (PlayerEffectsGl).
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addStaticSourceDirectory("../../../apps/raygun/src/video/effects/glsl")
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_1_8
@@ -42,6 +49,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
     // Video exports re-encoded to H.264 and AAC with the phone's own encoders (VideoConvert).
     implementation("androidx.media3:media3-transformer:1.11.1")
+    // The video player's picture effects (PlayerEffectsGl, through ExoPlayer.setVideoEffects).
+    implementation("androidx.media3:media3-effect:1.11.1")
     // The websites browser's page bridge and site scripts (document-start scripts, web messages).
     implementation("androidx.webkit:webkit:1.14.0")
     implementation(project(":tauri-android"))

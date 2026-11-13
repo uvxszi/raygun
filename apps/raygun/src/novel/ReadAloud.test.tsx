@@ -328,6 +328,17 @@ describe('Reading aloud in the book reader', () => {
     const pitch = within(options).getByRole('slider', { name: 'Pitch' });
     fireEvent.change(pitch, { target: { value: '12' } });
     await waitFor(() => expect(saved().readAloud.pitch).toBe(12));
+    // The speed in hundredths, 0.5× to 3×.
+    const speed = within(options).getByRole('slider', { name: 'Reading speed' });
+    expect(speed).toHaveAttribute('max', '300');
+    fireEvent.change(speed, { target: { value: '125' } });
+    await waitFor(() => expect(saved().novelReader.ttsSpeed).toBe(125));
+
+    // Long sentences are cut at commas only when asked.
+    const commas = within(options).getByRole('switch', { name: 'Split long sentences at commas' });
+    expect(commas).not.toBeChecked();
+    await user().click(commas);
+    await waitFor(() => expect(saved().readAloud.splitAtCommas).toBe(true));
 
     // The book's language is Auto; another is chosen for this book.
     const languageRow = within(options).getByRole('button', { name: /^Reading language/ });
