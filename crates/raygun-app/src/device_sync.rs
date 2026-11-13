@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use raygun_db::sync::{self as store, SyncKind as StoreKind};
 use raygun_model::{SyncKind, SyncPeerInfo, SyncSessionInfo, SyncStatus};
 use raygun_sync::discovery::Discovery;
+use raygun_sync::web::{WebConfig, WebRunning};
 use raygun_sync::{Engine, Identity, Running, fingerprint, to_hex};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -19,6 +20,9 @@ const PRIVATE_KEY: &str = "sync_private_key";
 const PUBLIC_KEY: &str = "sync_public_key";
 const KINDS_KEY: &str = "sync_kinds";
 const NAME_KEY: &str = "sync_device_name";
+/// The browser listener's ICE credentials and certificate (`raygun_sync::web`), kept so a link
+/// code a browser saved keeps working.
+const WEB_KEY: &str = "sync_web_config";
 /// Sessions shown in the log.
 const LOG_LENGTH: i64 = 20;
 
@@ -31,6 +35,8 @@ pub struct SyncService {
 #[derive(Default)]
 struct ServerState {
     running: Option<Running>,
+    /// Where browsers connect (Raygun on the web, docs/WEB.md).
+    web: Option<WebRunning>,
     discovery: Option<Discovery>,
     error: Option<String>,
 }
@@ -132,6 +138,7 @@ impl SyncService {
         } else {
             let mut state = self.lock();
             state.discovery = None;
+            state.web = None;
             if let Some(running) = state.running.take() {
                 running.stop();
                 tracing::info!("device sync stopped");
@@ -169,6 +176,7 @@ impl SyncService {
         if offline {
             let mut state = self.lock();
             state.discovery = None;
+            state.web = None;
             if let Some(running) = state.running.take() {
                 running.stop();
                 tracing::info!("device sync stopped while offline");
@@ -238,6 +246,27 @@ impl SyncService {
             tracing::warn!(%error, "failed to emit sync event");
         }
         self.status().await
+    }
+
+    /// What a link code adds for browsers (`raygun_sync::web`), while sync and its browser
+    /// listener run and a pairing code is open.
+    pub fn web_link_params(&self) -> Vec<(&'static str, String)> {
+        let state = self.lock();
+        state
+            .web
+            .as_ref()
+            .and_then(|web| web.link_params(&self.engine))
+            .unwrap_or_default()
+    }
+
+    /// Opens a sync pairing code for a link code, so a browser that scans it can pair (apps link
+    /// through Connect instead). Fails quietly while sync isn't running.
+    pub fn open_web_pairing(&self) {
+        if self.lock().web.is_some()
+            && let Err(error) = self.engine.open_pairing(lan_ip())
+        {
+            tracing::info!(%error, "no pairing code for browsers");
+        }
     }
 
     /// This device for a link (M46.47): its sync id, public key and address, while sync runs.
@@ -317,6 +346,10 @@ impl SyncService {
     async fn sync_all(&self) -> Result<(), String> {
         raygun_net::network_mode::check_online()?;
         for peer in store::peers(&self.db()).await.map_err(to_message)? {
+            // A browser can't be reached: it syncs when it connects.
+            if peer.address.is_none() {
+                continue;
+            }
             if let Err(error) = self.engine.sync_with(&peer.device_id).await {
                 tracing::info!(peer = %peer.name, %error, "sync failed");
             }
@@ -340,17 +373,48 @@ impl SyncService {
             return;
         }
         let result = self.engine.serve().await;
+        let web = match &result {
+            Ok(_) => self.serve_web().await,
+            Err(_) => None,
+        };
         let mut state = self.lock();
         match result {
             Ok(running) => {
                 tracing::info!(port = running.port, "device sync listening");
                 state.discovery = self.discover(running.port);
                 state.running = Some(running);
+                state.web = web;
                 state.error = None;
             }
             Err(error) => {
                 tracing::warn!(%error, "device sync could not start");
                 state.error = Some(format!("Couldn't start: {error}"));
+            }
+        }
+    }
+
+    /// Listens for browsers beside the TCP server (docs/WEB.md). Failing only leaves browsers out.
+    async fn serve_web(&self) -> Option<WebRunning> {
+        let config = match web_config(&self.db()).await {
+            Ok(config) => config,
+            Err(error) => {
+                tracing::warn!(%error, "browsers can't link: no listener settings");
+                return None;
+            }
+        };
+        let hosts = raygun_sync::web::local_hosts();
+        match self
+            .engine
+            .serve_web(config, hosts, raygun_sync::web::PORTS)
+            .await
+        {
+            Ok(web) => {
+                tracing::info!(port = web.port, "browsers can link");
+                Some(web)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "browsers can't link: no free port");
+                None
             }
         }
     }
@@ -422,6 +486,21 @@ async fn load_identity(db: &raygun_db::Db) -> Result<Identity, String> {
         .await
         .map_err(to_message)?;
     Ok(identity)
+}
+
+/// The browser listener's credentials and certificate, made once.
+async fn web_config(db: &raygun_db::Db) -> Result<WebConfig, String> {
+    let stored = raygun_db::local_value(db, WEB_KEY)
+        .await
+        .map_err(to_message)?;
+    if let Some(config) = stored.and_then(|text| WebConfig::from_stored(&text)) {
+        return Ok(config);
+    }
+    let config = WebConfig::generate().map_err(to_message)?;
+    raygun_db::set_local_value(db, WEB_KEY, &config.to_stored())
+        .await
+        .map_err(to_message)?;
+    Ok(config)
 }
 
 fn lan_ip() -> IpAddr {

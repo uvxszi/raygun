@@ -1,0 +1,711 @@
+{
+  "theme": "system",
+  "language": "system",
+  "mangaUpdateHours": 12,
+  "novelReader": {
+    "textSize": 0,
+    "lineSpacing": 16,
+    "font": "serif",
+    "width": "narrow",
+    "paged": false,
+    "ttsSpeed": 100,
+    "indent": 0,
+    "theme": "app",
+    "justify": false,
+    "keepScreenOn": true
+  },
+  "showNsfw": false,
+  "explicitMusic": true,
+  "contentOverrides": {
+    "extensions": {},
+    "repositories": {},
+    "addons": {}
+  },
+  "accent": "red",
+  "startScreen": "home",
+  "navLabels": "always",
+  "coverStyle": "compact",
+  "unreadBadges": true,
+  "downloadBadges": true,
+  "resumeVideos": true,
+  "watchedPercent": 90,
+  "seekSeconds": 10,
+  "autoSubtitles": false,
+  "subtitleLanguage": "",
+  "autoplayNext": true,
+  "nextPromptSeconds": 10,
+  "videoPlayer": {
+    "preferredResolution": "1080p",
+    "orientation": "sensorLandscape",
+    "aspect": "fit",
+    "controlsSeconds": 4,
+    "showRemaining": false,
+    "defaultSpeed": 100,
+    "speedPresets": [
+      25,
+      50,
+      75,
+      100,
+      125,
+      150,
+      175,
+      200,
+      250,
+      300,
+      350,
+      400
+    ],
+    "pitchCorrection": true,
+    "holdSpeed": 200,
+    "rememberBrightness": false,
+    "brightnessGesture": true,
+    "volumeGesture": true,
+    "swapSides": false,
+    "seekGesture": true,
+    "doubleTapLeft": "seek",
+    "doubleTapCenter": "playPause",
+    "doubleTapRight": "seek",
+    "mediaKeys": "switchEpisode",
+    "volumeBoost": 100,
+    "pictureEffects": {
+      "brightness": 0,
+      "contrast": 0,
+      "saturation": 0,
+      "gamma": 0,
+      "hue": 0,
+      "sharpen": 0,
+      "look": "none",
+      "deflicker": 0,
+      "denoise": 0
+    },
+    "smartAudio": {
+      "dialogue": false,
+      "night": false,
+      "normalize": false,
+      "leveling": false
+    },
+    "skipButton": true,
+    "introSeconds": 85,
+    "autoSkip": false,
+    "skipCountdown": false,
+    "skipWaitSeconds": 5,
+    "aniskip": false,
+    "aniskipUnlessChapters": true,
+    "subtitleFallback": "",
+    "subtitlePreferWords": "",
+    "subtitleSkipWords": "",
+    "subtitleMode": null,
+    "subtitleStyle": {
+      "size": 100,
+      "font": "default",
+      "bold": false,
+      "italic": false,
+      "textColor": 4294967295,
+      "textColorChosen": false,
+      "edge": "outline",
+      "edgeColor": 4278190080,
+      "backgroundColor": 0,
+      "backgroundColorChosen": false,
+      "position": 8,
+      "maxWidth": 80,
+      "ignoreEmbedded": false
+    },
+    "audioLanguage": "",
+    "audioFallback": "",
+    "pipOnLeave": true,
+    "pipOnBack": false,
+    "decoder": "auto",
+    "videoCodec": "auto",
+    "externalPlayer": false,
+    "externalPackage": "",
+    "titleTrailers": true,
+    "showFailedSources": true,
+    "showEmptySources": true
+  },
+  "libraryDisplay": {
+    "mode": "compactGrid",
+    "tabs": "categories",
+    "showCounts": true,
+    "perCategory": false,
+    "continueButton": true,
+    "localBadge": true,
+    "pinsOnTop": true
+  },
+  "save": {
+    "location": "app",
+    "folderUri": null,
+    "folderName": null,
+    "chapterFormat": "cbz",
+    "pagesPerTitle": true,
+    "songFormat": "original"
+  },
+  "cache": {
+    "coverCacheMb": 512,
+    "pageCacheMb": 512,
+    "coverRefreshDays": 7,
+    "clearPagesOnStart": false,
+    "coverSourceSongs": 25000,
+    "songFactsDays": 365
+  },
+  "websites": {
+    "blockAds": true,
+    "blockPopups": true,
+    "blocklist": "hageziMulti",
+    "customListUrl": null,
+    "desktop": false,
+    "backgroundPlay": true,
+    "scriptsOff": {}
+  },
+  "layout": {
+    "tabs": [
+      {
+        "id": "home",
+        "visible": true
+      },
+      {
+        "id": "library",
+        "visible": true
+      },
+      {
+        "id": "browse",
+        "visible": true
+      },
+      {
+        "id": "more",
+        "visible": true
+      },
+      {
+        "id": "watch",
+        "visible": false
+      },
+      {
+        "id": "music",
+        "visible": false
+      },
+      {
+        "id": "comics",
+        "visible": false
+      },
+      {
+        "id": "books",
+        "visible": false
+      },
+      {
+        "id": "podcasts",
+        "visible": false
+      },
+      {
+        "id": "search",
+        "visible": false
+      },
+      {
+        "id": "updates",
+        "visible": false
+      },
+      {
+        "id": "downloads",
+        "visible": false
+      },
+      {
+        "id": "settings",
+        "visible": false
+      }
+    ],
+    "libraryMedia": [
+      {
+        "id": "all",
+        "visible": true
+      },
+      {
+        "id": "music",
+        "visible": true
+      },
+      {
+        "id": "manga",
+        "visible": true
+      },
+      {
+        "id": "novel",
+        "visible": true
+      },
+      {
+        "id": "video",
+        "visible": true
+      },
+      {
+        "id": "websites",
+        "visible": true
+      }
+    ],
+    "audioViews": [
+      {
+        "id": "all",
+        "visible": true
+      },
+      {
+        "id": "podcasts",
+        "visible": true
+      },
+      {
+        "id": "audiobooks",
+        "visible": true
+      },
+      {
+        "id": "playlists",
+        "visible": true
+      },
+      {
+        "id": "favorites",
+        "visible": true
+      },
+      {
+        "id": "downloaded",
+        "visible": true
+      },
+      {
+        "id": "albums",
+        "visible": true
+      },
+      {
+        "id": "artists",
+        "visible": true
+      },
+      {
+        "id": "tracks",
+        "visible": true
+      }
+    ],
+    "homeSections": [
+      {
+        "id": "getStarted",
+        "visible": true
+      },
+      {
+        "id": "continueWatching",
+        "visible": true
+      },
+      {
+        "id": "continueReading",
+        "visible": true
+      },
+      {
+        "id": "continueListening",
+        "visible": true
+      },
+      {
+        "id": "madeForYou",
+        "visible": true
+      },
+      {
+        "id": "quickAccess",
+        "visible": true
+      },
+      {
+        "id": "topArtists",
+        "visible": true
+      },
+      {
+        "id": "recentlyPlayed",
+        "visible": true
+      },
+      {
+        "id": "newEpisodes",
+        "visible": true
+      },
+      {
+        "id": "popularMusic",
+        "visible": true
+      },
+      {
+        "id": "trendingMusic",
+        "visible": true
+      },
+      {
+        "id": "newReleases",
+        "visible": true
+      },
+      {
+        "id": "followedReleases",
+        "visible": true
+      },
+      {
+        "id": "popularVideos",
+        "visible": true
+      },
+      {
+        "id": "popularComics",
+        "visible": true
+      },
+      {
+        "id": "popularBooks",
+        "visible": true
+      },
+      {
+        "id": "popularAudiobooks",
+        "visible": true
+      },
+      {
+        "id": "popularPodcasts",
+        "visible": true
+      },
+      {
+        "id": "charts",
+        "visible": true
+      },
+      {
+        "id": "viralMusic",
+        "visible": true
+      },
+      {
+        "id": "genres",
+        "visible": true
+      },
+      {
+        "id": "decades",
+        "visible": true
+      },
+      {
+        "id": "undergroundMusic",
+        "visible": true
+      }
+    ],
+    "browseTabs": [
+      {
+        "id": "search",
+        "visible": true
+      },
+      {
+        "id": "discover",
+        "visible": true
+      },
+      {
+        "id": "sources",
+        "visible": true
+      },
+      {
+        "id": "extensions",
+        "visible": true
+      }
+    ],
+    "browseSections": [
+      {
+        "id": "video",
+        "visible": true
+      },
+      {
+        "id": "audio",
+        "visible": true
+      },
+      {
+        "id": "manga",
+        "visible": true
+      },
+      {
+        "id": "novel",
+        "visible": true
+      },
+      {
+        "id": "websites",
+        "visible": true
+      }
+    ],
+    "moreEntries": [
+      {
+        "id": "updates",
+        "visible": true
+      },
+      {
+        "id": "downloads",
+        "visible": true
+      },
+      {
+        "id": "categories",
+        "visible": true
+      },
+      {
+        "id": "sources",
+        "visible": true
+      },
+      {
+        "id": "ai",
+        "visible": true
+      },
+      {
+        "id": "devices",
+        "visible": true
+      },
+      {
+        "id": "settings",
+        "visible": true
+      },
+      {
+        "id": "about",
+        "visible": true
+      }
+    ]
+  },
+  "accentColor": "#e5484d",
+  "coverSize": 0,
+  "mangaReader": {
+    "pagedScale": "fitScreen",
+    "webtoonSize": 0,
+    "barSize": 0,
+    "barProgress": true,
+    "barChapters": true,
+    "barZoom": true,
+    "barMode": true,
+    "barFullscreen": true,
+    "preloadPages": 3,
+    "defaultMode": "webtoon",
+    "tapZones": "auto",
+    "tapGridPaged": [
+      "left",
+      "menu",
+      "right",
+      "left",
+      "menu",
+      "right",
+      "left",
+      "menu",
+      "right"
+    ],
+    "tapGridWebtoon": [
+      "previous",
+      "previous",
+      "previous",
+      "previous",
+      "menu",
+      "next",
+      "next",
+      "next",
+      "next"
+    ],
+    "invertTaps": "none",
+    "doubleTapZoom": true,
+    "pageNumber": true,
+    "keepScreenOn": true,
+    "fullScreen": true,
+    "skipDuplicates": true
+  },
+  "playerView": {
+    "layout": "auto",
+    "coverOffset": 0,
+    "widthOffset": 0,
+    "lyricsOffset": 0,
+    "lyricsAlign": "left",
+    "background": true
+  },
+  "scrollbars": "thin",
+  "motion": "lively",
+  "trackTables": {
+    "tables": {}
+  },
+  "panels": {
+    "railWidth": 0,
+    "sidePanelWidth": 0,
+    "playerSplit": 0,
+    "nextUpRows": 0,
+    "railNavHeight": 0
+  },
+  "colors": {
+    "background": "",
+    "surface": "",
+    "foreground": "",
+    "muted": ""
+  },
+  "disabledSources": [],
+  "autoLoad": {
+    "enabled": true,
+    "cooldownMs": 1500
+  },
+  "windowFrame": "app",
+  "zoom": 100,
+  "textSize": 0,
+  "fonts": {
+    "interface": "",
+    "reading": "",
+    "subtitles": ""
+  },
+  "discovery": {
+    "region": "",
+    "tagSongs": true
+  },
+  "transcription": {
+    "engine": "off",
+    "localModel": "whisper-tiny",
+    "providerId": null,
+    "onlineModel": "whisper-1",
+    "onlineConfirmed": false
+  },
+  "readAloud": {
+    "engine": "system",
+    "voices": {},
+    "pitch": 10,
+    "volume": 100,
+    "detectLanguages": false,
+    "romanTitles": true,
+    "romanEverywhere": false,
+    "romanOrdinals": false,
+    "splitAtCommas": false
+  },
+  "privacy": {
+    "history": true,
+    "recentlyPlayed": true,
+    "searchHistory": true,
+    "keepIncognito": false
+  },
+  "notifications": {
+    "artistReleases": true,
+    "comics": true,
+    "books": true,
+    "videos": true,
+    "podcasts": true,
+    "audiobooks": true,
+    "appUpdates": true
+  },
+  "hidden": {
+    "artists": [],
+    "items": []
+  },
+  "lyricsCache": {
+    "forgetAfterDays": 30,
+    "keepFavorites": true,
+    "keepDownloaded": true,
+    "keepLocal": true
+  },
+  "lyricsTranslation": {
+    "language": "",
+    "automatic": true,
+    "romanized": false,
+    "localModel": ""
+  },
+  "readerAi": {
+    "comic": [],
+    "novel": []
+  },
+  "dictionary": {
+    "enabled": true,
+    "order": [],
+    "off": [],
+    "language": ""
+  },
+  "answers": {
+    "inAll": true,
+    "online": true
+  },
+  "failingSourcesLast": true,
+  "browseStartTab": "discover",
+  "searchFilter": {
+    "noAdult": false,
+    "adultOnly": false,
+    "explicitOnly": false,
+    "playableSongs": false,
+    "playableVideos": false,
+    "hideSavedComics": false,
+    "hideSavedBooks": false
+  },
+  "searchListings": {
+    "enabled": true,
+    "entries": 20,
+    "pages": 5
+  },
+  "manualBrowserChecks": false,
+  "runSourceCode": false,
+  "userAgent": "",
+  "sound": {
+    "eqEnabled": false,
+    "eqPreset": "flat",
+    "eqBands": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "preamp": 0,
+    "bassBoost": 0,
+    "reverb": "off",
+    "balance": 0,
+    "mono": false,
+    "normalize": false,
+    "normalizeTarget": -14,
+    "crossfadeMs": 2000
+  },
+  "keepMusicPlaying": false,
+  "resumeOnStart": true,
+  "checkUpdates": true,
+  "downloadsInBatterySaver": false,
+  "downloadsPopover": 20,
+  "audioQuality": {
+    "streaming": "high",
+    "cellular": "normal",
+    "download": "veryHigh"
+  },
+  "network": {
+    "offline": false,
+    "dataSaver": {
+      "enabled": false,
+      "mobileDataOnly": false,
+      "limitVideo": true,
+      "videoResolution": "480p",
+      "limitMusic": true,
+      "musicQuality": "low",
+      "fewerSources": true,
+      "noPrefetch": true,
+      "noBackgroundLookups": true,
+      "smallerCovers": true,
+      "noTrailers": true,
+      "imagesWhenVisible": true
+    }
+  },
+  "rail": {
+    "pins": [],
+    "order": "played",
+    "seeded": false,
+    "autoAdd": true,
+    "limit": 20,
+    "drawerExpanded": true,
+    "shown": 100,
+    "kinds": {
+      "favorites": true,
+      "downloaded": true,
+      "localFiles": true,
+      "playlists": true,
+      "albums": true,
+      "artists": true,
+      "podcasts": true,
+      "audiobooks": true
+    },
+    "pinnedFirst": true,
+    "played": [],
+    "version": 2
+  },
+  "torrents": {
+    "enabled": false,
+    "wifiOnly": true,
+    "cacheGb": 4,
+    "seed": false,
+    "port": 0,
+    "dht": true
+  },
+  "youtube": {
+    "sponsorBlock": {
+      "enabled": true,
+      "sponsor": "skip",
+      "selfpromo": "skip",
+      "interaction": "skip",
+      "intro": "show",
+      "outro": "show",
+      "preview": "show",
+      "musicOfftopic": "skip",
+      "filler": "off",
+      "trimDownloads": false
+    },
+    "originalAudio": true
+  }
+}

@@ -1,0 +1,470 @@
+// Raygun on the web's core (docs/WEB.md): answers the commands the page sends, by their Rust
+// names, from services that keep their data in the browser. Commands without a web
+// implementation get an empty answer or a clear "not on the web" error (fallback.ts).
+import type {
+  AppInfo,
+  CollectionPlayRequest,
+  DeviceState,
+  EngineReport,
+  ExtensionInstallRequest,
+  PlayContext,
+  PlaybackControl,
+  QueueItem,
+  QueueItemInput,
+  QuickAccessItem,
+  QuickAccessList,
+  QuickAccessNames,
+  SettingChange,
+  SettingValue,
+  StorageInfo,
+  SyncKind,
+  TrackInput,
+  TrackSaves,
+} from '@raygun/bindings';
+
+import { ExtensionsService } from '../extensions/service';
+import { SyncEngine } from '../sync/engine';
+import type { Connect } from '../sync/engine';
+import { isLinkText, parseInvite } from '../sync/protocol';
+import { connectWebRtc } from '../sync/webrtc';
+import { CollectionsService, queueItemOf } from './collections';
+import { SyncedRows, createContext, fail } from './context';
+import type { CoreContext } from './context';
+import { fallbackAnswer } from './fallback';
+import type { CommandAnswers } from './fallback';
+import { PlaybackService, queueInputOf } from './playback';
+import type { Found } from './playback';
+import { SETTINGS_DEFAULTS, SettingsService } from './settings';
+import { Store } from './store';
+import type { Backend } from './store';
+
+export type Handler = (args: Record<string, unknown>) => unknown;
+
+export type WebCoreOptions = {
+  backend: Backend;
+  answers: CommandAnswers;
+  /** Raygun's version (the app's package). */
+  version: string;
+  /** Where the YouTube embed host page is served (`embed/youtube.html` beside the app). */
+  youTubeEmbed: string;
+  now?: () => number;
+  debug?: boolean;
+  /** How to reach another device (WebRTC; tests connect two cores directly). */
+  connect?: Connect;
+};
+
+/** Linked devices sync at least this often while the page is open. */
+const SYNC_EVERY_MS = 5 * 60_000;
+/** How often the change log is looked at for changes to send. */
+const WATCH_EVERY_MS = 10_000;
+
+export type WebCore = {
+  invoke: (command: string, args: Record<string, unknown>) => Promise<unknown>;
+  context: CoreContext;
+  settings: SettingsService;
+  collections: CollectionsService;
+  playback: PlaybackService;
+  sync: SyncEngine;
+  /** Starts timers (the playback watchdog); the page calls it once. */
+  start: () => void;
+  /** Waits for every change so far to be saved (tests). */
+  flush: () => Promise<void>;
+};
+
+const motion = (): DeviceState['motion'] =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 'reduced'
+    : 'full';
+
+const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+
+const fixedItem = (kind: string, to: string, search: Record<string, string>, name: string) =>
+  ({
+    kind,
+    to,
+    search,
+    name,
+    subtitle: null,
+    artworkUrl: null,
+    artworkUrls: [],
+    pinned: false,
+    library: true,
+    removable: false,
+    addedAt: 0,
+    playedAt: 0,
+  }) satisfies QuickAccessItem;
+
+export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> => {
+  const store = await Store.open(options.backend);
+  const context = createContext(store, options.now);
+  const settings = new SettingsService(context);
+  const collections = new CollectionsService(context);
+  const extensions = new ExtensionsService(context, () => settings.stored());
+
+  const find = async (item: QueueItem): Promise<Found> => {
+    const source = item.source;
+    switch (source.kind) {
+      case 'url':
+        return { kind: 'url', url: source.url };
+      case 'youTube':
+        return { kind: 'youTube', videoId: source.videoId };
+      case 'localFile':
+        return {
+          kind: 'error',
+          message: "This song's file is on another device, so it can't play in the browser",
+        };
+      case 'lookup': {
+        const found = await extensions.streamFor(item).catch(() => null);
+        if (found?.kind === 'url') return { kind: 'url', url: found.url };
+        if (found?.kind === 'youTube') return { kind: 'youTube', videoId: found.videoId };
+        return {
+          kind: 'error',
+          message:
+            'No source in this browser plays this song. Add sources in Browse → Extensions; only those whose sites allow web pages work here.',
+        };
+      }
+    }
+  };
+
+  const playback = new PlaybackService(context, {
+    find,
+    settings: () => settings.stored(),
+    played: (item) => {
+      const kept = settings.stored().privacy.history;
+      if (!kept) return;
+      collections.recordPlay({
+        title: item.title,
+        artist: item.artist,
+        album: item.album,
+        durationMs: item.durationMs,
+        artworkUrl: item.artworkUrl,
+        source: item.source,
+        explicit: item.explicit,
+      });
+    },
+    youTubeEmbed: () => options.youTubeEmbed,
+  });
+
+  const quickAccess = (names: QuickAccessNames): QuickAccessList => {
+    const items: QuickAccessItem[] = [
+      fixedItem('favorites', '/library', { view: 'favorites' }, names.favorites),
+    ];
+    for (const playlist of collections.playlists()) {
+      items.push({
+        ...fixedItem('playlist', '/library/playlist', { id: playlist.id }, playlist.name),
+        artworkUrls: playlist.artworkUrls,
+        removable: true,
+      });
+    }
+    return { items, more: 0 };
+  };
+
+  const sync = new SyncEngine(context, options.connect ?? connectWebRtc, (summary) => {
+    // What came in shows at once, as on a phone after a sync.
+    playback.settingsChanged(settings.stored());
+    context.emit('syncChangedEvent', summary.changed);
+    context.emit('settingsChangedEvent', 'sync');
+    context.emit('quickAccessChangedEvent', 'sync');
+  });
+
+  /** Links with the app whose link code was scanned or pasted, then syncs with it. */
+  const linkWith = async (text: string) => {
+    const invite = parseInvite(text);
+    if (!invite) {
+      fail(
+        isLinkText(text)
+          ? "That device's Raygun can't link with a browser yet. Update it, then show its code again."
+          : "That isn't a Raygun link code. Open Devices on the other device and scan the code it shows.",
+      );
+      return;
+    }
+    const peer = await sync.link(invite);
+    await sync.syncWith(peer.deviceId).catch(() => undefined);
+  };
+
+  const syncStatus = () => sync.status();
+
+  const handlers: Record<string, Handler> = {
+    // ---- This device ----
+    app_info: (): AppInfo => ({
+      name: 'Raygun',
+      version: options.version,
+      platform: 'web',
+      arch: 'browser',
+      debug: options.debug ?? false,
+    }),
+    storage_info: (): StorageInfo => ({
+      mode: 'portable',
+      root: 'This browser (IndexedDB)',
+      logs: '',
+      webview: '',
+    }),
+    device_state: (): DeviceState => ({
+      foreground: visible(),
+      powerSave: false,
+      motion: motion(),
+    }),
+    device_set_visible: () => null,
+    network_status: () => ({
+      offline: typeof navigator !== 'undefined' && navigator.onLine === false,
+      dataSaver: false,
+      mobileData: false,
+    }),
+
+    // ---- Settings ----
+    settings_get: () => settings.load(),
+    settings_defaults: () => ({ ...structuredClone(SETTINGS_DEFAULTS), windowFrame: 'system' }),
+    settings_update: ({ change }) => {
+      const next = settings.update([change as SettingChange]);
+      playback.settingsChanged(settings.stored());
+      return next;
+    },
+    settings_update_many: ({ changes }) => {
+      const next = settings.update(changes as SettingChange[]);
+      playback.settingsChanged(settings.stored());
+      return next;
+    },
+
+    // ---- Favorites, playlists, history ----
+    favorites_list: () => collections.favorites(),
+    favorite_get: ({ track }) => collections.isFavorite(track as TrackInput),
+    favorite_set: ({ track, favorite }) => {
+      collections.setFavorite(track as TrackInput, favorite === true);
+      return null;
+    },
+    favorites_set_many: ({ tracks, favorite }) => {
+      collections.setFavorites(tracks as TrackInput[], favorite === true);
+      return null;
+    },
+    favorite_move: ({ trackKey, beforeKey }) => {
+      collections.moveFavorite(String(trackKey), (beforeKey as string | null) ?? null);
+      return null;
+    },
+    favorites_set_order: ({ trackKeys }) => {
+      collections.setFavoritesOrder(trackKeys as string[]);
+      return null;
+    },
+    collections_saves: ({ track }) => collections.saves(track as TrackInput),
+    collections_set_saves: ({ track, saves }) => {
+      collections.setSaves(track as TrackInput, saves as TrackSaves);
+      return null;
+    },
+    collections_saved_index: () => collections.savedIndex(),
+    collections_saved_keys: () => collections.savedKeys(),
+    playlists_list: () => collections.playlists(),
+    playlist_get: ({ id }) => collections.playlist(String(id)),
+    playlist_create: ({ name }) => collections.createPlaylist(String(name)),
+    playlist_rename: ({ id, name }) => {
+      collections.renamePlaylist(String(id), String(name));
+      return null;
+    },
+    playlist_delete: ({ id }) => {
+      collections.deletePlaylist(String(id));
+      return null;
+    },
+    playlist_add: ({ id, tracks, duplicates }) =>
+      collections.addToPlaylist(String(id), tracks as TrackInput[], duplicates === true),
+    playlist_remove_item: ({ itemId }) => {
+      collections.removePlaylistItem(String(itemId));
+      return null;
+    },
+    playlist_move_item: ({ itemId, beforeItemId }) => {
+      collections.movePlaylistItem(String(itemId), (beforeItemId as string | null) ?? null);
+      return null;
+    },
+    playlist_set_order: ({ playlistId, itemIds }) => {
+      collections.setPlaylistOrder(String(playlistId), itemIds as string[]);
+      return null;
+    },
+    playlists_merge: ({ ids, name, skipDuplicates, removeMerged }) =>
+      collections.mergePlaylists(
+        ids as string[],
+        String(name),
+        skipDuplicates === true,
+        removeMerged === true,
+      ),
+    history_recent: ({ limit }) => collections.history(Number(limit) || 50),
+    history_clear: () => {
+      collections.clearHistory();
+      return null;
+    },
+    recent_contexts: () => collections.recentContexts(),
+    recent_contexts_add: ({ context: played }) => {
+      const kept = settings.stored().privacy.recentlyPlayed;
+      if (kept) collections.addRecentContext(played as PlayContext);
+      return null;
+    },
+    quick_access_list: ({ names }) => quickAccess(names as QuickAccessNames),
+    collection_play: ({ request }) => {
+      const asked = request as CollectionPlayRequest;
+      const tracks = collections.tracksOf(asked.collection, asked.order);
+      if (tracks.length === 0) fail('Nothing to play here yet');
+      playback.replace(tracks.map(queueItemOf), asked.startIndex, asked.shuffle);
+      return null;
+    },
+
+    // ---- Playback ----
+    playback_get_state: () => playback.core.state(),
+    playback_get_queue: () => playback.core.queue(),
+    playback_enqueue: ({ items, playNow }) => {
+      playback.enqueue(items as QueueItemInput[], playNow === true);
+      return null;
+    },
+    playback_replace: ({ items, startIndex }) => {
+      playback.replace(items as QueueItemInput[], (startIndex as number | null) ?? null);
+      return null;
+    },
+    playback_queue_tracks: ({ tracks, next }) => {
+      const inputs = (tracks as TrackInput[]).map(queueInputOf);
+      if (next === true) playback.enqueueNext(inputs);
+      else playback.enqueue(inputs, false);
+      return null;
+    },
+    playback_control: ({ control }) => {
+      playback.control(control as PlaybackControl);
+      return null;
+    },
+    playback_engine_report: ({ report }) => {
+      playback.report(report as EngineReport);
+      return null;
+    },
+    playback_arm_context: ({ context: armed }) => {
+      playback.arm((armed as PlayContext | null) ?? null);
+      return null;
+    },
+    playback_restore: () => {
+      playback.restore();
+      return null;
+    },
+    playback_set_video: () => null,
+    youtube_embed_url: () => options.youTubeEmbed,
+
+    // ---- Devices and sync ----
+    sync_status: syncStatus,
+    sync_set_enabled: syncStatus,
+    sync_now: async ({ deviceId }) => {
+      if (typeof deviceId === 'string') await sync.syncWith(deviceId);
+      else await sync.syncAll();
+      return syncStatus();
+    },
+    sync_remove_peer: ({ deviceId }) => {
+      sync.removePeer(String(deviceId));
+      return syncStatus();
+    },
+    sync_set_kinds: ({ kinds }) => {
+      sync.setKinds(kinds as SyncKind[]);
+      return syncStatus();
+    },
+    sync_set_device_name: ({ name }) => {
+      sync.setName(String(name));
+      return syncStatus();
+    },
+    sync_join: async ({ text }) => {
+      await linkWith(String(text));
+      return syncStatus();
+    },
+    sync_open_pairing: () =>
+      fail(
+        'A browser can’t be reached by other devices. Show the code on the other device and scan it here.',
+      ),
+    sync_undo_last: () => fail('Undoing a sync isn’t available in the browser.'),
+    connect_link_code: async ({ text }) => {
+      await linkWith(String(text));
+      return [];
+    },
+    connect_devices: () => [],
+    connect_status: () => ({ thisDevice: sync.name(), session: null, asking: null, error: null }),
+    devices_set_sharing: () => null,
+
+    // ---- Sources (Raygun's own extensions, sandboxed) ----
+    extensions_list: () => extensions.list(),
+    extensions_reload: () => {
+      extensions.reload();
+      return extensions.list();
+    },
+    extension_uninstall: ({ extensionId }) => {
+      extensions.uninstall(String(extensionId));
+      return extensions.list();
+    },
+    extension_setting_set: ({ extensionId, key, value }) => {
+      extensions.setSetting(String(extensionId), String(key), value as SettingValue);
+      return extensions.list();
+    },
+    extension_clear_data: ({ extensionId }) => {
+      extensions.clearData(String(extensionId));
+      return extensions.list();
+    },
+    extension_repos: () => extensions.repos(),
+    extension_suggested_repos: () => extensions.suggested(),
+    extension_repo_add: ({ url }) => extensions.addRepo(String(url)),
+    extension_repo_remove: ({ id }) => extensions.removeRepo(String(id)),
+    extension_catalog: ({ refresh }) => extensions.catalog(refresh === true),
+    extension_install: async ({ repoId, extensionId }) => {
+      await extensions.install(String(repoId), String(extensionId));
+      extensions.reload(String(extensionId));
+      await extensions.start();
+      return extensions.list();
+    },
+    extension_installs_enqueue: ({ entries }) =>
+      extensions.enqueue(entries as ExtensionInstallRequest[]),
+    extension_installs_status: () => extensions.installStatus(),
+    extension_installs_dismiss: () => extensions.dismiss(),
+    extension_installs_cancel: () => extensions.installStatus(),
+    extension_installs_cancel_all: () => extensions.installStatus(),
+    extension_installs_retry: () => extensions.installStatus(),
+    online_search: async ({ query }) => {
+      const trimmed = String(query).trim();
+      const providers = trimmed ? await extensions.searchMusic(trimmed) : [];
+      // The best of each source first: one with a stream of its own leads.
+      const top = providers
+        .flatMap((result) => result.tracks.slice(0, 2))
+        .sort((a, b) => Number(b.source !== null) - Number(a.source !== null))
+        .slice(0, 5);
+      return { library: [], top, providers };
+    },
+  };
+
+  const invoke = async (command: string, args: Record<string, unknown>) => {
+    const handler = handlers[command];
+    if (!handler) {
+      if (options.debug) console.debug('[raygun web] no web implementation:', command);
+      return fallbackAnswer(options.answers, command);
+    }
+    return handler(args);
+  };
+
+  /**
+   * Keeps linked devices in sync while the page is open and shown: soon after a change here, and
+   * every few minutes anyway (device_link.rs does the same in the apps).
+   */
+  const autoSync = () => {
+    let seen = -1;
+    let lastRound = 0;
+    setInterval(() => {
+      if (!visible() || sync.peers().length === 0) return;
+      const latest = new SyncedRows(context).latestSeq();
+      const now = context.now();
+      if (latest === seen && now - lastRound < SYNC_EVERY_MS) return;
+      seen = latest;
+      lastRound = now;
+      void sync.syncAll().then(() => {
+        seen = new SyncedRows(context).latestSeq();
+      });
+    }, WATCH_EVERY_MS);
+  };
+
+  return {
+    invoke,
+    context,
+    settings,
+    collections,
+    playback,
+    sync,
+    start: () => {
+      playback.start();
+      autoSync();
+      void extensions.start();
+    },
+    flush: () => store.flush(),
+  };
+};

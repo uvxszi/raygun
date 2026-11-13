@@ -8,5 +8,5 @@
     "lib": ["ES2022"],
     "types": ["node"]
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "vite.pages.config.ts", "web-build"]
 }

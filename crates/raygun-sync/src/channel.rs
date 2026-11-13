@@ -1,11 +1,12 @@
 //! An encrypted, mutually authenticated channel between two devices: a Noise `XX` handshake over
-//! TCP, then JSON messages in length-prefixed Noise frames. After the handshake each side knows
-//! the other's static key, which is how paired devices recognise each other.
+//! TCP (or a browser's WebRTC data channel, `web`), then JSON messages in length-prefixed Noise
+//! frames. After the handshake each side knows the other's static key, which is how paired devices
+//! recognise each other.
 
 use std::time::Duration;
 
 use snow::{Builder, TransportState};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::SyncError;
@@ -79,16 +80,21 @@ fn params() -> snow::params::NoiseParams {
     PARAMS.parse().expect("the Noise pattern name is valid")
 }
 
-pub struct Channel {
-    stream: TcpStream,
+/// A byte stream a channel runs over: a TCP connection, or a browser's data channel.
+pub trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> Stream for S {}
+
+pub struct Channel<S: Stream = TcpStream> {
+    stream: S,
     transport: TransportState,
     buffer: Vec<u8>,
 }
 
-impl Channel {
+impl<S: Stream> Channel<S> {
     /// Connects as the initiator. Returns the channel and the responder's static key.
     pub async fn initiate(
-        mut stream: TcpStream,
+        mut stream: S,
         identity: &Identity,
     ) -> Result<(Self, Vec<u8>), SyncError> {
         let mut handshake = Builder::new(params())
@@ -117,10 +123,7 @@ impl Channel {
     }
 
     /// Accepts as the responder. Returns the channel and the initiator's static key.
-    pub async fn respond(
-        mut stream: TcpStream,
-        identity: &Identity,
-    ) -> Result<(Self, Vec<u8>), SyncError> {
+    pub async fn respond(mut stream: S, identity: &Identity) -> Result<(Self, Vec<u8>), SyncError> {
         let mut handshake = Builder::new(params())
             .local_private_key(&identity.private)?
             .build_responder()?;
@@ -181,7 +184,7 @@ impl Channel {
     }
 }
 
-async fn write_frame(stream: &mut TcpStream, data: &[u8]) -> Result<(), SyncError> {
+async fn write_frame(stream: &mut impl Stream, data: &[u8]) -> Result<(), SyncError> {
     let length =
         u16::try_from(data.len()).map_err(|_| SyncError::Protocol("frame too large".into()))?;
     tokio::time::timeout(IO_TIMEOUT, async {
@@ -194,7 +197,7 @@ async fn write_frame(stream: &mut TcpStream, data: &[u8]) -> Result<(), SyncErro
     Ok(())
 }
 
-async fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>, SyncError> {
+async fn read_frame(stream: &mut impl Stream) -> Result<Vec<u8>, SyncError> {
     tokio::time::timeout(IO_TIMEOUT, async {
         let length = stream.read_u16().await? as usize;
         let mut data = vec![0u8; length];

@@ -112,6 +112,18 @@ use std::path::Path;
 /// Location of the generated TypeScript bindings, relative to the workspace root.
 pub const BINDINGS_PATH: &str = "packages/bindings/src/index.ts";
 
+/// Every setting as a fresh install has it, written beside the bindings for Raygun on the web
+/// (`apps/raygun/src/web`), which has no Rust to ask.
+pub const SETTINGS_DEFAULTS_PATH: &str = "packages/bindings/src/settings-defaults.json";
+
+/// The text of [`SETTINGS_DEFAULTS_PATH`].
+pub fn settings_defaults_json() -> String {
+    let mut text = serde_json::to_string_pretty(&raygun_model::Settings::default())
+        .expect("settings serialize");
+    text.push('\n');
+    text
+}
+
 /// Collects every command and event exposed to the UI.
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
@@ -783,6 +795,14 @@ mod tests {
         assert!(
             normalize(&committed) == normalize(&fresh),
             "bindings are stale: run `pnpm bindings`"
+        );
+        let defaults = std::fs::read_to_string(
+            workspace_bindings_path().with_file_name("settings-defaults.json"),
+        )
+        .expect("settings defaults missing: run `pnpm bindings`");
+        assert!(
+            normalize(&defaults) == settings_defaults_json(),
+            "settings defaults are stale: run `pnpm bindings`"
         );
     }
 

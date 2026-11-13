@@ -25,6 +25,7 @@ import {
   useForgetDevice,
 } from '../connect/useConnect';
 import { unwrapResult } from '../lib/commandResult';
+import { usePlatform } from '../lib/usePlatform';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { ConfirmSheet } from '../settings/ConfirmSheet';
 import { PrefAction, PrefGroup, PrefSwitch } from '../settings/prefs';
@@ -80,6 +81,9 @@ export const LinkedDevices: FC = () => {
   const since = useSince();
   const [linking, setLinking] = useState<'show' | 'scan' | null>(null);
   const [unlinking, setUnlinking] = useState<Linked | null>(null);
+  // Raygun on the web (docs/WEB.md) can't be reached by other devices: it links by scanning
+  // their code, and syncs when it connects.
+  const web = usePlatform() === 'web';
   const sharing = (remote.data?.enabled ?? false) && (sync.data?.enabled ?? false);
 
   const refresh = () => {
@@ -174,17 +178,20 @@ export const LinkedDevices: FC = () => {
 
   return (
     <div data-testid="linked-devices" className="flex flex-col">
-      <PrefGroup>
-        <PrefSwitch
-          title={t('link.sharing')}
-          checked={sharing}
-          disabled={share.isPending || localNetwork.checking || !remote.data || !sync.data}
-          onChange={(on) => {
-            if (!on) share.mutate(false);
-            else void localNetwork.guard(null, () => share.mutate(true));
-          }}
-        />
-      </PrefGroup>
+      {web && <p className="text-muted px-1 pb-3 text-sm">{t('link.webNote')}</p>}
+      {!web && (
+        <PrefGroup>
+          <PrefSwitch
+            title={t('link.sharing')}
+            checked={sharing}
+            disabled={share.isPending || localNetwork.checking || !remote.data || !sync.data}
+            onChange={(on) => {
+              if (!on) share.mutate(false);
+              else void localNetwork.guard(null, () => share.mutate(true));
+            }}
+          />
+        </PrefGroup>
+      )}
 
       <PrefGroup title={t('link.linked')}>
         {linked.length === 0 && (
@@ -246,42 +253,46 @@ export const LinkedDevices: FC = () => {
         })}
       </PrefGroup>
 
-      <PrefGroup title={t('link.nearby')}>
-        {nearby.length === 0 && (
-          <li className="text-muted px-1 py-2 text-sm">
-            {sharing ? t('link.noneNearby') : t('link.turnOnToFind')}
-          </li>
-        )}
-        {nearby.map((device) => (
-          <DeviceRow
-            key={device.id}
-            testId="nearby-device"
-            name={device.name}
-            kind={device.kind}
-            detail={device.found ? device.address : t('link.away')}
-          >
-            {asking === device.id ? (
-              <span className="text-muted flex min-h-11 items-center gap-2 text-sm">
-                <LoaderCircle aria-hidden size={16} className="animate-spin" />
-                {t('link.waiting', { name: device.name })}
-              </span>
-            ) : (
-              <button
-                type="button"
-                disabled={link.isPending}
-                onClick={() => void localNetwork.guard(null, () => link.mutate(device))}
-                className={`${TAP_BUTTON} bg-primary text-background`}
-              >
-                <Link2 aria-hidden size={16} />
-                {t('link.link')}
-              </button>
-            )}
-          </DeviceRow>
-        ))}
-      </PrefGroup>
+      {!web && (
+        <PrefGroup title={t('link.nearby')}>
+          {nearby.length === 0 && (
+            <li className="text-muted px-1 py-2 text-sm">
+              {sharing ? t('link.noneNearby') : t('link.turnOnToFind')}
+            </li>
+          )}
+          {nearby.map((device) => (
+            <DeviceRow
+              key={device.id}
+              testId="nearby-device"
+              name={device.name}
+              kind={device.kind}
+              detail={device.found ? device.address : t('link.away')}
+            >
+              {asking === device.id ? (
+                <span className="text-muted flex min-h-11 items-center gap-2 text-sm">
+                  <LoaderCircle aria-hidden size={16} className="animate-spin" />
+                  {t('link.waiting', { name: device.name })}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={link.isPending}
+                  onClick={() => void localNetwork.guard(null, () => link.mutate(device))}
+                  className={`${TAP_BUTTON} bg-primary text-background`}
+                >
+                  <Link2 aria-hidden size={16} />
+                  {t('link.link')}
+                </button>
+              )}
+            </DeviceRow>
+          ))}
+        </PrefGroup>
+      )}
 
       <PrefGroup title={t('link.byCode')}>
-        <PrefAction icon={QrCode} title={t('link.showCode')} onClick={() => setLinking('show')} />
+        {!web && (
+          <PrefAction icon={QrCode} title={t('link.showCode')} onClick={() => setLinking('show')} />
+        )}
         <PrefAction icon={ScanLine} title={t('link.scanCode')} onClick={() => setLinking('scan')} />
       </PrefGroup>
 
