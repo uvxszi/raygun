@@ -40,6 +40,23 @@ import type { Backend } from './store';
 
 export type Handler = (args: Record<string, unknown>) => unknown;
 
+/**
+ * A linked app answering commands for the page (web/remote/): it returns its answer, or null to
+ * leave the command to the page; `local` is the page's own answer, for falling back to.
+ */
+export type RemoteHandler = (
+  command: string,
+  args: Record<string, unknown>,
+  local: () => Promise<unknown>,
+) => Promise<unknown> | null;
+
+let remoteHandler: RemoteHandler | null = null;
+
+/** Sets (or, with null, takes away) the linked app that answers for the page. */
+export const setRemoteHandler = (handler: RemoteHandler | null) => {
+  remoteHandler = handler;
+};
+
 export type WebCoreOptions = {
   backend: Backend;
   answers: CommandAnswers;
@@ -424,7 +441,7 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     },
   };
 
-  const invoke = async (command: string, args: Record<string, unknown>) => {
+  const local = async (command: string, args: Record<string, unknown>) => {
     const handler = handlers[command];
     if (!handler) {
       if (options.debug) console.debug('[raygun web] no web implementation:', command);
@@ -432,6 +449,9 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     }
     return handler(args);
   };
+
+  const invoke = async (command: string, args: Record<string, unknown>) =>
+    remoteHandler?.(command, args, () => local(command, args)) ?? local(command, args);
 
   /**
    * Keeps linked devices in sync while the page is open and shown: soon after a change here, and

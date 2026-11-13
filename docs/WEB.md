@@ -100,6 +100,48 @@ A browser can't be reached, so it always connects; the apps listen.
 Check it from a PC: `cargo run -p raygun-sync --example peer -- <dir> serve --bind 127.0.0.1
 --web` prints a link code for browsers; paste it into Devices → Scan a link code.
 
+## The app as a back end
+
+While a linked app is reachable, the page uses it for everything a browser can't do itself: every
+source and format the app runs (Raygun's extensions without the browser's CORS limits, Stremio,
+Kodi, Mihon, Shosetsu, Nuclear, servers), searches, catalogues and readers, and downloads, which
+land on that device. The page keeps its own library, settings, history and player, which sync
+anyway.
+
+- **Channel**: the browser opens a second negotiated data channel (id 1, `raygun-remote`) on a
+  connection of its own and runs the same Noise `XX` handshake on it (`raygun-sync` `remote.rs`).
+  The app answers only a browser whose key is a paired device's, then keeps the channel open both
+  ways. Each frame's plaintext starts with a kind byte: JSON in parts, or a piece of a body (a
+  request id, then bytes). Either lane starts with its first bytes, and the listener queues what
+  doesn't fit SCTP's send buffer until the browser acknowledges more.
+- **Commands** (`raygun-app` `web_remote.rs`): `call {id, cmd, args}` runs through Tauri's own
+  invoke path on the main window's webview (`Webview::on_message`, the app's invoke key), so a
+  command answers exactly as for the app's own screens; the answer is `ok`, `err` or `denied`.
+  Denied: the app's settings, player, windows, pairing, backups and data, permissions, files
+  outside Raygun's data, and what each side keeps itself (library, history, quick access)
+  (`DENIED`, `DENIED_PREFIXES`; a test checks each names real commands). While the app's window is
+  closed (Android, swiped away) commands answer that Raygun needs opening there.
+- **Events**: the events the page's screens follow (sources, searches as they answer, downloads,
+  catalogue and podcast changes) come as `event {event, payload}`; the app's player, prompts and
+  settings stay its own.
+- **Pictures and media**: answers carry the app's proxy links (`http://127.0.0.1:<port>/cover/…`).
+  The page shows them as its own `__remote/…` paths (`web/remote/rewrite.ts`) and turns them back
+  into the app's form in what it sends or keeps, so stored and synced rows read the same
+  everywhere. The service worker (`web-build/remoteWorker.ts`) answers those paths, and app links
+  still in their own form, by asking the page over a MessagePort; the page fetches through the app
+  (`fetch {id, path, range}` → `head`, body pieces, `end`, from the proxy on loopback, its routes
+  only) in 512 KB ranges as the browser reads, so audio and video seek and stream
+  (`web/remote/media.ts`). HLS and DASH playlists get their links rewritten on the way.
+- **Page side** (`web/remote/`): `backend.ts` connects to the chosen linked app (else the one
+  synced with last), sets the web core's `setRemoteHandler`, and sends commands there unless the
+  page keeps them (`routing.ts`) or the app denied them; when the app goes away mid-call or before,
+  the page answers by itself, and it tries again after 2 s, 5 s, 15 s, 30 s, then every minute
+  (and when the tab is shown or the network comes back). `web/remoteState.ts` tells the screens:
+  Devices has a "Sources from your apps" switch and a choice of app, Browse says "via <device>".
+
+Check it from a PC: `peer -- <dir> serve --bind 127.0.0.1 --web --remote` answers the back-end
+channel as a stand-in (the command `test_echo`, any proxy path as a 3 MB file with ranges).
+
 ## Sources
 
 Raygun's own JavaScript extensions run in the browser (`extensions/`). Each runs in an iframe
@@ -132,7 +174,8 @@ fragment, so Pages needs no fallback page.
 Works: the interface, settings, favorites, playlists, history and what was played from (kept and
 synced); linking and syncing with the apps; Search → Music and playback through Raygun's sources
 that allow web pages; songs with a stream address or a YouTube id; the queue and its restore;
-YouTube's player; installing as a web app.
+YouTube's player; installing as a web app. With a linked app reachable, also its sources in every
+format, catalogues, searches, readers' pages and downloads to that device.
 
 Not in the browser, and why:
 
@@ -142,7 +185,10 @@ Not in the browser, and why:
   wired into the web core yet; podcast feeds are mostly not readable by web pages (CORS).
 - Downloads, exports, recordings, yt-dlp, torrents, casting, the LAN remote, Connect (playing on
   another device), on-device AI (transcription, translation, OCR) and the apps' system integrations:
-  they need the app.
+  they need the app; downloads and exports work through a linked app, landing on it.
+- Through a linked app, playing a title's videos (they open the app's own player, so they're
+  refused) and songs whose stream only the app's sources find (the page's player looks among its
+  own sources) aren't wired yet.
 - Sources whose sites don't allow web pages, and sources in other formats: they need the app.
 
 ## Publishing

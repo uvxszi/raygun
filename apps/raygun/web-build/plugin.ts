@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import type { Plugin, ResolvedConfig } from 'vite';
 
 import { commandAnswers } from './commandAnswers';
+import { remoteWorker } from './remoteWorker';
 
 const ANSWERS = 'virtual:raygun-web-answers';
 const RESOLVED_ANSWERS = `\0${ANSWERS}`;
@@ -87,10 +88,12 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+${remoteWorker}
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (remotePath(request.url) !== null) return;
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(() =>

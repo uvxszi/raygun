@@ -7,6 +7,7 @@ import { createWebCore } from './core';
 import { indexedDbBackend, memoryBackend } from './core/store';
 import type { Backend } from './core/store';
 import { installWebIpc } from './ipc';
+import { RemoteBackend } from './remote/backend';
 
 const openStorage = async (): Promise<Backend> => {
   try {
@@ -38,8 +39,23 @@ const start = async () => {
     ).href,
     debug: import.meta.env.DEV,
   });
-  installWebIpc(core.invoke);
+  // A linked app answers for the page while it's reachable (docs/WEB.md).
+  const backend = new RemoteBackend({
+    core,
+    emit: (event, payload) => ipc.emit(event, payload),
+    base: new URL(import.meta.env.BASE_URL, location.href).href,
+    storage: (() => {
+      try {
+        return localStorage;
+      } catch {
+        return null;
+      }
+    })(),
+  });
+  const ipc = installWebIpc(backend.wrap(core.invoke));
   core.start();
+  if ('serviceWorker' in navigator) backend.listenToWorker(navigator.serviceWorker);
+  backend.start();
   registerServiceWorker();
   await import('../main');
 };

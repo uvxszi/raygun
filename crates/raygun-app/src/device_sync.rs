@@ -67,6 +67,8 @@ impl SyncService {
                 tracing::warn!(%error, "failed to emit sync event");
             }
         }));
+        // Linked browsers may use this device as their back end (docs/WEB.md).
+        engine.on_remote(Some(crate::web_remote::handler(app.clone())));
         let service = Self {
             app,
             engine,
@@ -77,6 +79,11 @@ impl SyncService {
             service.sync_all_in_background();
         }
         Ok(service)
+    }
+
+    /// This device's sync id and name, as linked devices know it.
+    pub fn this_device(&self) -> (String, String) {
+        (self.engine.device_id().to_owned(), self.engine.name())
     }
 
     pub async fn status(&self) -> Result<SyncStatus, String> {

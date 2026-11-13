@@ -27,6 +27,7 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
+import { WebBackendVia } from '../devices/WebBackend';
 import { useContentRating } from '../extensions/contentRating';
 import type { RatingItem } from '../extensions/contentRating';
 import { ExtensionCatalog } from '../extensions/ExtensionCatalog';
@@ -768,6 +769,7 @@ export const BrowsePage: FC = () => {
         </>
       )}
       {catalogRefresh.status}
+      <WebBackendVia />
       {tab === 'search' && (
         <SearchPanel
           query={q}

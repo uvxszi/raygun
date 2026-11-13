@@ -7,6 +7,7 @@
 pub mod channel;
 pub mod discovery;
 pub mod protocol;
+pub mod remote;
 pub mod web;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -73,6 +74,8 @@ pub struct Engine {
     port: Mutex<Option<u16>>,
     clock: Box<dyn Fn() -> i64 + Send + Sync>,
     on_synced: RwLock<Option<SyncedHook>>,
+    /// Takes paired browsers' back-end channels (emote).
+    remote: RwLock<Option<remote::RemoteHandler>>,
 }
 
 /// Called after each successful session, whichever device started it.
@@ -122,6 +125,7 @@ impl Engine {
             port: Mutex::new(None),
             clock,
             on_synced: RwLock::new(None),
+            remote: RwLock::new(None),
         }
     }
 
