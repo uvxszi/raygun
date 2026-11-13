@@ -207,6 +207,8 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   volumeGesture: true,
   swapSides: false,
   seekGesture: true,
+  // Unset: on for phones, off on desktop (`seekByDragging`).
+  seekByDragging: null,
   doubleTapLeft: 'seek',
   doubleTapCenter: 'playPause',
   doubleTapRight: 'seek',
@@ -239,6 +241,10 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   showFailedSources: true,
   showEmptySources: true,
 };
+
+/** Whether the seek bar seeks only by dragging: the setting, else on for phones, off on desktop. */
+export const seekByDragging = (prefs: { seekByDragging?: boolean | null }, phone: boolean) =>
+  prefs.seekByDragging ?? phone;
 
 /** Fills anything missing from the saved settings with the defaults. */
 export const withDefaults = (prefs: VideoPlayerPrefs | undefined): PlayerPrefs => ({

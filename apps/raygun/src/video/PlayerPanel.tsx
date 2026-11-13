@@ -101,11 +101,10 @@ export const PanelOption: FC<OptionProps> = ({
       <span className={`truncate ${current ? 'font-semibold' : ''}`}>{label}</span>
       {hint && <span className="truncate text-xs text-white/55">{hint}</span>}
     </span>
-    {selected ? (
-      <Check aria-hidden size={16} className="shrink-0" />
-    ) : (
-      current && <Play aria-hidden size={14} className="shrink-0 fill-current" />
-    )}
+    {/* The mark's slot is there on every row: words start and end at the same place, ticked or not. */}
+    <span aria-hidden data-testid="option-mark" className="grid size-4 shrink-0 place-items-center">
+      {selected ? <Check size={16} /> : current && <Play size={14} className="fill-current" />}
+    </span>
   </button>
 );
 

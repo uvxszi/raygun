@@ -2929,6 +2929,10 @@ pub struct VideoPlayerPrefs {
     pub swap_sides: bool,
     /// A sideways swipe seeks.
     pub seek_gesture: bool,
+    /// The seek bar moves only when held and dragged (a tap doesn't jump), showing the frame
+    /// under the finger while everything but the bar and times fades; swiping the picture
+    /// doesn't seek then. Unset: on for phones, off on desktop.
+    pub seek_by_dragging: Option<bool>,
     pub double_tap_left: TapAction,
     pub double_tap_center: TapAction,
     pub double_tap_right: TapAction,
@@ -3007,6 +3011,7 @@ impl Default for VideoPlayerPrefs {
             volume_gesture: true,
             swap_sides: false,
             seek_gesture: true,
+            seek_by_dragging: None,
             double_tap_left: TapAction::Seek,
             double_tap_center: TapAction::PlayPause,
             double_tap_right: TapAction::Seek,

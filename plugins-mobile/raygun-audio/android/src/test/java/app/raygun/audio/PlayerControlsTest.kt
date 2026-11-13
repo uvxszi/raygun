@@ -1,0 +1,38 @@
+package app.raygun.audio
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PlayerControlsTest {
+    @Test
+    fun aDragMovesFromWhereTheVideoWasByTheShareOfTheBar() {
+        assertEquals(120_000L, dragPosition(60_000, 100f, 1_000, 600_000))
+        assertEquals(30_000L, dragPosition(60_000, -50f, 1_000, 600_000))
+    }
+
+    @Test
+    fun aDragStaysWithinTheVideo() {
+        assertEquals(0L, dragPosition(10_000, -500f, 1_000, 600_000))
+        assertEquals(600_000L, dragPosition(590_000, 500f, 1_000, 600_000))
+        assertEquals(0L, dragPosition(10_000, 100f, 1_000, 0))
+        // A bar not laid out yet doesn't divide by nothing.
+        assertEquals(600_000L, dragPosition(0, 5f, 0, 600_000))
+    }
+
+    @Test
+    fun aSheetPanelKeepsToTheRoomBetweenTheBars() {
+        // A wide sheet (880 dp) in a landscape phone's room beside a button bar takes the room.
+        assertEquals(2_100, sheetPanelSize(2_100, 2_420))
+        assertEquals(1_540, sheetPanelSize(2_100, 1_540))
+        assertEquals(0, sheetPanelSize(-20, 1_540))
+    }
+
+    @Test
+    fun speedsCompareByStep() {
+        assertTrue(sameSpeed(1.25f, 125 / 100f))
+        assertTrue(sameSpeed(0.3f, (25 + 1 * 5) / 100f))
+        assertFalse(sameSpeed(1.25f, 1.3f))
+    }
+}

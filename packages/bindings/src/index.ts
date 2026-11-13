@@ -8842,6 +8842,12 @@ export type VideoPlayerPrefs = {
 	swapSides?: boolean,
 	/**  A sideways swipe seeks. */
 	seekGesture?: boolean,
+	/**
+	 *  The seek bar moves only when held and dragged (a tap doesn't jump), showing the frame
+	 *  under the finger while everything but the bar and times fades; swiping the picture
+	 *  doesn't seek then. Unset: on for phones, off on desktop.
+	 */
+	seekByDragging?: boolean | null,
 	doubleTapLeft?: TapAction,
 	doubleTapCenter?: TapAction,
 	doubleTapRight?: TapAction,

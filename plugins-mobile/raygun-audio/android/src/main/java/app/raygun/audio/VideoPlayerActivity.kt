@@ -72,6 +72,15 @@ import kotlin.math.log10
 
 private const val REPORT_INTERVAL_MS = 5_000L
 private const val TICK_MS = 250L
+
+/** How long "More settings" waits for the small window before opening the app's Settings anyway. */
+private const val PIP_SETTINGS_WAIT_MS = 1500L
+
+/** How long a resized surface settles before a paused frame is drawn again on it. */
+private const val REDRAW_WAIT_MS = 120L
+
+/** How often a dragged seek bar seeks the frame behind it, at most. */
+private const val DRAG_SEEK_MS = 60L
 private const val DEFAULT_SEEK_STEP_MS = 10_000L
 private const val DEFAULT_PROMPT_MS = 10_000L
 private const val DEFAULT_USER_AGENT =
@@ -353,6 +362,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             .setHandleAudioBecomingNoisy(true)
             .build()
         player.addListener(listener)
+        player.addListener(surfaceListener)
 
         playerView = PlayerView(this).apply {
             player = this@VideoPlayerActivity.player
@@ -1600,8 +1610,94 @@ class VideoPlayerActivity : AppCompatActivity() {
      */
     internal fun openAppSettings() {
         player.pause()
-        request("openSettings")
+        // The app comes forward only once the video is in its small window: opened first, it
+        // would stop this window before the small one began, leaving that black.
+        settingsAfterPip = true
         enterPip()
+        if (!isInPip()) {
+            main.postDelayed({
+                if (settingsAfterPip) {
+                    settingsAfterPip = false
+                    request("openSettings")
+                }
+            }, PIP_SETTINGS_WAIT_MS)
+        }
+    }
+
+    /** "More settings" waits for the small window before the app shows Settings. */
+    private var settingsAfterPip = false
+
+    // ---- The paused frame ----
+
+    private val redrawFrame = Runnable {
+        if (!::player.isInitialized || controlsDragging) return@Runnable
+        val state = player.playbackState
+        if (player.playWhenReady || state == Player.STATE_IDLE || state == Player.STATE_ENDED) return@Runnable
+        if (!player.isCurrentMediaItemSeekable) return@Runnable
+        // A paused decoder draws nothing on a surface that changed size (picture-in-picture
+        // and back): seeking to the same place draws the frame there again.
+        player.seekTo(player.currentPosition)
+    }
+
+    /** Draws the paused frame again once the picture's surface settles at a new size. */
+    private fun redrawPausedFrame() {
+        main.removeCallbacks(redrawFrame)
+        main.postDelayed(redrawFrame, REDRAW_WAIT_MS)
+    }
+
+    private val surfaceListener = object : Player.Listener {
+        override fun onSurfaceSizeChanged(width: Int, height: Int) {
+            if (width > 0 && height > 0) redrawPausedFrame()
+        }
+    }
+
+    // ---- Seek by dragging: the frame under the finger ----
+
+    private var controlsDragging = false
+    private var resumeAfterDrag = false
+    private var dragTarget = C.TIME_UNSET
+    private val dragSeek = Runnable {
+        dragSeekPending = false
+        if (controlsDragging && dragTarget != C.TIME_UNSET) player.seekTo(dragTarget)
+    }
+
+    /** A drag on the seek bar began: the video waits, seeking quickly to key frames. */
+    internal fun dragPreviewStart() {
+        controlsDragging = true
+        main.removeCallbacks(redrawFrame)
+        resumeAfterDrag = player.playWhenReady
+        player.pause()
+        player.setScrubbingModeEnabled(true)
+    }
+
+    /** Shows the frame at `position` behind the bar, a few times a second at most. */
+    internal fun dragPreviewAt(position: Long) {
+        dragTarget = position
+        if (dragSeekPending) return
+        dragSeekPending = true
+        main.postDelayed(dragSeek, DRAG_SEEK_MS)
+    }
+
+    private var dragSeekPending = false
+
+    /** The drag ended: the video goes exactly to `position` and plays again if it was. */
+    internal fun dragPreviewEnd(position: Long) {
+        controlsDragging = false
+        main.removeCallbacks(dragSeek)
+        dragSeekPending = false
+        dragTarget = C.TIME_UNSET
+        player.setScrubbingModeEnabled(false)
+        player.seekTo(position)
+        if (resumeAfterDrag) player.play()
+        resumeAfterDrag = false
+    }
+
+    /** While the bar is dragged, subtitles and overlays make way for the frame. */
+    internal fun fadeForDrag(dragged: Boolean) {
+        val alpha = if (dragged) 0f else 1f
+        listOf(subtitleView, secondView, stats, nextPrompt).forEach { view ->
+            view.animate().alpha(alpha).setDuration(if (dragged) 150L else 200L).start()
+        }
     }
 
     internal fun setDecoder(mode: String) {
@@ -1705,7 +1801,18 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode && settingsAfterPip) {
+            settingsAfterPip = false
+            request("openSettings")
+        }
+        // The picture's frame lays out at the window's new size, keeping its aspect, and a paused
+        // video draws its frame again there (else the small window stays black, and coming back
+        // shows the small window's frame in a corner until it plays).
+        playerView.requestLayout()
+        playerView.post { applyAspect(aspect) }
+        redrawPausedFrame()
         if (isInPictureInPictureMode) {
+            controls.cancelDrag()
             closeSheet(openSheet)
             controls.hide()
             hint.visibility = View.GONE
@@ -2160,6 +2267,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         if (!::player.isInitialized) return
+        if (::controls.isInitialized) controls.cancelDrag()
         if (!isInPip() && !externalOnly) player.pause()
         report("progress")
         if (prefs.rememberBrightness && !brightness.isNaN()) {

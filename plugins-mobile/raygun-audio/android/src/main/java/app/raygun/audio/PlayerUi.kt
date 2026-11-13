@@ -102,7 +102,13 @@ internal fun Context.pill(text: String, filled: Boolean = false, onClick: () -> 
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER
         setPadding(dp(14), dp(8), dp(14), dp(8))
-        background = rounded(if (filled) Color.WHITE else 0x66000000, dp(20).toFloat())
+        // A ripple over its colour: a press shows at once.
+        val radius = dp(20).toFloat()
+        background = RippleDrawable(
+            ColorStateList.valueOf(if (filled) 0x33000000 else 0x55FFFFFF),
+            rounded(if (filled) Color.WHITE else 0x66000000, radius),
+            rounded(Color.WHITE, radius),
+        )
         isClickable = true
         isFocusable = true
         setOnClickListener { onClick() }
@@ -157,6 +163,24 @@ private class CappedScroll(context: Context, private val max: () -> Int) : Scrol
     }
 }
 
+/**
+ * A sheet's panel: as wide as the room it's given up to `maxWidth`, and no taller than that room
+ * less `gap` (its weighted children give up the rest).
+ */
+private class BoundedColumn(context: Context, private val maxWidth: Int, private val gap: Int) : LinearLayout(context) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = sheetPanelSize(MeasureSpec.getSize(widthMeasureSpec), maxWidth)
+        val height = sheetPanelSize(MeasureSpec.getSize(heightMeasureSpec) - gap, Int.MAX_VALUE)
+        super.onMeasure(
+            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST),
+        )
+    }
+}
+
+/** The room a sheet's panel takes of `available` px: at most `max`, never below nothing. */
+internal fun sheetPanelSize(available: Int, max: Int): Int = minOf(available, max).coerceAtLeast(0)
+
 /** A sheet's row: its words, a tick when `selected`, grey when it can't be picked. */
 private fun Context.sheetRow(text: String, detail: String?, selected: Boolean, enabled: Boolean): TextView =
     TextView(this).apply {
@@ -202,20 +226,44 @@ internal fun TextView.fillRow(
     enabled: Boolean,
     highlighted: Boolean = selected,
 ) {
-    val check = if (selected) "✓  " else ""
-    val name = "$check$text"
-    val words = SpannableStringBuilder(name)
-    if (highlighted) words.setSpan(StyleSpan(Typeface.BOLD), 0, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    val words = SpannableStringBuilder(text)
+    if (highlighted) words.setSpan(StyleSpan(Typeface.BOLD), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     if (!detail.isNullOrBlank()) words.append('\n').append(detail)
     this.text = words
-    setTextColor(
-        when {
-            !enabled -> 0x80FFFFFF.toInt()
-            selected || highlighted -> playerAccent
-            else -> Color.WHITE
-        },
-    )
-    background = context.rowBackground(enabled, highlighted)
+    val color = when {
+        !enabled -> 0x80FFFFFF.toInt()
+        selected || highlighted -> playerAccent
+        else -> Color.WHITE
+    }
+    setTextColor(color)
+    // The tick has a slot of its own at the end, there (unseen) on every row: names start at the
+    // same place and wrap at the same width whether a row is ticked or not.
+    val size = context.dp(TICK_DP)
+    val tick = ContextCompat.getDrawable(context, R.drawable.raygun_ic_check)?.mutate()?.apply {
+        setBounds(0, 0, size, size)
+        setTint(color)
+        alpha = if (selected) 255 else 0
+    }
+    setCompoundDrawablesRelative(null, null, tick, null)
+    compoundDrawablePadding = context.dp(12)
+    isSelected = selected
+    keepingPadding { background = context.rowBackground(enabled, highlighted) }
+}
+
+/** The tick's size in a sheet's row, dp. */
+private const val TICK_DP = 20
+
+/**
+ * Runs `change` (setting a background) and puts the padding back: a background with insets of its
+ * own (a highlighted row's tint) would otherwise become the padding, moving the words to its edge.
+ */
+internal inline fun View.keepingPadding(change: () -> Unit) {
+    val start = paddingStart
+    val top = paddingTop
+    val end = paddingEnd
+    val bottom = paddingBottom
+    change()
+    setPaddingRelative(start, top, end, bottom)
 }
 
 /**
@@ -227,7 +275,9 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
     private val maxHeight: Int get() = (context.resources.displayMetrics.heightPixels * 0.72f).toInt()
     private val body = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val scroll = CappedScroll(context) { maxHeight }.apply { addView(body) }
-    private val panel = LinearLayout(context).apply {
+    // Two panes side by side (Sources) take a wider panel. Its size comes from the room left
+    // between the system bars and a cutout, measured each layout (a turn of the phone too).
+    private val panel = BoundedColumn(context, context.dp(if (wide) 880 else 560), context.dp(16)).apply {
         orientation = LinearLayout.VERTICAL
         background = GradientDrawable().apply {
             setColor(PANEL)
@@ -243,7 +293,9 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
             typeface = Typeface.DEFAULT_BOLD
             setPadding(context.dp(20), 0, context.dp(20), context.dp(8))
         })
-        addView(scroll, LinearLayout.LayoutParams(-1, -2))
+        // Weighted: in a short window (landscape) the rows give up height first, never the
+        // panel's room above the navigation bar.
+        addView(scroll, LinearLayout.LayoutParams(-1, -2, 1f))
     }
 
     /**
@@ -283,12 +335,11 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         setBackgroundColor(SCRIM)
         isClickable = true
         setOnClickListener { dismiss() }
-        // Two panes side by side (Sources) take a wider panel.
-        val width = minOf(context.resources.displayMetrics.widthPixels, context.dp(if (wide) 880 else 560))
-        addView(panel, FrameLayout.LayoutParams(width, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         elevation = context.dp(16).toFloat()
         // The system bars show while a sheet is open: the panel keeps clear of them (and of a
-        // cutout) at the sides and top, and its colour runs on under the navigation bar.
+        // cutout) at the sides and top, in either orientation and with buttons or gestures (in
+        // landscape a button bar sits at a side), and its colour runs on under a bottom bar.
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
             val area = SafeInsets.of(insets, hiddenBars = true)
             view.setPadding(area.left, area.top, area.right, 0)
@@ -360,7 +411,7 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         }
         // Rows are about 56 dp; the list shares the sheet's height with what's above it.
         val height = minOf(count * context.dp(56), maxHeight - context.dp(120)).coerceAtLeast(context.dp(160))
-        panel.addView(list, LinearLayout.LayoutParams(-1, height))
+        panel.addView(list, LinearLayout.LayoutParams(-1, height, 1f))
     }
 
     /** A line of pills; `selected` marks one. */
@@ -400,7 +451,7 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
 
     /** A view `height` tall under the rows, scrolling on its own (Sources' two panes). */
     fun fixed(view: View, height: Int) {
-        panel.addView(view, LinearLayout.LayoutParams(-1, height))
+        panel.addView(view, LinearLayout.LayoutParams(-1, height, 1f))
     }
 
     fun show() = host.showSheet(this)

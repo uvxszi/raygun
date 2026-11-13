@@ -635,6 +635,14 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     private fun edgeName(edge: String) =
         label("edge" + edge.replaceFirstChar { it.uppercase() }, edge.replaceFirstChar { it.uppercase() })
 
+    /** The open speed sheet's Make default and Reset, set for a speed (the slider moves it). */
+    private var speedButtons: (Float) -> Unit = {}
+
+    /** Draws the speed sheet again a moment after a press, so its ripple is seen first. */
+    private fun redrawAfterPress(sheet: PlayerSheet) {
+        host.main.postDelayed({ if (host.sheetShown(sheet)) speed() }, PRESS_SHOWN_MS)
+    }
+
     fun speed() {
         val player = host.player
         val sheet = PlayerSheet(host, label("speed", "Speed"))
@@ -658,6 +666,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                     val speed = (25 + progress * 5) / 100f
                     value.text = formatSpeed(speed)
                     host.setSpeed(speed)
+                    speedButtons(speed)
                 }
 
                 override fun onStartTrackingTouch(bar: SeekBar) {}
@@ -671,19 +680,35 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.setSpeed(presets[picked])
             speed()
         }
+        // Both buttons rest while the speed is the default, "Default ✓" saying so. A press
+        // ripples, a hint names the change, then the sheet shows the new state.
+        val makeDefault = host.pill(label("makeDefault", "Make default")) {
+            val speed = host.player.playbackParameters.speed
+            host.prefs.defaultSpeed = speed
+            host.savePrefs(JSONObject().put("defaultSpeed", (speed * 100).toInt()))
+            host.showHint(label("madeDefault", "Default speed: {n}", formatSpeed(speed)))
+            redrawAfterPress(sheet)
+        }
+        val reset = host.pill(label("reset", "Reset")) {
+            val speed = host.prefs.defaultSpeed
+            host.setSpeed(speed)
+            host.showHint(label("speedReset", "Back to {n}", formatSpeed(speed)))
+            redrawAfterPress(sheet)
+        }
+        speedButtons = { speed ->
+            val atDefault = sameSpeed(speed, host.prefs.defaultSpeed)
+            makeDefault.show(if (atDefault) label("isDefault", "Default ✓") else label("makeDefault", "Make default"))
+            listOf(makeDefault, reset).forEach { button ->
+                button.isEnabled = !atDefault
+                button.alpha = if (atDefault) 0.5f else 1f
+            }
+        }
+        speedButtons(current)
         sheet.custom(LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(host.dp(12), host.dp(8), host.dp(20), host.dp(4))
-            addView(host.pill(label("makeDefault", "Make default")) {
-                val speed = host.player.playbackParameters.speed
-                host.prefs.defaultSpeed = speed
-                host.savePrefs(JSONObject().put("defaultSpeed", (speed * 100).toInt()))
-                host.showHint(label("madeDefault", "Default speed: {n}", formatSpeed(speed)))
-            })
-            addView(host.pill(label("reset", "Reset")) {
-                host.setSpeed(1f)
-                speed()
-            })
+            addView(makeDefault)
+            addView(reset)
         })
         sheet.row(label("pitchCorrection", "Pitch correction"), selected = host.prefs.pitchCorrection) {
             host.prefs.pitchCorrection = !host.prefs.pitchCorrection
@@ -812,9 +837,26 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.savePrefs(JSONObject().put("volumeGesture", prefs.volumeGesture))
             settings()
         }
-        sheet.row(label("seekSwipe", "Swipe to seek"), selected = prefs.seekGesture) {
-            prefs.seekGesture = !prefs.seekGesture
-            host.savePrefs(JSONObject().put("seekGesture", prefs.seekGesture))
+        // Seeking by dragging the bar leaves sideways swipes alone: Swipe to seek waits meanwhile.
+        sheet.row(
+            label("seekSwipe", "Swipe to seek"),
+            label("seekSwipeOff", "Off while seeking by dragging").takeIf { prefs.seekByDragging },
+            selected = prefs.seekGesture && !prefs.seekByDragging,
+            onClick = if (prefs.seekByDragging) null else {
+                {
+                    prefs.seekGesture = !prefs.seekGesture
+                    host.savePrefs(JSONObject().put("seekGesture", prefs.seekGesture))
+                    settings()
+                }
+            },
+        )
+        sheet.row(
+            label("seekByDragging", "Seek by dragging"),
+            label("seekByDraggingHint", "A tap on the bar doesn't jump; drag it to see where you're going"),
+            selected = prefs.seekByDragging,
+        ) {
+            prefs.seekByDragging = !prefs.seekByDragging
+            host.savePrefs(JSONObject().put("seekByDragging", prefs.seekByDragging))
             settings()
         }
 
@@ -911,3 +953,9 @@ private fun formatSize(bytes: Long): String = when {
 /** A JSON array of strings as a list (none when missing). */
 private fun JSONArray?.strings(): List<String> =
     (0 until (this?.length() ?: 0)).mapNotNull { index -> this?.optString(index)?.takeIf { it.isNotBlank() } }
+
+/** How long a pressed button's ripple shows before its sheet is drawn again, ms. */
+private const val PRESS_SHOWN_MS = 180L
+
+/** Whether two speeds are the same step (the slider's are hundredths, five apart). */
+internal fun sameSpeed(a: Float, b: Float): Boolean = kotlin.math.abs(a - b) < 0.005f

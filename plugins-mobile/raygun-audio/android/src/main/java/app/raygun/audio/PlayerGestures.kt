@@ -168,7 +168,8 @@ internal class PlayerGestures(private val host: VideoPlayerActivity) {
             nearEdge -> Mode.IGNORE
             abs(dx) > abs(dy) -> {
                 val player = host.player
-                if (prefs.seekGesture && player.duration > 0 && player.isCurrentMediaItemSeekable) {
+                // Seeking by dragging the bar leaves sideways swipes alone.
+                if (prefs.seekGesture && !prefs.seekByDragging && player.duration > 0 && player.isCurrentMediaItemSeekable) {
                     startPosition = player.currentPosition
                     seekTarget = startPosition
                     Mode.SEEK

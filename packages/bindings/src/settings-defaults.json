@@ -63,6 +63,7 @@
     "volumeGesture": true,
     "swapSides": false,
     "seekGesture": true,
+    "seekByDragging": null,
     "doubleTapLeft": "seek",
     "doubleTapCenter": "playPause",
     "doubleTapRight": "seek",

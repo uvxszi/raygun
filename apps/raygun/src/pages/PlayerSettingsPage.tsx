@@ -27,6 +27,7 @@ import {
   VIDEO_CODECS,
   VIDEO_SETTINGS_PATH,
   withDefaults,
+  seekByDragging,
 } from '../settings/playerOptions';
 import type { PlayerPrefs, PlayerSettingsPage as Page } from '../settings/playerOptions';
 import {
@@ -90,6 +91,7 @@ const PAGE_RESETS: Record<
       'volumeGesture',
       'swapSides',
       'seekGesture',
+      'seekByDragging',
       'doubleTapLeft',
       'doubleTapCenter',
       'doubleTapRight',
@@ -248,10 +250,12 @@ const GesturesScreen: FC<ScreenProps & { seekSeconds: number }> = ({
   prefs,
   set,
   busy,
+  phone,
   seekSeconds,
 }) => {
   const { t } = useTranslation();
   const update = useUpdateSetting();
+  const dragging = seekByDragging(prefs, phone);
   const tapOptions = TAP_ACTIONS.map((value) => ({
     value,
     label: t(`settings.player.tapActions.${value}`),
@@ -280,9 +284,18 @@ const GesturesScreen: FC<ScreenProps & { seekSeconds: number }> = ({
           onChange={(swapSides) => set({ swapSides })}
         />
         <PrefSwitch
-          title={t('settings.player.seekGesture')}
-          checked={prefs.seekGesture}
+          title={t('settings.player.seekByDragging')}
+          summary={t('settings.player.seekByDraggingHint')}
+          checked={dragging}
           disabled={busy}
+          onChange={(seekByDragging) => set({ seekByDragging })}
+        />
+        {/* Swiping sideways waits while the bar is dragged instead (both seek otherwise). */}
+        <PrefSwitch
+          title={t('settings.player.seekGesture')}
+          summary={dragging ? t('settings.player.seekGestureOff') : undefined}
+          checked={prefs.seekGesture && !dragging}
+          disabled={busy || dragging}
           onChange={(seekGesture) => set({ seekGesture })}
         />
       </PrefGroup>

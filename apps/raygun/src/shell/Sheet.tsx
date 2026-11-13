@@ -57,10 +57,10 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
 
   // On the document's body, so a transformed or scrolling ancestor never carries it along. Clear
   // of the status bar, and of a cutout and a navigation bar at the sides (landscape); the body
-  // keeps clear of the bottom's.
+  // keeps clear of the bottom's (a centred dialog: the backdrop does, as in a short landscape window).
   return createPortal(
     <div
-      className={`motion-fade fixed inset-0 flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] sm:items-center ${above ? 'z-[80]' : 'z-50'}`}
+      className={`motion-fade fixed inset-0 flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] sm:items-center sm:pb-[var(--safe-bottom)] ${above ? 'z-[80]' : 'z-50'}`}
       onPointerDown={(event) => {
         pressedBackdrop.current = event.target === event.currentTarget;
       }}
@@ -73,7 +73,7 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="bg-surface motion-rise flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl pt-5 sm:max-w-md sm:rounded-3xl"
+        className="bg-surface motion-rise flex max-h-[min(85dvh,calc(100dvh-var(--safe-top)-var(--safe-bottom)))] w-full flex-col overflow-hidden rounded-t-3xl pt-5 sm:max-w-md sm:rounded-3xl"
       >
         {/* The title stays put while a long sheet scrolls under it. */}
         <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2">
@@ -91,7 +91,7 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
         </div>
         <div
           data-testid="sheet-body"
-          className="flex min-h-0 flex-1 touch-pan-y flex-col gap-4 overflow-y-auto overscroll-contain px-5 pt-2 pb-[calc(1.25rem+var(--safe-bottom))] [-webkit-overflow-scrolling:touch]"
+          className="flex min-h-0 flex-1 touch-pan-y flex-col gap-4 overflow-y-auto overscroll-contain px-5 pt-2 pb-[calc(1.25rem+var(--safe-bottom))] sm:pb-5 [-webkit-overflow-scrolling:touch]"
         >
           {children}
         </div>

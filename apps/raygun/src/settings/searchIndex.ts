@@ -122,6 +122,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
       'settings.player.volumeGesture',
       'settings.player.swapSides',
       'settings.player.seekGesture',
+      'settings.player.seekByDragging',
       'settings.player.doubleTapLeft',
       'settings.player.doubleTapCenter',
       'settings.player.doubleTapRight',

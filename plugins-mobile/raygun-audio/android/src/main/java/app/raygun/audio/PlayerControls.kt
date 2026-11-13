@@ -125,6 +125,9 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             true
         }
     }
+    /** The picture's and the sound's effects, beside the speed. */
+    private val effectsButton =
+        context.iconButton(R.drawable.raygun_ic_tune, host.label("effects", "Effects")) { host.effects.open() }
     private val chapterChip = context.pill("") { host.sheets.chapters() }.apply {
         maxWidth = context.dp(200)
         maxLines = 1
@@ -140,6 +143,22 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         context.iconButton(R.drawable.raygun_ic_quality, host.label("quality", "Quality")) { host.quality.open() }.apply {
             visibility = View.GONE
         }
+    /** The buttons under the seek bar: they fade with the rest while the bar is dragged. */
+    private val buttonRow = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        addView(lockButton)
+        addView(rotateButton)
+        addView(speedChip)
+        addView(effectsButton)
+        addView(chapterChip)
+        addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+        // Quality, then subtitles, beside the picture's aspect.
+        addView(qualityButton)
+        addView(subtitlesButton)
+        addView(aspectButton)
+        addView(pipButton)
+    }
     private val bottomBar = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(context.dp(12), context.dp(24), context.dp(12), context.dp(8))
@@ -151,20 +170,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             addView(duration)
             addView(host.liveStream.badge, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = context.dp(4) })
         })
-        addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(lockButton)
-            addView(rotateButton)
-            addView(speedChip)
-            addView(chapterChip)
-            addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
-            // Quality, then subtitles, beside the picture's aspect.
-            addView(qualityButton)
-            addView(subtitlesButton)
-            addView(aspectButton)
-            addView(pipButton)
-        })
+        addView(buttonRow)
     }
 
     private val unlockButton = context.iconButton(R.drawable.raygun_ic_lock_open, host.label("unlock", "Unlock"), 52) { unlock() }.apply {
@@ -235,6 +241,11 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
                 bump()
             }
         })
+        // Seek by dragging (Settings → Player): the bar's own handling (a tap jumps) is
+        // replaced by a drag from where the video is.
+        timeBar.setOnTouchListener { view, event ->
+            if (!host.prefs.seekByDragging) false else dragTouch(view, event)
+        }
         // Room for a camera cutout or rounded corners.
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
@@ -243,6 +254,90 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         }
         setSeekStep(host.seekStepMs)
         hide()
+    }
+
+    // ---- Seek by dragging ----
+
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private var dragDownX = 0f
+    private var dragFrom = 0L
+    /** A finger on the bar that hasn't moved far enough to drag yet (a tap). */
+    private var dragPressed = false
+    private var dragging = false
+
+    /**
+     * A finger on the seek bar while seeking by dragging: a tap does nothing but keep the controls
+     * up; moving past the touch slop drags from the video's place (the bar's whole width is the
+     * whole video), the frame there showing behind while everything but the bar and the times
+     * fades; letting go seeks there.
+     */
+    private fun dragTouch(view: View, event: android.view.MotionEvent): Boolean {
+        val player = host.player
+        val length = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                if (length <= 0 || !player.isCurrentMediaItemSeekable) return false
+                dragPressed = true
+                dragDownX = event.x
+                dragFrom = player.currentPosition
+                view.parent?.requestDisallowInterceptTouchEvent(true)
+                host.main.removeCallbacks(hideLater)
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (!dragPressed) return false
+                val moved = event.x - dragDownX
+                if (!dragging && kotlin.math.abs(moved) > touchSlop) {
+                    dragging = true
+                    // From here on, the finger's travel counts from where the drag began.
+                    dragDownX = event.x
+                    scrubbing = true
+                    scrubPosition = dragFrom
+                    fadeForDrag(true)
+                    host.dragPreviewStart()
+                }
+                if (dragging) {
+                    val width = (view.width - view.paddingLeft - view.paddingRight).coerceAtLeast(1)
+                    scrubPosition = dragPosition(dragFrom, event.x - dragDownX, width, length)
+                    timeBar.setPosition(scrubPosition)
+                    update()
+                    host.dragPreviewAt(scrubPosition)
+                }
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                if (!dragPressed) return false
+                val cancelled = event.actionMasked == android.view.MotionEvent.ACTION_CANCEL
+                endDrag(if (cancelled) null else scrubPosition)
+                if (!cancelled) view.performClick()
+            }
+        }
+        return true
+    }
+
+    /** Ends a drag: seeks to `position` (null: back where it began), then the controls return. */
+    private fun endDrag(position: Long?) {
+        val wasDragging = dragging
+        dragPressed = false
+        dragging = false
+        if (wasDragging) {
+            scrubbing = false
+            fadeForDrag(false)
+            host.dragPreviewEnd(position ?: dragFrom)
+        }
+        bump()
+    }
+
+    /** While the bar is dragged only it and the times show over the frame. */
+    private fun fadeForDrag(dragged: Boolean) {
+        val alpha = if (dragged) 0f else 1f
+        listOf(topBar, centre, buttonRow, skipRow).forEach { part ->
+            part.animate().alpha(alpha).setDuration(if (dragged) 150L else 200L).start()
+        }
+        host.fadeForDrag(dragged)
+    }
+
+    /** The drag (or a sheet over it) went away without a finger lifting: the drag ends where it began. */
+    fun cancelDrag() {
+        if (dragPressed) endDrag(null)
     }
 
     private fun timeText() = TextView(context).apply {
@@ -491,4 +586,14 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         skipRow.layoutParams = params
         host.placeNextPrompt()
     }
+}
+
+/**
+ * Where a drag on the seek bar has got to: `from` moved by the finger's travel `moved` (px), the
+ * bar's `width` being the whole `length`, kept within the video.
+ */
+internal fun dragPosition(from: Long, moved: Float, width: Int, length: Long): Long {
+    if (length <= 0) return 0
+    val offset = (moved.toDouble() / width.coerceAtLeast(1) * length).toLong()
+    return (from + offset).coerceIn(0, length)
 }

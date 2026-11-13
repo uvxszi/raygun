@@ -29,6 +29,7 @@ import {
   Server,
   SkipBack,
   SkipForward,
+  SlidersHorizontal,
   Volume1,
   Volume2,
   VolumeX,
@@ -100,7 +101,9 @@ import { useVideoPlayerStore } from './videoPlayerStore';
 import { VideoSettingsPanel } from './VideoSettingsPanel';
 import { sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
+import { seekByDragging } from '../settings/playerOptions';
 import { useBackLayer } from '../shell/backLayers';
+import { useIsPhone } from '../shell/useIsDesktop';
 import { useAppActive } from '../shell/deviceState';
 
 type PanelKind =
@@ -377,6 +380,9 @@ const loadSubtitleFile = (cache: Map<string, Cue[]>, subtitle: VideoSubtitle): P
 /** How long a wait after a seek goes on before the ring shows (`SEEK_WAIT_MS` on Android). */
 const SEEK_WAIT_MS = 5_000;
 
+/** How often a dragged seek bar seeks the picture behind it, at most (seek by dragging). */
+const DRAG_SEEK_MS = 80;
+
 /** One video: the picture, its subtitles, and the controls. Mounted again for each load. */
 const VideoStage: FC<StageProps> = ({
   request,
@@ -394,6 +400,7 @@ const VideoStage: FC<StageProps> = ({
   const { t, i18n } = useTranslation();
   const session = useVideoPlayerStore((state) => state.session);
   const prefs = useVideoPlayerStore((state) => state.prefs);
+  const phone = useIsPhone();
   // A font of this device's picked for subtitles (Settings → Video player → Subtitles).
   const subtitleFamily = useSubtitleFamily();
   const trackWords = useTrackWords();
@@ -464,6 +471,9 @@ const VideoStage: FC<StageProps> = ({
   const [overControls, setOverControls] = useState(false);
   const [showRemaining, setShowRemaining] = useState(prefs.showRemaining);
   const [hint, setHint] = useState<string | null>(null);
+  /** Where a drag on the seek bar has got to (seek by dragging); null while none. */
+  const [draggedMs, setDraggedMs] = useState<number | null>(null);
+  const drag = useRef<{ resume: boolean; lastSeek: number } | null>(null);
   /** The video has played: the source it comes from no longer shows under the ring. */
   const [begun, setBegun] = useState(false);
   /** A live stream as the tick last read it; null for anything else. */
@@ -632,6 +642,30 @@ const VideoStage: FC<StageProps> = ({
     setTimeMs(target);
   };
   const seekBy = (deltaMs: number) => seekTo(positionOf(videoRef.current).positionMs + deltaMs);
+  // Seek by dragging: the video waits while the bar is dragged, showing the frame under the
+  // pointer (key frames, a few times a second), and plays on from where it's let go.
+  const dragOnly = seekByDragging(prefs, phone);
+  const dragPreview = (positionMs: number | null) => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (positionMs === null) {
+      const resume = drag.current?.resume ?? false;
+      drag.current = null;
+      setDraggedMs(null);
+      if (resume) void video.play().catch(() => {});
+      return;
+    }
+    if (!drag.current) {
+      drag.current = { resume: !video.paused && !video.ended, lastSeek: 0 };
+      video.pause();
+    }
+    setDraggedMs(positionMs);
+    const now = performance.now();
+    if (now - drag.current.lastSeek < DRAG_SEEK_MS) return;
+    drag.current.lastSeek = now;
+    if (typeof video.fastSeek === 'function') video.fastSeek(positionMs / 1000);
+    else video.currentTime = positionMs / 1000;
+  };
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -1371,6 +1405,8 @@ const VideoStage: FC<StageProps> = ({
   // A torrent's peers and speed while the picture waits for its pieces.
   const transfer = useVideoPlayerStore((state) => state.transfer);
   const transferNote = transferText(transfer, t);
+  // While the seek bar is dragged only it and its time show over the frame.
+  const dragged = draggedMs !== null;
   const VolumeIcon = muted || volume <= 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   return (
@@ -1418,14 +1454,14 @@ const VideoStage: FC<StageProps> = ({
         style={{ backgroundImage: VIGNETTE }}
       />
       <SubtitleLines
-        lines={lines}
+        lines={dragged ? [] : lines}
         style={prefs.subtitleStyle}
         family={subtitleFamily}
         lifted={controlsVisible}
         box={picture}
       />
       <SubtitleLines
-        lines={secondLines}
+        lines={dragged ? [] : secondLines}
         style={prefs.subtitleStyle}
         family={subtitleFamily}
         lifted={controlsVisible}
@@ -1515,6 +1551,7 @@ const VideoStage: FC<StageProps> = ({
         onMouseLeave={() => setOverControls(false)}
       >
         <TopBar
+          hidden={dragged}
           onClose={onClose}
           setPanel={setPanel}
           positionMs={timeMs}
@@ -1532,6 +1569,10 @@ const VideoStage: FC<StageProps> = ({
                 chapters={[]}
                 seekStepMs={seekStepMs}
                 onSeek={(ms) => seekTo(ms + (liveStream.dvr?.startMs ?? 0))}
+                dragOnly={dragOnly}
+                onDrag={(ms) =>
+                  dragPreview(ms === null ? null : ms + (liveStream.dvr?.startMs ?? 0))
+                }
               />
             ) : (
               <div className="h-5" />
@@ -1544,9 +1585,13 @@ const VideoStage: FC<StageProps> = ({
               chapters={chapters}
               seekStepMs={seekStepMs}
               onSeek={seekTo}
+              dragOnly={dragOnly}
+              onDrag={dragPreview}
             />
           )}
-          <div className="mt-1 flex items-center gap-1">
+          <div
+            className={`mt-1 flex items-center gap-1 transition-opacity duration-150 ${dragged ? 'pointer-events-none opacity-0' : ''}`}
+          >
             <IconButton
               label={playing ? t('videoPlayer.pause') : t('videoPlayer.play')}
               onClick={togglePlay}
@@ -1636,6 +1681,13 @@ const VideoStage: FC<StageProps> = ({
             >
               {speed / 100}×
             </button>
+            {/* The picture's and the sound's effects, beside the speed. */}
+            <IconButton
+              label={t('videoPlayer.effects')}
+              onClick={() => setPanel(panel === 'effects' ? null : 'effects')}
+            >
+              <SlidersHorizontal aria-hidden size={20} />
+            </IconButton>
             {/* Its tracks, another source's sound, a file, the audio delay and smart audio. */}
             <IconButton
               label={t('videoPlayer.audio')}
@@ -1715,13 +1767,29 @@ const VideoStage: FC<StageProps> = ({
               />
             ))}
           <PanelHeading>{t('videoPlayer.more')}</PanelHeading>
+          {/* Both rest while the speed is the default ("Default ✓"); a press says what changed. */}
           <PanelOption
-            label={t('videoPlayer.makeDefault')}
+            label={
+              prefs.defaultSpeed === speed
+                ? t('videoPlayer.isDefault')
+                : t('videoPlayer.makeDefault')
+            }
             hint={t('videoPlayer.madeDefault', { n: `${prefs.defaultSpeed / 100}×` })}
+            toggle
             selected={prefs.defaultSpeed === speed}
+            disabled={prefs.defaultSpeed === speed}
             onSelect={() => {
               savePrefs({ defaultSpeed: speed });
               useVideoPlayerStore.setState({ prefs: { ...prefs, defaultSpeed: speed } });
+              showHint(t('videoPlayer.madeDefault', { n: `${speed / 100}×` }));
+            }}
+          />
+          <PanelOption
+            label={t('videoPlayer.reset')}
+            disabled={prefs.defaultSpeed === speed}
+            onSelect={() => {
+              changeSpeed(prefs.defaultSpeed);
+              showHint(t('videoPlayer.speedReset', { n: `${prefs.defaultSpeed / 100}×` }));
             }}
           />
         </PlayerPanel>
@@ -1960,10 +2028,18 @@ type TopBarProps = {
   onElsewhere?: () => void;
   /** Full screen: the bar no longer moves the window. */
   fullscreen?: boolean;
+  /** Faded out while the seek bar is dragged. */
+  hidden?: boolean;
 };
 
 /** The player's top bar; as the app bar it covers, it moves the window (but not its buttons). */
-const TopBar: FC<TopBarProps> = ({ onClose, setPanel, onElsewhere, fullscreen = false }) => {
+const TopBar: FC<TopBarProps> = ({
+  onClose,
+  setPanel,
+  onElsewhere,
+  fullscreen = false,
+  hidden = false,
+}) => {
   const { t } = useTranslation();
   const session = useVideoPlayerStore((state) => state.session);
   const title = useVideoPlayerStore((state) => state.title);
@@ -1972,7 +2048,7 @@ const TopBar: FC<TopBarProps> = ({ onClose, setPanel, onElsewhere, fullscreen = 
     <div
       data-tauri-drag-region={fullscreen ? undefined : 'deep'}
       data-testid="player-top-bar"
-      className="absolute inset-x-0 top-0 flex items-center gap-2 px-3 pt-3 pb-10"
+      className={`absolute inset-x-0 top-0 flex items-center gap-2 px-3 pt-3 pb-10 transition-opacity duration-150 ${hidden ? 'pointer-events-none opacity-0' : ''}`}
     >
       <IconButton label={t('desktopPlayer.close')} onClick={onClose}>
         <ArrowLeft aria-hidden size={22} />

@@ -106,6 +106,11 @@ internal class PlayerPrefs(json: JSONObject) {
     var volumeGesture: Boolean = json.optBoolean("volumeGesture", true)
     val swapSides: Boolean = json.optBoolean("swapSides", false)
     var seekGesture: Boolean = json.optBoolean("seekGesture", true)
+    /**
+     * The seek bar seeks only when dragged, with the frame under the finger behind it; swiping
+     * the picture doesn't seek. Unset (null) is on, as on every phone.
+     */
+    var seekByDragging: Boolean = if (json.isNull("seekByDragging")) true else json.optBoolean("seekByDragging", true)
     val doubleTapLeft: String = json.optString("doubleTapLeft", "seek")
     val doubleTapCenter: String = json.optString("doubleTapCenter", "playPause")
     val doubleTapRight: String = json.optString("doubleTapRight", "seek")
