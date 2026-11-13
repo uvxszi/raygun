@@ -458,6 +458,7 @@ export const bindingsMock = {
     lyricsTranslationPick: vi.fn(),
     songDownloadUseSource: vi.fn(),
     youtubeLink: vi.fn(),
+    youtubeEmbedUrl: vi.fn(),
     playbackSkipSegments: vi.fn(),
     playbackUndoSkip: vi.fn(),
     sponsorblockSegments: vi.fn(),
@@ -1326,6 +1327,7 @@ export const seedBindings = () => {
   commands.lyricsTranslationPick.mockResolvedValue(ok(null));
   commands.songDownloadUseSource.mockResolvedValue(ok(null));
   commands.youtubeLink.mockResolvedValue(ok(null));
+  commands.youtubeEmbedUrl.mockResolvedValue('about:blank#embed');
   commands.playbackSkipSegments.mockResolvedValue(null);
   commands.playbackUndoSkip.mockResolvedValue(null);
   commands.sponsorblockSegments.mockResolvedValue(ok([]));

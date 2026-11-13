@@ -23,6 +23,7 @@ import { useKnownCard } from '../manga/knownCard';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { SeasonPicker } from '../watch/SeasonPicker';
+import { useListMemory } from '../shell/listMemory';
 import { useWideScreen } from '../shell/useWideScreen';
 import { PinButton } from '../shell/PinButton';
 import { LibraryPill } from '../watch/LibraryPill';
@@ -92,7 +93,11 @@ const Episodes: FC<{
     [view.episodes],
   );
   const next = continueAt(view);
-  const [season, setSeason] = useState<number | null | undefined>(undefined);
+  // Kept for the page: back from an episode, the season picked is still shown.
+  const [season, setSeason] = useListMemory<number | null | undefined>(
+    'episodes:season',
+    undefined,
+  );
   const shown = season === undefined ? (next?.season ?? seasons[0] ?? null) : season;
   const episodes =
     seasons.length > 1

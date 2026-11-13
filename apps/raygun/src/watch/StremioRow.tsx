@@ -1,4 +1,9 @@
-import type { StremioCatalogInfo, StremioCatalogRow, StremioItem } from '@raygun/bindings';
+import type {
+  StremioCatalogInfo,
+  StremioCatalogRow,
+  StremioItem,
+  VideoCardStyle,
+} from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { CheckSquare, ChevronRight, Clapperboard } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
@@ -21,7 +26,12 @@ import { useInView } from '../shell/useInView';
 import { Selectable } from '../select/Selectable';
 import { useInSelectionScope } from '../select/scopeContext';
 import { useSelectionStore } from '../select/selectionStore';
+import { StremioPreview } from './CardPreview';
+import { useCardPreview } from './cardPreviewStore';
 import { useStremioAddons, useStremioRow } from './useStremio';
+import { LANDSCAPE_GRID, usePreviewTrigger, useVideoCardStyle } from './videoCards';
+import type { PreviewTrigger } from './videoCards';
+import { VideoCover } from './VideoCover';
 import { STREMIO_SOURCE } from './useVideoLibrary';
 
 const ASPECT: Record<string, string> = {
@@ -62,6 +72,10 @@ type CardActions = {
   play: ReturnType<typeof usePlayTitle>;
   /** In search a card can be picked (M46.50). */
   pickable: boolean;
+  /** How cards look (`Settings::videoCards`). */
+  style: VideoCardStyle;
+  /** What starts a card's muted preview, if anything. */
+  preview: PreviewTrigger | null;
 };
 
 const useCardActions = (): CardActions => {
@@ -69,7 +83,9 @@ const useCardActions = (): CardActions => {
   const menu = useTitleCardMenu();
   const play = usePlayTitle();
   const pickable = useInSelectionScope();
-  return { t, menu, play, pickable };
+  const style = useVideoCardStyle();
+  const preview = usePreviewTrigger();
+  return { t, menu, play, pickable, style, preview };
 };
 
 /**
@@ -87,8 +103,22 @@ const CardBody: FC<{
   actions: CardActions;
   /** Under the card's lines: where it comes from (search). */
   footer?: ReactNode;
-}> = ({ item, className = '', actions: { t, menu, play, pickable }, footer }) => {
+  /** A compact row (a list) rather than a card; `style` decides otherwise. */
+  shape?: 'card' | 'row';
+}> = ({
+  item,
+  className = '',
+  actions: { t, menu, play, pickable, style, preview },
+  footer,
+  shape = 'card',
+}) => {
   const name = item.name || item.id;
+  const {
+    active: previewing,
+    setElement,
+    onEnter,
+    onLeave,
+  } = useCardPreview(`stremio:${item.kind}:${item.id}`, preview);
   // In search a card can be picked (M46.50): a long press, a right click or the circle on its top
   // left picks it, ⋮ on its top right opens the menu (with Select); the box around it then takes
   // the card's size.
@@ -112,36 +142,56 @@ const CardBody: FC<{
           }
         : {},
     );
+  const row = shape === 'row';
+  const facts = [item.releaseInfo, item.rating && `★ ${item.rating}`].filter(Boolean).join(' · ');
   return (
     <Selectable picked={picked} className={className}>
       <Link
+        ref={setElement}
+        onPointerEnter={onEnter}
+        onPointerLeave={onLeave}
         to="/watch/title"
         search={{ type: item.kind, id: item.id }}
         aria-label={name}
         data-testid="stremio-card"
         draggable={false}
-        className={`flex flex-col gap-1 ${pickable ? '' : className}`}
+        className={`flex gap-1 ${row ? 'items-center gap-3' : 'flex-col'} ${pickable ? '' : className}`}
       >
-        <span className="relative">
-          <StremioPoster url={item.poster} shape={item.posterShape} />
+        <span className={`relative ${row ? 'w-32 shrink-0 sm:w-40' : ''}`}>
+          <VideoCover
+            poster={item.poster}
+            backdrop={item.background}
+            shape={item.posterShape}
+            style={row ? 'landscape' : style}
+          >
+            {previewing && <StremioPreview kind={item.kind} id={item.id} trailer={item.trailer} />}
+          </VideoCover>
           <CardPlayButton
             label={t('menu.playTitle', { name })}
             onPlay={() => play(stremioCard(item))}
           />
+          {!row && (
+            <MenuButton
+              label={t('menu.options', { name })}
+              items={items}
+              className={CARD_MENU_CLASS}
+              iconSize={16}
+            />
+          )}
+        </span>
+        <span className={`flex min-w-0 flex-col gap-1 ${row ? 'flex-1' : ''}`}>
+          {item.name && <span className="line-clamp-2 text-sm font-medium">{item.name}</span>}
+          {facts && <span className="text-muted line-clamp-1 text-xs">{facts}</span>}
+          {footer}
+        </span>
+        {row && (
           <MenuButton
             label={t('menu.options', { name })}
             items={items}
-            className={CARD_MENU_CLASS}
-            iconSize={16}
+            className="text-muted grid size-9 shrink-0 place-items-center rounded-full"
+            iconSize={18}
           />
-        </span>
-        {item.name && <span className="line-clamp-2 text-sm font-medium">{item.name}</span>}
-        {(item.releaseInfo || item.rating) && (
-          <span className="text-muted line-clamp-1 text-xs">
-            {[item.releaseInfo, item.rating && `★ ${item.rating}`].filter(Boolean).join(' · ')}
-          </span>
         )}
-        {footer}
       </Link>
     </Selectable>
   );
@@ -187,8 +237,6 @@ export type StremioListCard = { key: string; item: StremioItem; footer?: ReactNo
 const FIRST_CARDS = 6;
 /** Covers a grid draws at once (a screenful), then as many more as each part is on the screen. */
 const FIRST_GRID_CARDS = 24;
-/** Wide thumbnails get wider columns (as video sites' in `MangaGrid`). */
-const LANDSCAPE_GRID = { gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 13rem), 1fr))' };
 
 /**
  * Titles as cards: a row that pages sideways, or a grid of covers sized as the library's are.
@@ -208,9 +256,21 @@ export const StremioCardList: FC<{ cards: StremioListCard[]; layout?: 'row' | 'g
     grid ? FIRST_GRID_CARDS : cards.length,
     cards[0]?.key ?? '',
   );
+  const wide = (item: StremioItem) =>
+    actions.style !== 'poster' || item.posterShape === 'landscape';
+  if (grid && actions.style === 'list') {
+    return (
+      <ul className="flex flex-col gap-2">
+        {cards.slice(0, drawn).map((card) => (
+          <li key={card.key}>
+            <CardBody item={card.item} actions={actions} footer={card.footer} shape="row" />
+          </li>
+        ))}
+      </ul>
+    );
+  }
   if (grid) {
-    const landscape =
-      cards.length > 0 && cards.every((card) => card.item.posterShape === 'landscape');
+    const landscape = cards.length > 0 && cards.every((card) => wide(card.item));
     return (
       <ul
         className={COVER_GRID_CLASS}
@@ -224,13 +284,11 @@ export const StremioCardList: FC<{ cards: StremioListCard[]; layout?: 'row' | 'g
       </ul>
     );
   }
+  // A row keeps cards side by side: a compact list's titles are 16:9 there.
   return (
     <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
       {cards.slice(0, drawn).map((card) => (
-        <li
-          key={card.key}
-          className={card.item.posterShape === 'landscape' ? 'w-48 shrink-0' : 'w-28 shrink-0'}
-        >
+        <li key={card.key} className={wide(card.item) ? 'w-48 shrink-0' : 'w-28 shrink-0'}>
           <CardBody item={card.item} actions={actions} footer={card.footer} />
         </li>
       ))}
@@ -243,13 +301,19 @@ const Cards: FC<{ items: StremioItem[] }> = ({ items }) => (
 );
 
 /** Placeholder cards while a row loads, the size of the real ones. */
-const Placeholder: FC = () => (
-  <ul aria-hidden className="-mx-4 flex gap-3 overflow-hidden px-4 lg:mx-0 lg:px-0">
-    {Array.from({ length: 6 }, (_, index) => (
-      <li key={index} className="bg-surface aspect-[2/3] w-28 shrink-0 rounded-lg" />
-    ))}
-  </ul>
-);
+const Placeholder: FC = () => {
+  const poster = useVideoCardStyle() === 'poster';
+  return (
+    <ul aria-hidden className="-mx-4 flex gap-3 overflow-hidden px-4 lg:mx-0 lg:px-0">
+      {Array.from({ length: 6 }, (_, index) => (
+        <li
+          key={index}
+          className={`bg-surface shrink-0 rounded-lg ${poster ? 'aspect-[2/3] w-28' : 'aspect-video w-48'}`}
+        />
+      ))}
+    </ul>
+  );
+};
 
 const rowTitle = (name: string, kind: string) => `${name} · ${kind}`;
 

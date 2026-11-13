@@ -245,6 +245,10 @@ pub struct Settings {
     /// The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0).
     #[serde(default)]
     pub reader_ai: ReaderAiPrefs,
+    /// How video titles show in Search, sources, the Videos library and Continue watching, and
+    /// their muted previews.
+    #[serde(default)]
+    pub video_cards: VideoCardPrefs,
     /// Word lookups in the book reader.
     #[serde(default)]
     pub dictionary: DictionaryPrefs,
@@ -981,6 +985,39 @@ impl Default for PrivacyPrefs {
             keep_incognito: false,
         }
     }
+}
+
+/// How video titles show in Search, source pages, the Videos library and Continue watching.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoCardPrefs {
+    pub style: VideoCardStyle,
+    pub previews: VideoPreviews,
+}
+
+/// A video title's card.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoCardStyle {
+    /// 16:9, the title's backdrop when known; a portrait poster sits on a blurred fill of itself.
+    #[default]
+    Landscape,
+    /// 2:3 posters.
+    Poster,
+    /// Compact rows: a small picture, the name and its facts.
+    List,
+}
+
+/// Muted previews (a title's trailer) in video cards.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoPreviews {
+    /// While a mouse rests on a card; none on touch screens.
+    #[default]
+    Auto,
+    /// While a mouse rests on a card, and on touch screens while a card is in the screen's middle.
+    Always,
+    Off,
 }
 
 /// News that posts a notification, each kind on its own; all on by default. Downloads and other
@@ -3124,6 +3161,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             reader_ai: ReaderAiPrefs::default(),
+            video_cards: VideoCardPrefs::default(),
             dictionary: DictionaryPrefs::default(),
             answers: AnswersPrefs::default(),
             failing_sources_last: true,
@@ -3215,6 +3253,7 @@ impl Settings {
             SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::ReaderAi(prefs) => self.reader_ai = prefs,
+            SettingChange::VideoCards(prefs) => self.video_cards = prefs,
             SettingChange::Torrents(prefs) => self.torrents = prefs,
             SettingChange::Answers(prefs) => self.answers = prefs,
             SettingChange::Dictionary(prefs) => {
@@ -3326,6 +3365,7 @@ pub enum SettingChange {
     LyricsCache(LyricsCachePrefs),
     LyricsTranslation(LyricsTranslationPrefs),
     ReaderAi(ReaderAiPrefs),
+    VideoCards(VideoCardPrefs),
     Torrents(TorrentPrefs),
     Dictionary(DictionaryPrefs),
     Answers(AnswersPrefs),
@@ -3403,6 +3443,7 @@ impl SettingChange {
             Self::LyricsCache(_) => "lyricsCache",
             Self::LyricsTranslation(_) => "lyricsTranslation",
             Self::ReaderAi(_) => "readerAi",
+            Self::VideoCards(_) => "videoCards",
             Self::Torrents(_) => "torrents",
             Self::Dictionary(_) => "dictionary",
             Self::Answers(_) => "answers",
@@ -3442,6 +3483,7 @@ impl SettingChange {
             | Self::Privacy(_)
             | Self::Notifications(_)
             | Self::Answers(_)
+            | Self::VideoCards(_)
             | Self::YouTube(_) => Ok(()),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())
@@ -9331,6 +9373,14 @@ pub struct StremioItem {
     /// prefixes), so it can play: Search's "Playable only" keeps these.
     #[serde(default)]
     pub playable: bool,
+    /// A wide picture of it (the listing's `background`), for 16:9 cards.
+    #[serde(default)]
+    #[specta(optional)]
+    pub background: Option<String>,
+    /// Its YouTube trailer, when the listing names one: cards may play it muted as a preview.
+    #[serde(default)]
+    #[specta(optional)]
+    pub trailer: Option<String>,
 }
 
 /// One catalog's first page on the Watch home, in search, or a catalog page.

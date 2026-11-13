@@ -1,7 +1,7 @@
 import type { LibraryDisplayMode, MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { FolderOpen, Pin, Play } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -17,6 +17,9 @@ import type { LibraryDisplay } from './libraryDisplay';
 import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { bookWords } from './bookWords';
 import { MangaCover } from './MangaCover';
+import { LANDSCAPE_GRID } from '../watch/videoCards';
+import { VideoCover } from '../watch/VideoCover';
+import { useListMemory } from '../shell/listMemory';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
 import { useTitleCardMenu } from './titleMenu';
@@ -31,6 +34,8 @@ type BadgeChoice = { local: boolean; unread: boolean; downloaded: boolean };
 type ItemProps = {
   entry: MangaLibraryEntry;
   medium: Medium;
+  /** Videos as 16:9 pictures (`Settings::videoCards`, unless Poster). */
+  wide: boolean;
   mode: LibraryDisplayMode;
   selected: boolean;
   selecting: boolean;
@@ -133,6 +138,7 @@ const ContinueButton: FC<{
 const LibraryItem: FC<ItemProps> = ({
   entry,
   medium,
+  wide,
   mode,
   selected,
   selecting,
@@ -208,13 +214,19 @@ const LibraryItem: FC<ItemProps> = ({
           {...linkProps}
           className={`flex items-center gap-3 rounded-xl px-2 py-1.5 ${selected ? '' : 'hover:bg-surface'}`}
         >
-          <span className="relative w-10 shrink-0 overflow-hidden rounded-md">
-            <MangaCover
-              url={entry.coverUrl}
-              video={medium === 'video'}
-              book={book}
-              className="w-full"
-            />
+          <span
+            className={`relative shrink-0 overflow-hidden rounded-md ${wide ? 'w-20' : 'w-10'}`}
+          >
+            {wide ? (
+              <VideoCover poster={entry.coverUrl} style="landscape" className="w-full" />
+            ) : (
+              <MangaCover
+                url={entry.coverUrl}
+                video={medium === 'video'}
+                book={book}
+                className="w-full"
+              />
+            )}
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
@@ -244,12 +256,20 @@ const LibraryItem: FC<ItemProps> = ({
     <PickTarget pick={pick} label={pickLabel}>
       <Link {...linkProps} className="flex flex-col gap-1">
         <span className="relative overflow-hidden rounded-xl">
-          <MangaCover
-            url={entry.coverUrl}
-            video={medium === 'video'}
-            book={book}
-            className={`w-full ${selected ? 'opacity-75' : ''}`}
-          />
+          {wide ? (
+            <VideoCover
+              poster={entry.coverUrl}
+              style="landscape"
+              className={`w-full ${selected ? 'opacity-75' : ''}`}
+            />
+          ) : (
+            <MangaCover
+              url={entry.coverUrl}
+              video={medium === 'video'}
+              book={book}
+              className={`w-full ${selected ? 'opacity-75' : ''}`}
+            />
+          )}
           {/* The circle takes the top left corner while it shows: the badges move over. */}
           <span
             className={`absolute top-1.5 right-11 left-1.5 flex flex-wrap gap-1 transition-[padding] ${
@@ -320,12 +340,15 @@ export const LibraryItems: FC<{
   const settings = useSettings().data;
   const titleMenu = useTitleCardMenu();
   const selecting = selected.size > 0;
+  // Video titles are 16:9 unless their cards are posters (Settings::videoCards).
+  const wide = medium === 'video' && (settings?.videoCards?.style ?? 'landscape') !== 'poster';
   const badges: BadgeChoice = {
     local: display.localBadge,
     unread: settings?.unreadBadges ?? true,
     downloaded: settings?.downloadBadges ?? true,
   };
-  const [count, setCount] = useState(ITEMS_AT_ONCE);
+  // Kept for the page: back from a title, everything drawn before is drawn again at once.
+  const [count, setCount] = useListMemory(`library:${medium}`, ITEMS_AT_ONCE);
   const sentinel = useRef<HTMLLIElement>(null);
   useEffect(() => {
     const element = sentinel.current;
@@ -338,13 +361,14 @@ export const LibraryItems: FC<{
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [count, entries.length]);
+  }, [count, entries.length, setCount]);
 
   const item = (entry: MangaLibraryEntry) => (
     <li key={entry.titleId}>
       <LibraryItem
         entry={entry}
         medium={medium}
+        wide={wide}
         mode={mode}
         selected={selected.has(entry.titleId)}
         selecting={selecting}
@@ -376,7 +400,7 @@ export const LibraryItems: FC<{
       data-testid="library-grid"
       data-mode={mode}
       className={COVER_GRID_CLASS}
-      style={coverGridStyle(settings?.coverSize ?? 0)}
+      style={wide ? LANDSCAPE_GRID : coverGridStyle(settings?.coverSize ?? 0)}
     >
       {shown}
       {more}

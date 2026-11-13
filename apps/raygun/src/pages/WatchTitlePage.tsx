@@ -37,6 +37,7 @@ import { findInCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { episodeLabel, isGenericName, showsSeasons } from '../watch/episodeLabel';
 import { LoadMore } from '../shell/LoadMore';
+import { useListMemory } from '../shell/listMemory';
 
 /** "S1 E2 · Pilot" without the show's name, or the title alone when it isn't numbered; `showSeason` from `showsSeasons`. */
 const videoLabel = (video: StremioVideo, showSeason: boolean, show: string) =>
@@ -91,9 +92,14 @@ const Episodes: FC<{
 }> = ({ meta, downloads, onPick }) => {
   const { t } = useTranslation();
   const { seasons, first } = useSeasons(meta.videos, meta.continueVideoId);
-  const [season, setSeason] = useState<number | null>(null);
+  // The season picked and the episodes drawn are kept for the page: back from an episode, the
+  // list is as it was left.
+  const [season, setSeason] = useListMemory<number | null>('episodes:season', null);
   const shown = season ?? first;
-  const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
+  const [drawn, setDrawn] = useListMemory('episodes:drawn', {
+    season: shown,
+    count: EPISODE_CHUNK,
+  });
   const setWatched = useSetWatched();
   const selection = useEpisodeSelection();
   const numbered = seasons.length > 1 || meta.videos.some((video) => video.season !== null);

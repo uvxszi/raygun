@@ -8,7 +8,6 @@ import { CARD_MENU_CLASS, CardPlayButton } from '../manga/CardPlayButton';
 import { Carousel } from '../shell/Carousel';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
-import { Picture } from '../shell/Picture';
 import { SourceIssue } from '../shell/SourceIssue';
 import { entryPage } from './continueEntry';
 import { useContinueMenu } from './continueMenu';
@@ -17,13 +16,14 @@ import { ContinueSourcePicker } from './ContinueSourcePicker';
 import { useContinueSelection, usePickGestures } from './useContinueSelection';
 import type { ContinueSelection } from './useContinueSelection';
 import { useContinueWatching, useResumeVideo } from './useWatch';
+import { VideoCover } from './VideoCover';
 
 /**
- * The poster, fading in, or a plain frame when there's none or it can't load (offline): the
- * card's play button sits in the middle.
+ * The poster in 16:9, fading in (a portrait one whole over a blurred fill of itself), or a plain
+ * frame when there's none or it can't load (offline): the card's play button sits in the middle.
  */
 const Poster: FC<{ url: string | null }> = ({ url }) => (
-  <Picture src={url} className="bg-surface aspect-video w-full" />
+  <VideoCover poster={url} style="landscape" className="w-full" />
 );
 
 /**

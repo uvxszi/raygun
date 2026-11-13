@@ -202,6 +202,8 @@ mod tests {
             release_info: None,
             rating: None,
             playable,
+            background: None,
+            trailer: None,
         }
     }
 

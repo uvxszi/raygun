@@ -1,11 +1,11 @@
 import type { StremioCatalogInfo, StremioExtraValue } from '@raygun/bindings';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { StremioCard } from '../watch/StremioRow';
+import { StremioCardList } from '../watch/StremioRow';
+import { useListMemory } from '../shell/listMemory';
 import { useStremioCatalog, useStremioCatalogs } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
 import { appearItems } from '../shell/appear';
@@ -74,12 +74,12 @@ const CatalogGrid: FC<{ catalog: StremioCatalogInfo; extra: StremioExtraValue[] 
 }) => {
   const { t } = useTranslation();
   const pages = useStremioCatalog(catalog.addonId, catalog.kind, catalog.catalogId, extra);
-  const [shown, setShown] = useState(CHUNK);
+  // Kept for the page: coming back from a title finds every title it had shown.
+  const [shown, setShown] = useListMemory('catalog:shown', CHUNK);
   const items = pages.data?.pages.flatMap((page) => page.items) ?? [];
   // Some addons repeat items across pages.
   const seen = new Set<string>();
   const unique = items.filter((item) => !seen.has(item.id) && seen.add(item.id));
-  const landscape = unique[0]?.posterShape === 'landscape';
   const more = shown < unique.length;
   return (
     <>
@@ -96,17 +96,12 @@ const CatalogGrid: FC<{ catalog: StremioCatalogInfo; extra: StremioExtraValue[] 
       )}
       {/* Drawn once the first page came, so its posters come in rather than pop in. */}
       {unique.length > 0 && (
-        <ul
-          aria-label={catalog.name}
-          {...appearItems(true)}
-          className={`grid gap-3 ${landscape ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6'}`}
-        >
-          {unique.slice(0, shown).map((item) => (
-            <li key={item.id}>
-              <StremioCard item={item} />
-            </li>
-          ))}
-        </ul>
+        <section aria-label={catalog.name} {...appearItems(true)}>
+          <StremioCardList
+            layout="grid"
+            cards={unique.slice(0, shown).map((item) => ({ key: item.id, item }))}
+          />
+        </section>
       )}
       <LoadMore
         hasNextPage={more || pages.hasNextPage}
