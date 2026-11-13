@@ -321,8 +321,10 @@ jobs:
     needs: meta
     if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',linux-riscv64,') }}
     # Cross-compiled against Ubuntu's riscv64 ports (no riscv64 runners); no AppImage (linuxdeploy
-    # has no riscv64 build) and no start test.
+    # has no riscv64 build) and no start test. In a plain Ubuntu container: the runner's own
+    # packages hold versions the riscv64 ones can't sit beside.
     runs-on: ubuntu-22.04
+    container: ubuntu:22.04
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       TARGET: riscv64gc-unknown-linux-gnu
@@ -334,23 +336,27 @@ jobs:
       CXX_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-g++
       AR_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-ar
     steps:
+      - name: Install the build tools and riscv64 libraries from Ubuntu's ports
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          dpkg --add-architecture riscv64
+          # The archive's mirrors carry amd64; ports.ubuntu.com has riscv64.
+          sed -i -E 's/^deb ([^[])/deb [arch=amd64] \1/' /etc/apt/sources.list
+          for suite in jammy jammy-updates jammy-security; do
+            echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $suite main restricted universe multiverse"
+          done > /etc/apt/sources.list.d/riscv64.list
+          apt-get update
+          apt-get dist-upgrade -y
+          apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd \
+            build-essential pkg-config file dpkg-dev \
+            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross \
+            libwebkit2gtk-4.1-dev:riscv64 libgtk-3-dev:riscv64 librsvg2-dev:riscv64 libdbus-1-dev:riscv64 \
+          || { apt-cache policy libtinfo6 libtinfo6:riscv64 libncurses6:riscv64; exit 1; }
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.ref }}
-
-      - name: Install riscv64 libraries from Ubuntu's ports
-        run: |
-          sudo dpkg --add-architecture riscv64
-          # The runner's mirrors carry amd64 only; ports.ubuntu.com has riscv64.
-          sudo sed -i -E 's/^deb ([^[])/deb [arch=amd64] \1/' /etc/apt/sources.list
-          sudo mkdir -p /etc/apt/sources.list.d.off
-          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec mv {} /etc/apt/sources.list.d.off/ \;
-          for suite in jammy jammy-updates jammy-security; do
-            echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $suite main restricted universe multiverse"
-          done | sudo tee /etc/apt/sources.list.d/riscv64.list
-          sudo apt-get update
-          sudo apt-get install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu file \
-            libwebkit2gtk-4.1-dev:riscv64 libgtk-3-dev:riscv64 librsvg2-dev:riscv64 libdbus-1-dev:riscv64
 
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
