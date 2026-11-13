@@ -6,8 +6,7 @@ name: Release
 #
 # Run by hand (Actions → Release → Run workflow) with a tag, it builds and releases that tag again.
 # Without a tag it builds the branch it runs on and keeps the files as the run's artifacts; nothing
-# is released. `only` picks jobs by name (e.g. `linux,macos`), `quick` trades the release profile's
-# whole-program optimization for a faster build.
+# is released. `only` picks jobs by name (e.g. `linux,macos`).
 #
 # The release waits for Windows x64 and Android (the platforms every earlier release had); the other
 # platforms add their files when they built and never hold a release back.
@@ -29,10 +28,6 @@ on:
         description: 'Jobs to run, comma-separated (windows, windows-more, linux, linux-riscv64, macos, flatpak, arch, android; freebsd only when named); empty runs all'
         required: false
         default: ''
-      quick:
-        description: 'Thin LTO and parallel codegen: faster test builds, never for a release'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -98,13 +93,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Faster test build
-        if: ${{ inputs.quick }}
-        shell: bash
-        run: |
-          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
-          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
-
       - name: Build the installers and the exe
         working-directory: apps/raygun
         run: pnpm tauri build
@@ -166,13 +154,6 @@ jobs:
           key: release-windows-${{ matrix.arch }}
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Faster test build
-        if: ${{ inputs.quick }}
-        shell: bash
-        run: |
-          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
-          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
 
       - name: Build the installer and the exe
         working-directory: apps/raygun
@@ -252,9 +233,6 @@ jobs:
             rpm: aarch64
     env:
       VERSION: ${{ needs.meta.outputs.version }}
-      # Whole-program (fat) LTO of the final binary needs more memory than these runners have (the
-      # linker was killed); thin LTO optimizes across crates in pieces.
-      CARGO_PROFILE_RELEASE_LTO: thin
     steps:
       - uses: actions/checkout@v7
         with:
@@ -281,12 +259,6 @@ jobs:
           key: release-linux-${{ matrix.arch }}
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Faster test build
-        if: ${{ inputs.quick }}
-        run: |
-          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
-          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
 
       - name: Build the AppImage, deb and rpm
         working-directory: apps/raygun
@@ -345,8 +317,6 @@ jobs:
     container: ubuntu:24.04
     env:
       VERSION: ${{ needs.meta.outputs.version }}
-      # As for the other Linux builds: fat LTO's final link runs out of memory here.
-      CARGO_PROFILE_RELEASE_LTO: thin
       TARGET: riscv64gc-unknown-linux-gnu
       PKG_CONFIG_ALLOW_CROSS: 1
       PKG_CONFIG_SYSROOT_DIR: /
@@ -409,12 +379,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Faster test build
-        if: ${{ inputs.quick }}
-        run: |
-          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
-          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
-
       - name: Build the deb and rpm
         working-directory: apps/raygun
         run: pnpm tauri build --target "$TARGET" --bundles deb,rpm
@@ -471,12 +435,6 @@ jobs:
           key: release-macos-${{ matrix.arch }}
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Faster test build
-        if: ${{ inputs.quick }}
-        run: |
-          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
-          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
 
       - name: Build the app and the dmg
         working-directory: apps/raygun
@@ -714,7 +672,6 @@ jobs:
             curl --proto '=https' -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
             . "$HOME/.cargo/env"
-            export CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
             cargo build --release --locked -p raygun --features tauri/custom-protocol
             dir="Raygun_${VERSION}_freebsd_x86_64"
             mkdir -p "out/$dir"
@@ -787,12 +744,6 @@ jobs:
             echo "keyAlias=$KEY_ALIAS"
             echo "keyPassword=$KEY_PASSWORD"
           } > "$android/keystore.properties"
-
-      - name: Faster test build
-        if: ${{ inputs.quick }}
-        run: |
-          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
-          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
 
       - name: Build the APKs (one for every phone, and one per processor)
         run: |

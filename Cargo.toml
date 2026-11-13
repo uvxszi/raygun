@@ -234,8 +234,10 @@ opt-level = "s"
 # SEH unwinds through Rust frames, and with `panic = "abort"` any script error ended the whole app.
 # Unwinding also lets a panic stop one worker thread instead of the process.
 [profile.release]
-codegen-units = 1
-lto = true
+# Thin LTO over 16 codegen units: most of whole-program optimization's speed at a fraction of its
+# build time (fat LTO on one unit made a release take over an hour across the platforms).
+codegen-units = 16
+lto = "thin"
 opt-level = 3
 panic = "unwind"
 strip = true
