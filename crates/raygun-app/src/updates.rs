@@ -791,7 +791,11 @@ fn pick_asset(kind: InstallKind, arch: &str, assets: &[Asset]) -> Option<Asset> 
             find(&|name| name.ends_with(".msi") && name.contains(&format!("_{windows}_")))
         }
         InstallKind::AppImage => {
-            let appimage = if arch == "aarch64" { "aarch64" } else { "amd64" };
+            let appimage = if arch == "aarch64" {
+                "aarch64"
+            } else {
+                "amd64"
+            };
             find(&|name| name.ends_with(&format!("_{appimage}.appimage")))
         }
         InstallKind::Android => find(&|name| name.ends_with(".apk") && name.contains("universal"))
@@ -968,11 +972,23 @@ mod tests {
         for (kind, arch, expected) in [
             (InstallKind::Setup, "x86_64", "Raygun_1.0.0_x64-setup.exe"),
             (InstallKind::Setup, "x86", "Raygun_1.0.0_x86-setup.exe"),
-            (InstallKind::Setup, "aarch64", "Raygun_1.0.0_arm64_setup.exe"),
+            (
+                InstallKind::Setup,
+                "aarch64",
+                "Raygun_1.0.0_arm64_setup.exe",
+            ),
             (InstallKind::Msi, "x86_64", "Raygun_1.0.0_x64_en-US.msi"),
             (InstallKind::Msi, "x86", "Raygun_1.0.0_x86_en-US.msi"),
-            (InstallKind::AppImage, "x86_64", "Raygun_1.0.0_amd64.AppImage"),
-            (InstallKind::AppImage, "aarch64", "Raygun_1.0.0_aarch64.AppImage"),
+            (
+                InstallKind::AppImage,
+                "x86_64",
+                "Raygun_1.0.0_amd64.AppImage",
+            ),
+            (
+                InstallKind::AppImage,
+                "aarch64",
+                "Raygun_1.0.0_aarch64.AppImage",
+            ),
             (
                 InstallKind::Android,
                 "aarch64",

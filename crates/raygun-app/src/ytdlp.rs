@@ -974,7 +974,10 @@ fn unpack_ffmpeg_zip(bytes: &[u8], tools: &Path) -> Result<usize, String> {
     let mut found = 0;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
-        let name = entry.name().map_err(|error| error.to_string())?.into_owned();
+        let name = entry
+            .name()
+            .map_err(|error| error.to_string())?
+            .into_owned();
         let Some(file) = ffmpeg_program(&name, ["ffmpeg.exe", "ffprobe.exe"]) else {
             continue;
         };
@@ -1327,8 +1330,7 @@ mod tests {
             header.set_size(name.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
-            tar.append_data(&mut header, name, name.as_bytes())
-                .unwrap();
+            tar.append_data(&mut header, name, name.as_bytes()).unwrap();
         }
         let tar = tar.into_inner().unwrap();
         let mut xz = xz::write::XzEncoder::new(Vec::new(), 6);
@@ -1466,9 +1468,12 @@ mod tests {
         // A cancel before the start fetches nothing.
         let cancel = CancellationToken::new();
         cancel.cancel();
-        let stopped = download(&client, &format!("{base}/ok/{FFMPEG_WIN64}"), &cancel, |_| {
-            panic!("nothing arrives")
-        })
+        let stopped = download(
+            &client,
+            &format!("{base}/ok/{FFMPEG_WIN64}"),
+            &cancel,
+            |_| panic!("nothing arrives"),
+        )
         .await;
         assert_eq!(stopped, Err(ToolError::Cancelled));
         assert_eq!(

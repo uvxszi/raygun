@@ -763,9 +763,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
 #[cfg(target_os = "linux")]
 fn webkit_environment() {
     const DMABUF: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
-    if std::env::var_os(DMABUF).is_none()
-        && Path::new("/proc/driver/nvidia/version").exists()
-    {
+    if std::env::var_os(DMABUF).is_none() && Path::new("/proc/driver/nvidia/version").exists() {
         // SAFETY: `builder()` runs first in `main`, before Tauri or anything else starts a thread.
         unsafe { std::env::set_var(DMABUF, "1") };
     }
