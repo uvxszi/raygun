@@ -55,7 +55,7 @@ Upstream binds a socket to a network device with `socket2::Socket::bind_device` 
 
 | File | Change |
 |---|---|
-| `src/bind_device.rs` | `bind_device` on Linux, Android and Fuchsia only; elsewhere (the BSDs) binding to a device is unsupported, as on Windows. |
+| `src/bind_device.rs` | `bind_device` on Linux, Android and Fuchsia only; elsewhere (the BSDs) binding to a device is unsupported, as on Windows. Windows' unused `name` is `_name`. |
 | `Cargo.toml` | `publish = false`. |
 
 Wired in through `[patch.crates-io]` in the workspace `Cargo.toml`. Drop this copy once upstream builds on the BSDs.
