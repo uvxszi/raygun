@@ -23,7 +23,7 @@ export const QuickAccessButton: FC = () => {
       onClick={() => setOpen(true)}
       className="hover:bg-surface grid size-11 shrink-0 place-items-center rounded-full"
     >
-      <img src="/icon.svg" alt="" className="size-7" />
+      <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-7" />
     </button>
   );
 };

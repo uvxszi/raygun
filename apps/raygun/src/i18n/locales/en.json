@@ -5570,6 +5570,7 @@
     "thatDevice": "that device",
     "syncOnly": "syncs only",
     "byCode": "Link by QR code",
+    "webNote": "Link Raygun here with the app on your phone or computer: there, open Devices and show the link code; here, scan it or paste it. Both need to be on the same network.",
     "showCode": "Show this device’s link code",
     "scanCode": "Scan a link code",
     "qrAlt": "QR code to link with this device",

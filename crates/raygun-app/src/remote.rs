@@ -84,6 +84,12 @@ impl RemoteService {
                 address,
                 code,
                 name: self.app.state::<Arc<ConnectService>>().me().name,
+                // Raygun on the web links through sync's browser listener (docs/WEB.md).
+                web: self
+                    .app
+                    .try_state::<crate::device_sync::SyncService>()
+                    .map(|sync| sync.web_link_params())
+                    .unwrap_or_default(),
             };
             (invite.to_text(), expires)
         });
@@ -155,6 +161,10 @@ impl RemoteService {
             .lock()
             .expect("pairing poisoned")
             .new_code(now_ms());
+        // A browser that scans the code pairs through sync, with a code of its own.
+        if let Some(sync) = self.app.try_state::<crate::device_sync::SyncService>() {
+            sync.open_web_pairing();
+        }
         self.status().await
     }
 

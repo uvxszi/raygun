@@ -2,10 +2,12 @@ reference/
 .claude/
 target/
 dist/
+dist-web/
 coverage/
 pnpm-lock.yaml
 apps/raygun/src-tauri/gen/
 packages/bindings/src/index.ts
+packages/bindings/src/settings-defaults.json
 docs/
 **/build/
 plugins-mobile/*/android/.tauri/
