@@ -30,6 +30,16 @@ class PlayerControlsTest {
     }
 
     @Test
+    fun theSmallWindowGrowsOutOfThePictureNotTheWholeScreen() {
+        // A 16:9 video in a landscape phone's 2280 × 1080 frame: pillarboxed in the middle.
+        assertEquals(listOf(180, 0, 2_100, 1_080), pipSourceRect(0, 0, 2_280, 1_080, 1_920, 1_080))
+        // A wide film in a portrait frame: letterboxed in the middle.
+        assertEquals(listOf(0, 945, 1_080, 1_395), pipSourceRect(0, 0, 1_080, 2_340, 2_400, 1_000))
+        // An unknown size: the whole frame, where it is.
+        assertEquals(listOf(10, 20, 110, 220), pipSourceRect(10, 20, 100, 200, 0, 0))
+    }
+
+    @Test
     fun speedsCompareByStep() {
         assertTrue(sameSpeed(1.25f, 125 / 100f))
         assertTrue(sameSpeed(0.3f, (25 + 1 * 5) / 100f))

@@ -1012,7 +1012,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
-        playerView.resizeMode = wanted
+        // The small window shows the whole picture at its own aspect (its window has that shape).
+        playerView.resizeMode = if (isInPip()) AspectRatioFrameLayout.RESIZE_MODE_FIT else wanted
     }
 
     private fun setAspect(next: String) {
@@ -1639,6 +1640,32 @@ class VideoPlayerActivity : AppCompatActivity() {
         player.seekTo(player.currentPosition)
     }
 
+    /**
+     * The window changed to or from the small one: the picture fills it at its own aspect (fitted
+     * in the small window, the title's aspect again full screen), laid out and drawn at the new
+     * size once the window has it, so the surface never keeps the full screen's place or size.
+     */
+    private fun relayoutPicture() {
+        applyAspect(aspect)
+        val surface = playerView.videoSurfaceView
+        root.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                view: View, left: Int, top: Int, right: Int, bottom: Int,
+                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int,
+            ) {
+                view.removeOnLayoutChangeListener(this)
+                surface?.requestLayout()
+                surface?.invalidate()
+                playerView.invalidate()
+                redrawPausedFrame()
+            }
+        })
+        playerView.requestLayout()
+        root.requestLayout()
+        root.invalidate()
+        redrawPausedFrame()
+    }
+
     /** Draws the paused frame again once the picture's surface settles at a new size. */
     private fun redrawPausedFrame() {
         main.removeCallbacks(redrawFrame)
@@ -1808,9 +1835,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         // The picture's frame lays out at the window's new size, keeping its aspect, and a paused
         // video draws its frame again there (else the small window stays black, and coming back
         // shows the small window's frame in a corner until it plays).
-        playerView.requestLayout()
-        playerView.post { applyAspect(aspect) }
-        redrawPausedFrame()
+        relayoutPicture()
         if (isInPictureInPictureMode) {
             controls.cancelDrag()
             closeSheet(openSheet)
