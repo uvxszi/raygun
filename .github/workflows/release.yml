@@ -357,9 +357,16 @@ jobs:
           apt-get update
           apt-get dist-upgrade -y
           apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd \
-            build-essential pkg-config file dpkg-dev \
-            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross \
+            build-essential pkg-config file dpkg-dev python3 libglib2.0-dev-bin \
+            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross
+          # The riscv64 libraries are unpacked, not installed: some setup scripts of theirs run
+          # riscv64 programs (Python), which can't run here.
+          apt-get install -y --no-install-recommends --download-only \
             libwebkit2gtk-4.1-dev:riscv64 libgtk-3-dev:riscv64 librsvg2-dev:riscv64 libdbus-1-dev:riscv64
+          for deb in /var/cache/apt/archives/*_riscv64.deb /var/cache/apt/archives/*_all.deb; do
+            dpkg-deb -x "$deb" /
+          done
+          ls /usr/lib/riscv64-linux-gnu/pkgconfig | head -50
 
       - uses: actions/checkout@v7
         with:
