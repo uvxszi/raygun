@@ -19,7 +19,7 @@ add their files when they built (a failed one shows in the run and leaves its fi
 | Linux x64 | `Raygun_<v>_amd64.AppImage`, `Raygun_<v>_amd64.deb`, `Raygun_<v>_x86_64.rpm` | ubuntu-22.04 | AppImage and installed deb |
 | Linux ARM64 | `Raygun_<v>_aarch64.AppImage`, `Raygun_<v>_arm64.deb`, `Raygun_<v>_aarch64.rpm` | ubuntu-22.04-arm | AppImage and installed deb |
 | Linux riscv64 | `Raygun_<v>_riscv64.deb`, `Raygun_<v>_riscv64.rpm` | Ubuntu 24.04 container (cross) | – |
-| Flatpak | `Raygun_<v>_x86_64.flatpak`, `Raygun_<v>_aarch64.flatpak` | GNOME 50 runtime | – |
+| Flatpak | `Raygun_<v>_x86_64.flatpak`, `Raygun_<v>_aarch64.flatpak` | GNOME 50 runtime | installed bundle |
 | Arch Linux, CachyOS | `raygun-bin-<v>-1-x86_64.pkg.tar.zst`, `raygun-bin-<v>-1-aarch64.pkg.tar.zst` | archlinux container | x86_64, installed with pacman |
 | macOS | `Raygun_<v>_aarch64.dmg` (Apple silicon), `Raygun_<v>_x64.dmg` (Intel) | macos-15 | yes |
 | FreeBSD x86_64 (not yet) | `Raygun_<v>_freebsd_x86_64.tar.gz` once it builds | FreeBSD 14.3 VM, only when asked for | – |
