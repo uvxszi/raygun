@@ -322,6 +322,7 @@ fn forwarded_events() -> Vec<&'static str> {
         events::ExtensionInstallsEvent::NAME,
         events::SourceQueueEvent::NAME,
         events::SearchProgressEvent::NAME,
+        events::CoverOptionsEvent::NAME,
         events::MangaUpdateEvent::NAME,
         events::MangaDownloadsEvent::NAME,
         events::PodcastsChangedEvent::NAME,

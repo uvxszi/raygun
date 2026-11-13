@@ -46,6 +46,51 @@ const DEEP_PER_SOURCE: usize = 2;
 const DEEP_CANDIDATES: u32 = 20;
 /// Other sources' answers a deeper search looks through.
 const OTHER_SOURCES: usize = 6;
+/// A match this good (title, artist, no wrong length or version) is tried as soon as its source
+/// answers, without waiting for the slower ones.
+const CONFIDENT_SCORE: i32 = 60;
+
+/// What a search is looking for, for each match it tries.
+#[derive(Clone, Copy)]
+struct Search<'a> {
+    key: &'a str,
+    query: &'a TrackQuery,
+    exclusions: &'a Exclusions,
+    using: StreamUse,
+    now: i64,
+}
+
+/// Who a search asked so far.
+#[derive(Default)]
+struct Attempts {
+    /// Streams asked of each source.
+    asked: HashMap<String, usize>,
+    /// Sources that limited requests: not asked again in this search.
+    limited: HashSet<String>,
+    /// Picks asked for a new stream before the search ([`remembered`]).
+    asked_again: HashSet<CandidateKey>,
+}
+
+/// The stream sources' answers to a search, as they come.
+enum Answers {
+    /// A search kept from moments ago, as one answer.
+    Kept(Option<Vec<Candidate>>),
+    Coming(tokio::sync::mpsc::UnboundedReceiver<raygun_ext_host::ProviderCandidates>),
+}
+
+impl Answers {
+    /// The next source's candidates, or its id and why it failed.
+    async fn next(&mut self) -> Option<Result<Vec<Candidate>, (String, String)>> {
+        match self {
+            Self::Kept(kept) => kept.take().map(Ok),
+            Self::Coming(receiver) => {
+                let answer = receiver.recv().await?;
+                Some(answer.result.map_err(|error| (answer.provider.id, error)))
+            }
+        }
+    }
+}
+
 /// Picks that played a song whose sources are asked for a new stream before a search, at most.
 const REMEMBERED_TRIES: usize = 3;
 /// A song's known sources a download tries before a search, at most.
@@ -114,6 +159,17 @@ pub fn youtube_video(key: &CandidateKey) -> Option<&str> {
             .strip_prefix(YOUTUBE_AUDIO)
             .unwrap_or(&key.candidate_id)
     })
+}
+
+/// The good matches ([`CONFIDENT_SCORE`]) among `ranked` not tried yet in this search, in
+/// their order, marked as tried: they're tried while slower sources still answer.
+fn confident_new(ranked: Vec<Scored>, attempted: &mut HashSet<CandidateKey>) -> Vec<Scored> {
+    ranked
+        .into_iter()
+        .filter(|scored| {
+            scored.score >= CONFIDENT_SCORE && attempted.insert(scored.candidate.key())
+        })
+        .collect()
 }
 
 /// Whether a remembered pick played in YouTube's embed: it's found again, since the video's audio
@@ -302,11 +358,53 @@ impl ResolverService {
                 },
             );
         }
-        let mut candidates = self
-            .candidates(&key, query, target, exclusions.deep, notes)
-            .await;
+        // 3. The best one that resolves. Sources sitting out aren't asked, nor those that limited
+        // requests in this search; a deeper search asks each source for a few streams at most.
+        // Sources answer one by one: a good match ([`CONFIDENT_SCORE`]) is tried as soon as it's
+        // in, while slower sources still look; the rest are ranked once every source answered.
+        let search = Search {
+            key: &key,
+            query,
+            exclusions,
+            using,
+            now,
+        };
+        let mut attempts = Attempts {
+            asked_again,
+            ..Attempts::default()
+        };
+        let mut attempted: HashSet<CandidateKey> = HashSet::new();
+        let mut candidates = Vec::new();
         if exclusions.deep {
+            candidates = self.candidates(&key, query, target, true, notes).await;
             candidates.extend(self.other_sources(&key, query, target, notes).await);
+        } else {
+            let mut answers = self.candidates_arriving(&key, query, target);
+            while let Some(answer) = answers.next().await {
+                match answer {
+                    Ok(found) => candidates.extend(found),
+                    // It said it needs a key: it isn't asked again until it's set up.
+                    Err((_, error)) if raygun_ext_host::needs_setup_in(&error).is_some() => {
+                        notes.needs_setup = true;
+                        continue;
+                    }
+                    Err((provider, error)) => {
+                        notes.troubled = true;
+                        tracing::warn!(%provider, %error, "stream provider failed");
+                        continue;
+                    }
+                }
+                let ranked = to_try(query, candidates.clone(), &history, target, exclusions);
+                for scored in confident_new(ranked, &mut attempted) {
+                    if let Some(pick) = self.attempt(scored, &search, &mut attempts, notes).await {
+                        return Ok(pick);
+                    }
+                }
+            }
+            // Stream sources waiting for their key weren't asked.
+            if self.extensions().stream_sources_need_setup().await {
+                notes.needs_setup = true;
+            }
         }
         if candidates.is_empty() {
             return Err(format!(
@@ -316,109 +414,175 @@ impl ResolverService {
         }
         let ranked = to_try(query, candidates, &history, target, exclusions);
         tracing::info!(track = %key, ranked = ranked.len(), ?target, "stream candidates ranked");
-
-        // 3. The best one that resolves. Sources sitting out aren't asked, nor those that limited
-        // requests in this search; a deeper search asks each source for a few streams at most.
-        let extensions = self.extensions();
-        let mut asked: HashMap<String, usize> = HashMap::new();
-        let mut limited: HashSet<String> = HashSet::new();
         for scored in ranked {
-            let candidate = scored.candidate;
-            let candidate_key = candidate.key();
-            let bitrate_kbps = candidate.bitrate();
-            // A pick asked for a stream just now isn't asked again (one the search gave a stream
-            // with plays without asking).
-            if excluded(&candidate_key, candidate.source.as_ref())
-                || (candidate.source.is_none() && asked_again.contains(&candidate_key))
-            {
+            if attempted.contains(&scored.candidate.key()) {
                 continue;
             }
-            let resolved = match candidate.source.clone() {
-                Some(source) => Ok((source, None)),
-                None => {
-                    let provider = candidate.provider_id.as_str();
-                    // A source waiting for its key isn't asked; that says nothing of the match.
-                    if extensions.needs_setup(provider) {
-                        notes.needs_setup = true;
-                        continue;
-                    }
-                    let calls = asked.entry(provider.to_owned()).or_default();
-                    if limited.contains(provider)
-                        || extensions.resting(provider)
-                        || (exclusions.deep && *calls >= DEEP_PER_SOURCE)
-                    {
-                        notes.unanswered.push(candidate_key);
-                        continue;
-                    }
-                    *calls += 1;
-                    extensions
-                        .resolve_stream_call(provider, &candidate.id, using)
-                        .await
-                        .map(|stream| (stream.source, stream.expires_at))
-                }
-            };
-            match resolved {
-                // The stream that just failed, again: this match has nothing else for the load.
-                Ok((source, _)) if exclusions.failed_sources.contains(&source) => {
-                    notes.failed.push(candidate_key);
-                }
-                Ok((source, expires_at)) => {
-                    tracing::info!(
-                        track = %key,
-                        provider = %candidate.provider_id,
-                        candidate = %candidate.id,
-                        score = scored.score,
-                        "stream picked"
-                    );
-                    // A song that came without a length has the one its source gives (M46.26).
-                    if query.duration_ms.is_none() {
-                        self.learn_length(&key, candidate.duration_ms);
-                    }
-                    return Ok(Pick {
-                        key: candidate_key,
-                        track_key: key,
-                        title: candidate.title,
-                        artist: candidate.artist,
-                        provider_name: candidate.provider_name,
-                        source,
-                        expires_at,
-                        from_cache: false,
-                        bitrate_kbps,
-                    });
-                }
-                // The source's trouble now, not the match's: a later look asks again.
-                Err(error) if passing(&error) => {
-                    tracing::info!(provider = %candidate.provider_id, %error, "a source couldn't answer now");
-                    if error.kind() == Some(IssueKind::RateLimited) {
-                        notes.limited = true;
-                        notes.retry_after =
-                            notes.retry_after.max(raygun_ext_host::asked_wait(&error));
-                        limited.insert(candidate.provider_id.clone());
-                    }
-                    notes.unanswered.push(candidate_key);
-                }
-                // The source just said it needs a key: not the match's failure.
-                Err(error) if error.is_needs_setup() => notes.needs_setup = true,
-                Err(error) => {
-                    tracing::warn!(provider = %candidate.provider_id, %error, "candidate didn't resolve");
-                    let _ = streams::mark_failed(
-                        self.db(),
-                        &key,
-                        &candidate.provider_id,
-                        &candidate.id,
-                        &candidate.title,
-                        &error.to_string(),
-                        now,
-                    )
-                    .await;
-                    notes.failed.push(candidate_key);
-                }
+            if let Some(pick) = self.attempt(scored, &search, &mut attempts, notes).await {
+                return Ok(pick);
             }
         }
         Err(format!(
             "No playable source found for \u{201c}{}\u{201d}",
             query.title
         ))
+    }
+
+    /// Asks for a ranked match's stream (one that came with its stream plays without asking);
+    /// `None` when it has none for this load, noting why in `notes`.
+    async fn attempt(
+        &self,
+        scored: Scored,
+        search: &Search<'_>,
+        attempts: &mut Attempts,
+        notes: &mut Notes,
+    ) -> Option<Pick> {
+        let Search {
+            key,
+            query,
+            exclusions,
+            using,
+            now,
+        } = *search;
+        let extensions = self.extensions();
+        let candidate = scored.candidate;
+        let candidate_key = candidate.key();
+        let bitrate_kbps = candidate.bitrate();
+        let excluded = exclusions.tried.contains(&candidate_key)
+            || exclusions.unanswered.contains(&candidate_key)
+            || candidate
+                .source
+                .as_ref()
+                .is_some_and(|source| exclusions.failed_sources.contains(source));
+        // A pick asked for a stream just now isn't asked again (one the search gave a stream
+        // with plays without asking).
+        if excluded || (candidate.source.is_none() && attempts.asked_again.contains(&candidate_key))
+        {
+            return None;
+        }
+        let resolved = match candidate.source.clone() {
+            Some(source) => Ok((source, None)),
+            None => {
+                let provider = candidate.provider_id.as_str();
+                // A source waiting for its key isn't asked; that says nothing of the match.
+                if extensions.needs_setup(provider) {
+                    notes.needs_setup = true;
+                    return None;
+                }
+                let calls = attempts.asked.entry(provider.to_owned()).or_default();
+                if attempts.limited.contains(provider)
+                    || extensions.resting(provider)
+                    || (exclusions.deep && *calls >= DEEP_PER_SOURCE)
+                {
+                    notes.unanswered.push(candidate_key);
+                    return None;
+                }
+                *calls += 1;
+                extensions
+                    .resolve_stream_call(provider, &candidate.id, using)
+                    .await
+                    .map(|stream| (stream.source, stream.expires_at))
+            }
+        };
+        match resolved {
+            // The stream that just failed, again: this match has nothing else for the load.
+            Ok((source, _)) if exclusions.failed_sources.contains(&source) => {
+                notes.failed.push(candidate_key);
+                None
+            }
+            Ok((source, expires_at)) => {
+                tracing::info!(
+                    track = %key,
+                    provider = %candidate.provider_id,
+                    candidate = %candidate.id,
+                    score = scored.score,
+                    "stream picked"
+                );
+                // A song that came without a length has the one its source gives (M46.26).
+                if query.duration_ms.is_none() {
+                    self.learn_length(key, candidate.duration_ms);
+                }
+                Some(Pick {
+                    key: candidate_key,
+                    track_key: key.to_owned(),
+                    title: candidate.title,
+                    artist: candidate.artist,
+                    provider_name: candidate.provider_name,
+                    source,
+                    expires_at,
+                    from_cache: false,
+                    bitrate_kbps,
+                })
+            }
+            // The source's trouble now, not the match's: a later look asks again.
+            Err(error) if passing(&error) => {
+                tracing::info!(provider = %candidate.provider_id, %error, "a source couldn't answer now");
+                if error.kind() == Some(IssueKind::RateLimited) {
+                    notes.limited = true;
+                    notes.retry_after = notes.retry_after.max(raygun_ext_host::asked_wait(&error));
+                    attempts.limited.insert(candidate.provider_id.clone());
+                }
+                notes.unanswered.push(candidate_key);
+                None
+            }
+            // The source just said it needs a key: not the match's failure.
+            Err(error) if error.is_needs_setup() => {
+                notes.needs_setup = true;
+                None
+            }
+            Err(error) => {
+                tracing::warn!(provider = %candidate.provider_id, %error, "candidate didn't resolve");
+                let _ = streams::mark_failed(
+                    self.db(),
+                    key,
+                    &candidate.provider_id,
+                    &candidate.id,
+                    &candidate.title,
+                    &error.to_string(),
+                    now,
+                )
+                .await;
+                notes.failed.push(candidate_key);
+                None
+            }
+        }
+    }
+
+    /// The stream sources' candidates for a song as they answer: a search kept from moments ago
+    /// at once, else every source asked in the background, the whole answer kept for the next
+    /// look once all of them are in (also when this one already played a match).
+    fn candidates_arriving(&self, key: &str, query: &TrackQuery, target: QualityTarget) -> Answers {
+        let kept = format!("{key}|{target:?}");
+        if let Some((searched, candidates)) = self.searches.lock().unwrap().get(&kept)
+            && searched.elapsed() < CANDIDATES_TTL
+        {
+            return Answers::Kept(Some(candidates.clone()));
+        }
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let extensions = self.extensions();
+        let app = self.app.clone();
+        let query = query.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut all = Vec::new();
+            extensions
+                .stream_candidates_each(&query, None, target, |answer| {
+                    if let Ok(found) = &answer.result {
+                        all.extend(found.iter().cloned());
+                    }
+                    let _ = sender.send(answer);
+                })
+                .await;
+            if !all.is_empty()
+                && let Some(resolver) = app.try_state::<Arc<ResolverService>>()
+            {
+                resolver
+                    .searches
+                    .lock()
+                    .unwrap()
+                    .insert(kept, (Instant::now(), all));
+            }
+        });
+        Answers::Coming(receiver)
     }
 
     /// Asks the source of a pick that played `key` before for a new stream (see [`remembered`]).
@@ -1197,6 +1361,57 @@ mod tests {
             bitrate_kbps: None,
             source: None,
         }
+    }
+
+    /// Three sources answer at 0.3 s (another song), 0.8 s (the song) and 5 s (the song too):
+    /// the search tries the 0.8 s one as it comes, without waiting for the slowest.
+    #[tokio::test(start_paused = true)]
+    async fn a_good_match_is_tried_as_soon_as_its_source_answers() {
+        let query = TrackQuery {
+            title: "Swim".into(),
+            artist: Some("Artist".into()),
+            album: None,
+            duration_ms: None,
+        };
+        let (sender, mut answers) = tokio::sync::mpsc::unbounded_channel();
+        for (after, found) in [
+            (300, candidate("other", "Something Else Entirely")),
+            (800, candidate("good", "Swim")),
+            (5_000, candidate("late", "Swim")),
+        ] {
+            let sender = sender.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(after)).await;
+                let _ = sender.send(vec![found]);
+            });
+        }
+        drop(sender);
+        let started = tokio::time::Instant::now();
+        let (history, exclusions) = (History::default(), Exclusions::default());
+        let mut candidates = Vec::new();
+        let mut attempted = HashSet::new();
+        let mut tried = Vec::new();
+        while let Some(found) = answers.recv().await {
+            candidates.extend(found);
+            let ranked = to_try(
+                &query,
+                candidates.clone(),
+                &history,
+                QualityTarget::Any,
+                &exclusions,
+            );
+            for scored in confident_new(ranked, &mut attempted) {
+                tried.push((scored.candidate.id.clone(), started.elapsed()));
+            }
+        }
+        assert_eq!(
+            tried,
+            [
+                ("good".to_owned(), Duration::from_millis(800)),
+                // Tried too if the first gave no stream, once it answered; never twice.
+                ("late".to_owned(), Duration::from_millis(5_000)),
+            ]
+        );
     }
 
     #[test]

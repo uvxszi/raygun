@@ -54,7 +54,7 @@ const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
 /// Biggest answer read from an addon (thousands of subtitles run to a few MB).
 const MAX_RESPONSE_BYTES: usize = 12 * 1024 * 1024;
 /// Most subtitle tracks handed to the player; more makes a menu of near-identical entries.
-const MAX_SUBTITLES: usize = 20;
+pub(crate) const MAX_SUBTITLES: usize = 20;
 /// How long a title's details are reused (the title page, its streams and the player ask in turn).
 const META_FRESH_MS: i64 = 10 * 60 * 1000;
 /// How long details from an addon later in the order wait for the ones before it.
@@ -69,6 +69,29 @@ const PROVIDER_TIMEOUT: Duration = raygun_ext_host::video::STREAMS_TIMEOUT;
 /// How long the subtitle addons' tracks found for a session's addons are kept for the stream
 /// providers' links that answer after them.
 const EXTRA_SUBTITLES_MS: i64 = 2 * 60 * 1000;
+
+/// One addon's streams on their way, with the addon's place in the addon order.
+type StreamAsk<'a> = futures_util::future::BoxFuture<'a, (usize, StremioStreamGroup)>;
+
+/// The addons asked for a movie's or episode's streams.
+struct StreamAsks<'a> {
+    /// The details' own streams (a channel's videos), known at once.
+    own: Option<StremioStreamGroup>,
+    /// Every addon asked, as (id, name), in the addon order.
+    listed: Vec<(String, String)>,
+    asks: FuturesUnordered<StreamAsk<'a>>,
+}
+
+/// What a play session hears from [`StremioService::playable_each`], as it comes.
+#[derive(Debug)]
+pub enum Arrival {
+    /// The sources asked, as (id, name), before any answers.
+    Listed(Vec<(String, String)>),
+    /// A source's links.
+    Group(video_session::Group),
+    /// The subtitle addons' tracks, for every link (also those already there).
+    Subtitles(Vec<VideoSubtitle>),
+}
 
 /// What the stream providers are asked for a movie or an episode, and which providers.
 #[derive(Debug, Clone)]
@@ -1274,6 +1297,22 @@ impl StremioService {
         meta_id: Option<&str>,
         video_id: &str,
     ) -> Result<Vec<StremioStreamGroup>, String> {
+        let asks = self.stream_asks(kind, meta_id, video_id).await?;
+        let mut groups: Vec<StremioStreamGroup> = asks.own.into_iter().collect();
+        let mut answered: Vec<(usize, StremioStreamGroup)> = asks.asks.collect().await;
+        answered.sort_by_key(|(index, _)| *index);
+        groups.extend(answered.into_iter().map(|(_, group)| group));
+        Ok(groups)
+    }
+
+    /// Who is asked for a movie's or episode's streams, and the asks themselves, each answering
+    /// on its own (sessions play the first good one while the rest still look).
+    async fn stream_asks(
+        &self,
+        kind: &str,
+        meta_id: Option<&str>,
+        video_id: &str,
+    ) -> Result<StreamAsks<'_>, String> {
         let found = match meta_id {
             Some(meta_id) => match self.find_meta(kind, meta_id, false).await {
                 Ok(found) => Some(found),
@@ -1292,38 +1331,53 @@ impl StremioService {
             ),
         };
         let active = self.active().await?;
-        let health = self.health_now().await;
-        let health = &health;
+        let health = Arc::new(self.health_now().await);
         let now = now_ms();
-        let asks = active
+        let serving: Vec<(Loaded, String, String)> = active
             .iter()
             .filter_map(|addon| {
                 let manifest = addon.manifest()?;
                 let id = ids.iter().find(|id| manifest.serves("stream", kind, id))?;
-                Some((addon, manifest, id.clone()))
+                Some((addon.clone(), manifest.name.clone(), id.clone()))
             })
-            .map(|(addon, manifest, id)| async move {
-                let url =
-                    protocol::resource_url(&addon.row.transport_url, "stream", kind, &id, &[]);
-                let permit = self.asking.acquire().await;
-                let answer = self.resource(addon, "stream", &url, REQUEST_TIMEOUT).await;
-                drop(permit);
-                let (streams, error) = match answer {
-                    Ok(value) => (protocol::parse_streams(&value), None),
-                    Err(error) => (Vec::new(), Some(error.message)),
-                };
-                StremioStreamGroup {
-                    failing: health
-                        .get(&addon.row.id)
-                        .is_some_and(|health| health.failing(now)),
-                    addon_id: addon.row.id.clone(),
-                    addon_name: manifest.name.clone(),
-                    streams: streams.into_iter().map(stream_view).collect(),
-                    error,
-                }
+            .collect();
+        let listed: Vec<(String, String)> = serving
+            .iter()
+            .map(|(addon, name, _)| (addon.row.id.clone(), name.clone()))
+            .collect();
+        let kind = kind.to_owned();
+        let asks: FuturesUnordered<StreamAsk<'_>> = serving
+            .into_iter()
+            .enumerate()
+            .map(|(index, (addon, name, id))| {
+                let health = health.clone();
+                let kind = kind.clone();
+                Box::pin(async move {
+                    let addon = &addon;
+                    let url =
+                        protocol::resource_url(&addon.row.transport_url, "stream", &kind, &id, &[]);
+                    let permit = self.asking.acquire().await;
+                    let answer = self.resource(addon, "stream", &url, REQUEST_TIMEOUT).await;
+                    drop(permit);
+                    let (streams, error) = match answer {
+                        Ok(value) => (protocol::parse_streams(&value), None),
+                        Err(error) => (Vec::new(), Some(error.message)),
+                    };
+                    (
+                        index,
+                        StremioStreamGroup {
+                            failing: health
+                                .get(&addon.row.id)
+                                .is_some_and(|health| health.failing(now)),
+                            addon_id: addon.row.id.clone(),
+                            addon_name: name,
+                            streams: streams.into_iter().map(stream_view).collect(),
+                            error,
+                        },
+                    )
+                }) as StreamAsk<'_>
             })
-            .collect::<Vec<_>>();
-        let mut groups = Vec::new();
+            .collect();
         // The details' own: a video's streams, or a live channel's from its program guide.
         let own = found.as_ref().and_then(|found| {
             let meta = &found.meta;
@@ -1336,17 +1390,14 @@ impl StremioService {
             };
             (!streams.is_empty()).then_some((found, streams))
         });
-        if let Some((found, streams)) = own {
-            groups.push(StremioStreamGroup {
-                addon_id: found.addon_id.clone(),
-                addon_name: found.addon_name.clone(),
-                streams: streams.iter().cloned().map(stream_view).collect(),
-                error: None,
-                failing: false,
-            });
-        }
-        groups.extend(join_all(asks).await);
-        Ok(groups)
+        let own = own.map(|(found, streams)| StremioStreamGroup {
+            addon_id: found.addon_id.clone(),
+            addon_name: found.addon_name.clone(),
+            streams: streams.iter().cloned().map(stream_view).collect(),
+            error: None,
+            failing: false,
+        });
+        Ok(StreamAsks { own, listed, asks })
     }
 
     /// Subtitles from every subtitle addon, each asked by an id it knows, the preferred language
@@ -1617,6 +1668,73 @@ impl StremioService {
             playable.push(self.session_group(group, target, &extra, live).await);
         }
         Ok(playable)
+    }
+
+    /// [`Self::playable`] as it comes (sent to `each`): first who is asked ([`Arrival::Listed`]), then
+    /// each addon's group as it answers, and the subtitle addons' tracks once they're in
+    /// ([`Arrival::Subtitles`]; groups after them already have them). A session plays the first
+    /// good link while the rest still look.
+    pub async fn playable_each(
+        &self,
+        target: &StremioPlayTarget,
+        language: &str,
+        each: tokio::sync::mpsc::UnboundedSender<Arrival>,
+    ) -> Result<(), String> {
+        let meta = match &target.meta_id {
+            Some(meta_id) => self
+                .find_meta(&target.kind, meta_id, false)
+                .await
+                .ok()
+                .map(|found| found.meta),
+            None => None,
+        };
+        // A live channel's streams play from their live edge (`behaviorHints.isLive`).
+        let live = target.kind == "tv" || meta.as_ref().is_some_and(|meta| meta.live);
+        let subtitles = self.subtitles(
+            &target.kind,
+            meta.as_ref(),
+            &target.video_id,
+            language,
+            None,
+        );
+        let mut subtitles = std::pin::pin!(futures_util::FutureExt::fuse(subtitles));
+        let StreamAsks {
+            own,
+            mut listed,
+            mut asks,
+        } = self
+            .stream_asks(&target.kind, target.meta_id.as_deref(), &target.video_id)
+            .await?;
+        if let Some(own) = &own {
+            listed.insert(0, (own.addon_id.clone(), own.addon_name.clone()));
+        }
+        let _ = each.send(Arrival::Listed(listed));
+        let mut extra: Vec<VideoSubtitle> = Vec::new();
+        if let Some(own) = own {
+            let group = self.session_group(own, target, &extra, live).await;
+            let _ = each.send(Arrival::Group(group));
+        }
+        let mut subtitles_in = false;
+        let mut asks_done = asks.is_empty();
+        while !(asks_done && subtitles_in) {
+            tokio::select! {
+                found = &mut subtitles, if !subtitles_in => {
+                    subtitles_in = true;
+                    extra = addon_subtitles(found);
+                    // Stream providers' links that answer later get the same tracks.
+                    self.keep_extra_subtitles(target, language, &extra);
+                    let _ = each.send(Arrival::Subtitles(extra.clone()));
+                }
+                answer = asks.next(), if !asks_done => match answer {
+                    Some((_, group)) => {
+                        let group = self.session_group(group, target, &extra, live).await;
+                        let _ = each.send(Arrival::Group(group));
+                    }
+                    None => asks_done = true,
+                },
+            }
+        }
+        Ok(())
     }
 
     /// An addon's (or a stream provider's) streams as a session's group: direct ones and

@@ -1585,6 +1585,39 @@ impl ExtensionHost {
         quality: raygun_resolver::QualityTarget,
     ) -> Vec<ProviderCandidates> {
         let providers = self.providers(MUSIC_STREAM).await;
+        fanout::collect(self.stream_candidates_asks(providers, query, limit, quality))
+            .await
+            .into_iter()
+            .map(|asked| ProviderCandidates {
+                provider: asked.provider,
+                result: asked.answer.map_err(|error| error.to_string()),
+            })
+            .collect()
+    }
+
+    /// [`Self::stream_candidates`], each provider's as it answers (playback tries a good match
+    /// while slower sources still look).
+    pub async fn stream_candidates_each<'a>(
+        &'a self,
+        query: &TrackQuery,
+        limit: u32,
+        quality: raygun_resolver::QualityTarget,
+    ) -> impl futures_util::Stream<Item = ProviderCandidates> + 'a {
+        let providers = self.providers(MUSIC_STREAM).await;
+        self.stream_candidates_asks(providers, query, limit, quality)
+            .map(|asked| ProviderCandidates {
+                provider: asked.provider,
+                result: asked.answer.map_err(|error| error.to_string()),
+            })
+    }
+
+    fn stream_candidates_asks<'a>(
+        &'a self,
+        providers: Vec<ProviderInfo>,
+        query: &TrackQuery,
+        limit: u32,
+        quality: raygun_resolver::QualityTarget,
+    ) -> impl futures_util::Stream<Item = Asked<Vec<Candidate>>> + 'a {
         let mut args = serde_json::json!({
             "title": query.title,
             "artist": query.artist,
@@ -1597,11 +1630,11 @@ impl ExtensionHost {
         if quality != raygun_resolver::QualityTarget::Any {
             args["targetKbps"] = serde_json::json!(quality.kbps());
         }
-        let asks = fanout::fan_out(
+        fanout::fan_out(
             &self.shared.health,
             providers,
             plan(waiting_limit()),
-            |provider| {
+            move |provider| {
                 let args = args.clone();
                 async move {
                     self.call_interactive(&provider.id, "candidates", args)
@@ -1609,15 +1642,7 @@ impl ExtensionHost {
                         .map(|value| parse_candidates(&provider, value))
                 }
             },
-        );
-        fanout::collect(asks)
-            .await
-            .into_iter()
-            .map(|asked| ProviderCandidates {
-                provider: asked.provider,
-                result: asked.answer.map_err(|error| error.to_string()),
-            })
-            .collect()
+        )
     }
 
     /// Lyrics for `query` from every `lyrics` provider at once: synced lyrics beat plain ones,

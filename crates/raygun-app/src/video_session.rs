@@ -16,7 +16,7 @@
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
@@ -33,7 +33,7 @@ use tauri_specta::Event;
 use crate::catalog::{continue_index, now_ms, to_message};
 use crate::events::WatchChangedEvent;
 use crate::startup::AppDb;
-use crate::stremio::{StremioPlayTarget, StremioService};
+use crate::stremio::{Arrival, StremioPlayTarget, StremioService};
 use crate::video_library;
 use crate::video_quality::{self, LinkFacts, Offer, QualityKey, Variant};
 use crate::video_sources::{self, VideoSourceService};
@@ -257,9 +257,30 @@ pub use memory::{
 };
 
 const HEALTH_KEY: &str = "video.sourceHealth";
-/// How long a session waits for a source that worked before to answer, before it plays
-/// another one that has.
-const PATIENCE_MS: i64 = 8_000;
+/// How long a session waits for the source that played this title before to answer, before it
+/// plays another one that has.
+const PATIENCE_MS: i64 = 3_500;
+
+/// How long the first link waits for the subtitle addons' tracks (they go with the request the
+/// player loads); after that it plays without them.
+const SUBTITLES_WAIT_MS: i64 = 2_500;
+
+/// How far into a video a clearly better source that answers late still takes over.
+const SWITCH_WITHIN_MS: i64 = 30_000;
+
+/// What a session keeps while sources answer one by one.
+#[derive(Debug, Clone, Default)]
+struct Arriving {
+    /// A source or quality was picked by hand: nothing switches by itself anymore.
+    picked: bool,
+    /// The playing link's last reported position, and whether it's live.
+    position: Option<i64>,
+    live: bool,
+    /// The first link waits for the subtitle addons until then (Unix ms).
+    subtitles_until: Option<i64>,
+    /// The subtitle addons' tracks, given to every link that comes.
+    extra_subtitles: Option<Vec<raygun_model::VideoSubtitle>>,
+}
 
 /// How often a source's measured speed is saved while it plays.
 const SPEED_SAVE_MS: i64 = 60_000;
@@ -330,6 +351,7 @@ struct Session {
     /// The player, told another link would play when its own failed (`fallback`), waits for one:
     /// when none plays after all, it's told so.
     player_waits: bool,
+    arriving: Arriving,
 }
 
 impl Session {
@@ -398,9 +420,11 @@ impl Session {
     /// untried ones, then those that failed lately; links whose names say they're another episode
     /// after every other one, and ties in list order. The tier asked for in the Quality menu
     /// comes before all of those, then the tiers nearest it (fewest tiers away; unknown sizes
-    /// last). While a source that could hold a better one is still resolving, nothing (for a few
-    /// seconds: [`PATIENCE_MS`]). A link played on its own plays itself first, whatever the
-    /// others are (its torrent's other videos are picked by hand); the others once it failed.
+    /// last). The first good link that answered plays at once, except while the source that
+    /// played this title before is still resolving (for a few seconds: [`PATIENCE_MS`]) or the
+    /// subtitle addons haven't answered yet ([`SUBTITLES_WAIT_MS`]). A link played on its own
+    /// plays itself first, whatever the others are (its torrent's other videos are picked by
+    /// hand); the others once it failed.
     fn next_candidate(&self, now: i64) -> Option<(usize, usize)> {
         if self.link.is_some() {
             if let Some(own) = self.own_candidate() {
@@ -414,7 +438,27 @@ impl Session {
                 return None;
             }
         }
+        if self
+            .arriving
+            .subtitles_until
+            .is_some_and(|until| now < until)
+        {
+            return None;
+        }
         let ranking = self.ranking(now);
+        let best = self.best_candidate(&ranking)?;
+        let patient = now - self.resolving_since < PATIENCE_MS;
+        let better_pending = self.groups.iter().any(|group| {
+            group.state == GroupState::Resolving
+                && ranking.played_last(&group.name)
+                && ranking.group_key(&group.name) < best.2
+        });
+        (!(patient && better_pending)).then_some((best.0, best.1))
+    }
+
+    /// The best untried link of the sources that answered, with its rank ([`Self::next_candidate`]
+    /// without waiting for anyone).
+    fn best_candidate(&self, ranking: &Ranking) -> Option<(usize, usize, memory::RankKey)> {
         let unwanted = |link: &Link| {
             self.wanted.map(|wanted| {
                 let facts = link.facts();
@@ -423,8 +467,7 @@ impl Session {
                 })
             })
         };
-        let best = self
-            .groups
+        self.groups
             .iter()
             .enumerate()
             .filter(|(_, group)| group.state == GroupState::Ready)
@@ -452,12 +495,45 @@ impl Session {
             })
             .map(|(group_index, link_index, group, link)| {
                 (group_index, link_index, ranking.link_key(&group.name, link))
-            })?;
-        let patient = now - self.resolving_since < PATIENCE_MS;
-        let better_pending = self.groups.iter().any(|group| {
-            group.state == GroupState::Resolving && ranking.group_key(&group.name) < best.2
-        });
-        (!(patient && better_pending)).then_some((best.0, best.1))
+            })
+    }
+
+    /// A link that answered after another started and is clearly better (a better standing:
+    /// what played this title before, its release, a source that works; else a picture nearer
+    /// the preferred resolution): it takes over from the same place, early on only (before
+    /// playing or within [`SWITCH_WITHIN_MS`]), never after a pick by hand, a step asked for in
+    /// the Quality menu, for a live stream or a link played on its own. Torrents, YouTube's
+    /// embed and pages aren't switched to (they'd start over or leave the player).
+    fn upgrade(&self, now: i64) -> Option<(usize, usize)> {
+        let arriving = &self.arriving;
+        if arriving.picked || arriving.live || self.wanted.is_some() || self.link.is_some() {
+            return None;
+        }
+        let current = self.current?;
+        let watching = self.watching.filter(|watching| watching.at == current)?;
+        if arriving
+            .position
+            .is_some_and(|position| position - watching.from >= SWITCH_WITHIN_MS)
+        {
+            return None;
+        }
+        let playing_group = self.groups.get(current.0)?;
+        if playing_group.id == DOWNLOAD_GROUP {
+            return None;
+        }
+        let playing = playing_group.links.get(current.1)?;
+        if playing.request.live {
+            return None;
+        }
+        let ranking = self.ranking(now);
+        let playing_key = ranking.link_key(&playing_group.name, playing);
+        let (group, link, key) = self.best_candidate(&ranking)?;
+        let candidate = &self.groups[group].links[link];
+        let request = &candidate.request;
+        let switchable = !raygun_torrent::is_torrent(&request.url, request.format.as_deref())
+            && !request.url.starts_with(crate::video::YOUTUBE_LINK)
+            && !crate::video::is_page(request);
+        (switchable && clearly_better(key, playing_key)).then_some((group, link))
     }
 
     /// The links the Quality menu can play, with their steps and their place in the order the
@@ -669,6 +745,41 @@ fn sources_update(session: &Session, now: i64) -> Value {
 /// first, then those still finding links, then empty and failed ones; within each, by how they
 /// did (the session's [`Ranking`]: what played last time first, failing ones last), then by
 /// the best picture they have, then by their measured speed.
+/// Gives links the subtitle addons' tracks they don't have yet (YouTube's embed and pages take
+/// none).
+fn add_subtitles(links: &mut [Link], extra: &[raygun_model::VideoSubtitle]) {
+    for link in links {
+        let request = &mut link.request;
+        if request.url.starts_with(crate::video::YOUTUBE_LINK) || crate::video::is_page(request) {
+            continue;
+        }
+        for subtitle in extra {
+            if !request.subtitles.iter().any(|had| had.url == subtitle.url) {
+                request.subtitles.push(subtitle.clone());
+            }
+        }
+        request.subtitles.truncate(crate::stremio::MAX_SUBTITLES);
+    }
+}
+
+/// Whether a link ranked `new` is worth leaving one ranked `playing` for: it names the episode
+/// where the other doesn't, stands better (played before, its release, a source that works), or
+/// stands the same with a picture nearer the preferred resolution. Ties of health or memory
+/// alone aren't.
+fn clearly_better(new: memory::RankKey, playing: memory::RankKey) -> bool {
+    let (new_mismatch, new_standing, _, _, new_size) = new;
+    let (playing_mismatch, playing_standing, _, _, playing_size) = playing;
+    if new_mismatch != playing_mismatch {
+        return !new_mismatch;
+    }
+    if new_standing != playing_standing {
+        return new_standing < playing_standing;
+    }
+    // A picture of unknown size may be as good: only known sizes are compared.
+    const UNKNOWN: u8 = 2;
+    playing_size.0 != UNKNOWN && new_size < playing_size
+}
+
 fn source_order(session: &Session, ranking: &Ranking) -> Vec<usize> {
     let mut order: Vec<usize> = (0..session.groups.len()).collect();
     order.sort_by_cached_key(|&index| {
@@ -916,6 +1027,7 @@ impl VideoSessions {
             link: None,
             link_error: None,
             player_waits: false,
+            arriving: Arriving::default(),
         });
         let label = if video_match::adds_to_title(&title, &label) {
             label
@@ -996,6 +1108,7 @@ impl VideoSessions {
             link: Some(link.clone()),
             link_error: None,
             player_waits: false,
+            arriving: Arriving::default(),
         });
         let mut shell = crate::video::session_shell(&self.app, &title, &subtitle).await;
         // A torrent's details come from peers first.
@@ -1115,6 +1228,8 @@ impl VideoSessions {
             if session.episode().key != key {
                 return;
             }
+            session.arriving.position = Some(position);
+            session.arriving.live = heard.live;
             let Some(watching) = session.watching.as_mut() else {
                 return;
             };
@@ -1284,6 +1399,7 @@ impl VideoSessions {
             session.playing_variant = None;
             session.duration_ms = None;
             session.link_speeds.clear();
+            session.arriving = Arriving::default();
             title_and_label(&session.title, &session.episode().label)
         };
         let _ = crate::video::update_player(
@@ -1314,6 +1430,7 @@ impl VideoSessions {
             session.start_at = (position > 0).then_some(position);
             // A link picked by hand: no step of the Quality menu is asked for anymore.
             session.wanted = None;
+            session.arriving.picked = true;
             session.quality_tried.clear();
             session.generation
         };
@@ -1345,6 +1462,7 @@ impl VideoSessions {
                 session.quality_tried.insert(current);
             }
             session.wanted = Some(key);
+            session.arriving.picked = true;
             match video_quality::pick(&offers, key, session.current, &session.quality_tried) {
                 Some((group, link)) => {
                     session.quality_tried.insert((group, link));
@@ -1574,12 +1692,20 @@ impl VideoSessions {
                 match guard.as_mut() {
                     Some(session) if session.generation == generation => {
                         session.settled = true;
+                        session.arriving.subtitles_until = None;
+                        // Every source answered or gave up: none still looks.
+                        for group in &mut session.groups {
+                            if group.state == GroupState::Resolving {
+                                group.state = GroupState::Empty;
+                            }
+                        }
                         true
                     }
                     _ => false,
                 }
             };
             if finished {
+                sessions.push_sources().await;
                 sessions.try_play(generation).await;
             }
         });
@@ -1644,82 +1770,53 @@ impl VideoSessions {
                 let language = crate::video::subtitle_language(&db).await;
                 let waiting = Group::resolving("addons".into(), self.label("addons", "Addons"));
                 self.set_groups(generation, vec![waiting]).await;
-                let stremio = self.app.state::<std::sync::Arc<StremioService>>();
-                // Stream providers (`video.streams`: Nuvio's) are asked beside the addons; each
-                // one's streams join the session as they come, once the addons' are in place.
-                let ask = stremio.provider_ask(&target).await;
-                let providers: Vec<(String, String)> = ask
-                    .as_ref()
-                    .map(|ask| {
-                        ask.providers
-                            .iter()
-                            .map(|provider| (provider.id.clone(), provider.name.clone()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                // Answers that come before the addons' are kept until those are in place; then
-                // they get the subtitle addons' tracks the addons' links got.
-                let placed = AtomicBool::new(false);
-                let early: Mutex<Vec<raygun_model::StremioStreamGroup>> = Mutex::new(Vec::new());
+                self.wait_for_subtitles(generation);
+                let stremio: &StremioService =
+                    self.app.state::<std::sync::Arc<StremioService>>().inner();
                 let numbers = &episode.numbers;
-                let provider_group = async |answer: raygun_model::StremioStreamGroup| {
-                    let mut group = stremio.provider_group(answer, &target, &language).await;
-                    episode_links(std::slice::from_mut(&mut group), numbers);
-                    group
-                };
+                // Each addon's streams join the session as they come: the first good link plays
+                // while the rest still look, and a clearly better one may take over early on.
                 let addons = async {
-                    let mut groups = match stremio.playable(&target, &language).await {
-                        Ok(groups) => groups,
-                        Err(error) => vec![Group::finished(
-                            "addons".into(),
-                            self.label("addons", "Addons"),
-                            Vec::new(),
-                            Some(error),
-                        )],
+                    let (sender, mut arrivals) = tokio::sync::mpsc::unbounded_channel();
+                    let heard = async {
+                        while let Some(arrival) = arrivals.recv().await {
+                            self.arrived(generation, numbers, arrival).await;
+                        }
                     };
-                    episode_links(&mut groups, numbers);
-                    let mut answered: Vec<Group> = Vec::new();
-                    loop {
-                        let kept = std::mem::take(&mut *early.lock().expect("early poisoned"));
-                        if kept.is_empty() {
-                            break;
-                        }
-                        for answer in kept {
-                            answered.push(provider_group(answer).await);
-                        }
+                    let (asked, ()) = futures_util::future::join(
+                        stremio.playable_each(&target, &language, sender),
+                        heard,
+                    )
+                    .await;
+                    if let Err(error) = asked {
+                        self.subtitles_arrived(generation, Vec::new()).await;
+                        self.update_group(generation, "addons", Err(error)).await;
                     }
-                    // Providers still finding streams wait in place.
-                    for (provider, name) in &providers {
-                        groups.push(
-                            answered
-                                .iter()
-                                .find(|group| group.id == *provider)
-                                .cloned()
-                                .unwrap_or_else(|| {
-                                    Group::resolving(provider.clone(), name.clone())
-                                }),
-                        );
-                    }
-                    placed.store(true, Ordering::SeqCst);
-                    self.set_groups(generation, groups).await;
                 };
+                // Stream providers (`video.streams`: Nuvio's) are asked beside the addons; each
+                // one's streams join the session as they come.
                 let provided = async {
-                    let Some(ask) = ask else {
+                    let Some(ask) = stremio.provider_ask(&target).await else {
                         return;
                     };
-                    let (placed, early, provider_group) = (&placed, &early, &provider_group);
+                    let waiting = ask
+                        .providers
+                        .iter()
+                        .map(|provider| {
+                            Group::resolving(provider.id.clone(), provider.name.clone())
+                        })
+                        .collect();
+                    self.add_groups(generation, waiting).await;
+                    let (target, language) = (&target, &language);
                     stremio
                         .provider_answers(ask, |answer| async move {
                             if !self.is_current(generation) {
                                 return;
                             }
-                            if !placed.load(Ordering::SeqCst) {
-                                early.lock().expect("early poisoned").push(answer);
-                                return;
-                            }
-                            let group = provider_group(answer).await;
-                            let links = match &group.state {
-                                GroupState::Failed(error) => Err(error.clone()),
+                            let mut group = stremio.provider_group(answer, target, language).await;
+                            episode_links(std::slice::from_mut(&mut group), numbers);
+                            let links = match group.state {
+                                GroupState::Failed(error) => Err(error),
                                 _ => Ok(group.links),
                             };
                             self.update_group(generation, &group.id, links).await;
@@ -1939,7 +2036,15 @@ impl VideoSessions {
                 return;
             };
             order_groups(&mut groups, &session.ranking(now_ms()));
-            if at + 1 == session.groups.len() {
+            if let Some(extra) = &session.arriving.extra_subtitles {
+                for group in &mut groups {
+                    add_subtitles(&mut group.links, extra);
+                }
+            }
+            if session.current.is_none() && session.tried.is_empty() {
+                // No index is in use yet: the placeholder goes.
+                session.groups.remove(at);
+            } else if at + 1 == session.groups.len() {
                 session.groups.pop();
             } else {
                 // Not the last (sessions put it last): it stays, empty, so no index moves.
@@ -1988,11 +2093,17 @@ impl VideoSessions {
                 return;
             };
             let link_session = session.link.is_some();
+            let extra = session.arriving.extra_subtitles.clone();
             if let Some(group) = session.groups.iter_mut().find(|group| group.id == id) {
-                let (links, error) = match links {
+                let (mut links, error) = match links {
                     Ok(links) => (links, None),
                     Err(error) => (Vec::new(), Some(error)),
                 };
+                if let Some(extra) = &extra
+                    && !own_group(link_session, group)
+                {
+                    add_subtitles(&mut links, extra);
+                }
                 *group = Group::finished(group.id.clone(), group.name.clone(), links, error);
                 // Its place in the list stays (indices are in use); its links are ordered (a
                 // link played on its own keeps its own order).
@@ -2011,6 +2122,96 @@ impl VideoSessions {
         self.try_play(generation).await;
     }
 
+    /// What the addons said, as it comes ([`StremioService::playable_each`]).
+    async fn arrived(
+        &self,
+        generation: u64,
+        numbers: &[video_match::EpisodeNumber],
+        arrival: Arrival,
+    ) {
+        match arrival {
+            Arrival::Listed(listed) => {
+                let waiting = listed
+                    .into_iter()
+                    .map(|(id, name)| Group::resolving(id, name))
+                    .collect();
+                self.replace_group(generation, "addons", waiting).await;
+            }
+            Arrival::Group(mut group) => {
+                episode_links(std::slice::from_mut(&mut group), numbers);
+                let links = match group.state {
+                    GroupState::Failed(error) => Err(error),
+                    _ => Ok(group.links),
+                };
+                self.update_group(generation, &group.id, links).await;
+            }
+            Arrival::Subtitles(extra) => self.subtitles_arrived(generation, extra).await,
+        }
+    }
+
+    /// Adds sources still finding links after the ones there (stream providers, listed once
+    /// they're known); those already there stay as they are.
+    async fn add_groups(&self, generation: u64, groups: Vec<Group>) {
+        {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard
+                .as_mut()
+                .filter(|session| session.generation == generation)
+            else {
+                return;
+            };
+            for group in groups {
+                if !session.groups.iter().any(|there| there.id == group.id) {
+                    session.groups.push(group);
+                }
+            }
+        }
+        self.push_sources().await;
+    }
+
+    /// The first link waits a moment for the subtitle addons' tracks, which go with the request
+    /// the player loads ([`SUBTITLES_WAIT_MS`]).
+    fn wait_for_subtitles(&self, generation: u64) {
+        {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard
+                .as_mut()
+                .filter(|session| session.generation == generation)
+            else {
+                return;
+            };
+            session.arriving.subtitles_until = Some(now_ms() + SUBTITLES_WAIT_MS);
+        }
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(SUBTITLES_WAIT_MS as u64)).await;
+            app.state::<VideoSessions>().try_play(generation).await;
+        });
+    }
+
+    /// The subtitle addons answered: every link gets their tracks (those that come later too),
+    /// and the first link plays.
+    async fn subtitles_arrived(&self, generation: u64, extra: Vec<raygun_model::VideoSubtitle>) {
+        {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard
+                .as_mut()
+                .filter(|session| session.generation == generation)
+            else {
+                return;
+            };
+            session.arriving.subtitles_until = None;
+            let link_session = session.link.is_some();
+            for group in &mut session.groups {
+                if group.id != DOWNLOAD_GROUP && !own_group(link_session, group) {
+                    add_subtitles(&mut group.links, &extra);
+                }
+            }
+            session.arriving.extra_subtitles = Some(extra);
+        }
+        self.try_play(generation).await;
+    }
+
     /// Plays the best untried link when nothing plays; says so when every link has failed.
     async fn try_play(&self, generation: u64) {
         enum Next {
@@ -2020,6 +2221,8 @@ impl VideoSessions {
             /// tried too.
             LinkFailed(String, bool),
             Wait,
+            /// A clearly better source answered late: it takes over, with a notice.
+            Switch(usize, usize, String),
         }
         let next = {
             let mut guard = self.session.lock().expect("session poisoned");
@@ -2029,39 +2232,78 @@ impl VideoSessions {
             else {
                 return;
             };
-            if session.current.is_some() {
-                return;
-            }
-            match session.next_candidate(now_ms()) {
-                Some(candidate) => {
-                    session.tried.insert(candidate);
-                    session.current = Some(candidate);
-                    Next::Play(candidate.0, candidate.1)
+            if let Some(playing) = session.current {
+                let Some(better) = session.upgrade(now_ms()) else {
+                    return;
+                };
+                // The one playing stays a fallback: it worked.
+                session.tried.remove(&playing);
+                session.tried.insert(better);
+                session.current = Some(better);
+                session.watching = None;
+                if let Some(position) = session.arriving.position.take().filter(|at| *at > 0) {
+                    session.start_at = Some(position);
                 }
-                None => {
-                    let resolving = session
-                        .groups
-                        .iter()
-                        .any(|group| group.state == GroupState::Resolving);
-                    if !session.settled || resolving {
-                        Next::Wait
-                    } else if session.link.is_some() {
-                        // The player says why the link failed in it, with its own buttons; what
-                        // kept it from opening (peers, the network) is said here, and so is a
-                        // player waiting for another source that none had.
-                        match (session.link_error.clone(), session.player_waits) {
-                            (Some(error), _) => Next::LinkFailed(error, !session.alone()),
-                            (None, true) => Next::Exhausted,
-                            (None, false) => Next::Wait,
+                let group = &session.groups[better.0];
+                let facts = group.links[better.1].facts();
+                let name = match facts.height {
+                    Some(height) => format!(
+                        "{} ({})",
+                        group.name,
+                        quality_name(QualityKey::of(height, facts.range))
+                    ),
+                    None => group.name.clone(),
+                };
+                Next::Switch(better.0, better.1, name)
+            } else {
+                match session.next_candidate(now_ms()) {
+                    Some(candidate) => {
+                        session.tried.insert(candidate);
+                        session.current = Some(candidate);
+                        Next::Play(candidate.0, candidate.1)
+                    }
+                    None => {
+                        let resolving = session
+                            .groups
+                            .iter()
+                            .any(|group| group.state == GroupState::Resolving);
+                        if !session.settled || resolving {
+                            Next::Wait
+                        } else if session.link.is_some() {
+                            // The player says why the link failed in it, with its own buttons; what
+                            // kept it from opening (peers, the network) is said here, and so is a
+                            // player waiting for another source that none had.
+                            match (session.link_error.clone(), session.player_waits) {
+                                (Some(error), _) => Next::LinkFailed(error, !session.alone()),
+                                (None, true) => Next::Exhausted,
+                                (None, false) => Next::Wait,
+                            }
+                        } else {
+                            Next::Exhausted
                         }
-                    } else {
-                        Next::Exhausted
                     }
                 }
             }
         };
         match next {
             Next::Play(group, link) => self.play(generation, group, link).await,
+            Next::Switch(group, link, name) => {
+                tracing::info!(source = %name, "a better source answered: switching to it");
+                self.play(generation, group, link).await;
+                let notice = self
+                    .label("sourceSwitched", "Switched to {n}")
+                    .replace("{n}", &name);
+                let update = self
+                    .session
+                    .lock()
+                    .expect("session poisoned")
+                    .as_ref()
+                    .filter(|session| session.generation == generation)
+                    .map(|session| session.quality_update(now_ms(), Some(notice)));
+                if let Some(update) = update {
+                    let _ = crate::video::update_player(&self.app, &update);
+                }
+            }
             Next::Exhausted => {
                 let _ = crate::video::update_player(
                     &self.app,
@@ -2196,6 +2438,8 @@ impl VideoSessions {
                     .as_mut()
                     .filter(|session| session.current == Some((group, link)))
                 {
+                    session.arriving.position = None;
+                    session.arriving.live = false;
                     session.watching = Some(Watching {
                         at: (group, link),
                         from,
@@ -2715,6 +2959,7 @@ mod tests {
             link: None,
             link_error: None,
             player_waits: false,
+            arriving: Arriving::default(),
         }
     }
 
@@ -3345,6 +3590,181 @@ mod tests {
         // An untried source resolving isn't worth waiting for.
         state.memory = Remembered::default();
         assert_eq!(state.next_candidate(NOW + 1_000), Some((0, 0)));
+        // Nor one that only worked for other titles: the first good link plays at once.
+        state.health.worked("Beta", NOW - 1_000);
+        assert_eq!(state.next_candidate(NOW + 1), Some((0, 0)));
+    }
+
+    /// A session as sources answer one by one: `answer` puts a source's links in place of its
+    /// placeholder, as `update_group` does.
+    fn answer(state: &mut Session, id: &str, links: Vec<Link>) {
+        let group = state
+            .groups
+            .iter_mut()
+            .find(|group| group.id == id)
+            .expect("listed");
+        *group = Group::finished(group.id.clone(), group.name.clone(), links, None);
+    }
+
+    /// Loads `at` as `try_play` and `play` do, at `from`.
+    fn load(state: &mut Session, at: (usize, usize), from: i64) {
+        state.tried.insert(at);
+        state.current = Some(at);
+        state.watching = Some(Watching {
+            at,
+            from,
+            live_from: None,
+            confirmed: false,
+        });
+    }
+
+    #[test]
+    fn the_first_source_that_answers_plays_while_the_rest_still_look() {
+        let mut state = session(
+            vec![
+                Group::resolving("a".into(), "Alpha".into()),
+                Group::resolving("b".into(), "Beta".into()),
+                Group::resolving("c".into(), "Gamma".into()),
+            ],
+            vec![episode("e1", None)],
+        );
+        state.resolving_since = NOW;
+        assert_eq!(state.next_candidate(NOW), None, "nobody answered yet");
+        // Gamma answers first (at 0.4 s): it plays, Alpha and Beta still look.
+        answer(&mut state, "c", vec![link("Gamma 720p", None)]);
+        assert_eq!(state.next_candidate(NOW + 400), Some((2, 0)));
+        load(&mut state, (2, 0), 0);
+        // Alpha answers at 2 s with the same standing and a smaller picture: nothing changes.
+        answer(&mut state, "a", vec![link("Alpha 480p", None)]);
+        assert_eq!(state.upgrade(NOW + 2_000), None);
+        // Beta answers at 5 s with the preferred 1080p: it takes over from the same place.
+        answer(&mut state, "b", vec![link("Beta 1080p", None)]);
+        assert_eq!(state.upgrade(NOW + 5_000), Some((1, 0)));
+    }
+
+    #[test]
+    fn the_first_link_waits_a_moment_for_the_subtitle_addons() {
+        let mut state = session(
+            vec![Group::finished(
+                "a".into(),
+                "Alpha".into(),
+                vec![link("a1", None)],
+                None,
+            )],
+            vec![episode("e1", None)],
+        );
+        state.arriving.subtitles_until = Some(NOW + SUBTITLES_WAIT_MS);
+        assert_eq!(state.next_candidate(NOW + 1_000), None);
+        assert_eq!(
+            state.next_candidate(NOW + SUBTITLES_WAIT_MS),
+            Some((0, 0)),
+            "then it plays without them"
+        );
+        let mut links = state.groups[0].links.clone();
+        let track = raygun_model::VideoSubtitle {
+            url: "https://subs.example/en.srt".into(),
+            label: Some("English".into()),
+            lang: Some("eng".into()),
+            format: None,
+            source: None,
+        };
+        add_subtitles(&mut links, std::slice::from_ref(&track));
+        add_subtitles(&mut links, std::slice::from_ref(&track));
+        assert_eq!(links[0].request.subtitles, vec![track], "each track once");
+    }
+
+    #[test]
+    fn a_better_source_takes_over_only_early_and_never_after_a_pick() {
+        let fresh = || {
+            let mut state = session(
+                vec![
+                    Group::finished(
+                        "a".into(),
+                        "Alpha".into(),
+                        vec![link("Alpha 720p", None)],
+                        None,
+                    ),
+                    Group::finished(
+                        "b".into(),
+                        "Beta".into(),
+                        vec![link("Beta 720p", None)],
+                        None,
+                    ),
+                ],
+                vec![episode("e1", None)],
+            );
+            // Beta played this title before (as 1080p; any of its links stands better).
+            state.memory = worked_memory("Beta", "Beta 1080p", None);
+            load(&mut state, (0, 0), 60_000);
+            state
+        };
+        let state = fresh();
+        assert_eq!(
+            state.upgrade(NOW),
+            Some((1, 0)),
+            "before any progress, the source that played before takes over"
+        );
+
+        let mut state = fresh();
+        state.arriving.position = Some(60_000 + SWITCH_WITHIN_MS - 1);
+        assert_eq!(state.upgrade(NOW), Some((1, 0)), "still early");
+        state.arriving.position = Some(60_000 + SWITCH_WITHIN_MS);
+        assert_eq!(state.upgrade(NOW), None, "too far in");
+
+        let mut state = fresh();
+        state.arriving.picked = true;
+        assert_eq!(state.upgrade(NOW), None, "picked by hand");
+
+        let mut state = fresh();
+        state.wanted = Some(QualityKey::of(720, Default::default()));
+        assert_eq!(state.upgrade(NOW), None, "a step asked for");
+
+        let mut state = fresh();
+        state.groups[1].links[0].request.format = Some(raygun_torrent::FORMAT.into());
+        assert_eq!(
+            state.upgrade(NOW),
+            None,
+            "torrents start over: not switched to"
+        );
+
+        let mut state = fresh();
+        state.groups[0].links[0].request.live = true;
+        assert_eq!(state.upgrade(NOW), None, "live streams stay");
+    }
+
+    #[test]
+    fn only_clearly_better_links_take_over() {
+        let key = |standing, size| (false, standing, true, Reverse(0), size);
+        let p1080 = (0, 0);
+        let p720 = (0, 360);
+        let unknown = (2, 0);
+        assert!(clearly_better(
+            key(Standing::Untried, p1080),
+            key(Standing::Untried, p720)
+        ));
+        assert!(!clearly_better(
+            key(Standing::Untried, p720),
+            key(Standing::Untried, p720)
+        ));
+        assert!(
+            !clearly_better(
+                key(Standing::Untried, p1080),
+                key(Standing::Untried, unknown)
+            ),
+            "a picture of unknown size may be as good"
+        );
+        assert!(clearly_better(
+            key(Standing::LastPlayed, p720),
+            key(Standing::Untried, p1080)
+        ));
+        assert!(!clearly_better(
+            key(Standing::Untried, p1080),
+            key(Standing::Worked, p720)
+        ));
+        assert!(clearly_better(
+            (false, Standing::Untried, true, Reverse(0), p720),
+            (true, Standing::LastPlayed, false, Reverse(0), p1080)
+        ));
     }
 
     #[test]

@@ -603,24 +603,48 @@ impl ExtensionService {
     }
 
     /// Covers the sources have for a song, an album or an artist (M46.36): the songs, albums and
-    /// artists they find by that name, each picture once. A song also gets its album's covers.
-    pub async fn cover_options(
-        &self,
-        target: &raygun_model::DetailTarget,
-    ) -> Vec<raygun_model::CoverOption> {
-        self.cover_options_answered(target).await.0
-    }
-
-    /// [`Self::cover_options`], and whether a source answered: for a song, a search that failed
-    /// at every source (offline, say) found nothing without saying there is nothing.
+    /// artists they find by that name, each picture once (a song also gets its album's covers);
+    /// and whether a source answered: for a song, a search that failed at every source (offline,
+    /// say) found nothing without saying there is nothing.
     pub async fn cover_options_answered(
         &self,
         target: &raygun_model::DetailTarget,
     ) -> (Vec<raygun_model::CoverOption>, bool) {
+        self.cover_options_each(target, |_| {}).await
+    }
+
+    /// [`Self::cover_options_answered`], the covers found so far handed to `report` each time a
+    /// source answers with new ones (Edit details shows them as they come, a missing cover takes
+    /// the first).
+    pub async fn cover_options_each(
+        &self,
+        target: &raygun_model::DetailTarget,
+        report: impl Fn(&[raygun_model::CoverOption]),
+    ) -> (Vec<raygun_model::CoverOption>, bool) {
         use raygun_model::DetailTarget;
         let _ready = self.loading.read().await;
-        let mut options = Vec::new();
+        let found: std::sync::Mutex<Vec<raygun_model::CoverOption>> = Default::default();
+        let add = |options: Vec<raygun_model::CoverOption>| {
+            let shown = {
+                let mut all = found.lock().expect("covers poisoned");
+                let before = all.len();
+                for option in options {
+                    if all.len() < COVER_OPTIONS && !all.iter().any(|had| had.url == option.url) {
+                        all.push(option);
+                    }
+                }
+                (all.len() > before).then(|| all.clone())
+            };
+            if let Some(shown) = shown {
+                report(&shown);
+            }
+        };
         let mut answered = true;
+        // Answers that fail or find nothing say nothing of what other sources have.
+        let listings = raygun_model::SearchListingsPrefs {
+            enabled: false,
+            ..Default::default()
+        };
         match target {
             DetailTarget::Song { query } => {
                 let artist = query.artist.as_deref().unwrap_or_default();
@@ -629,68 +653,85 @@ impl ExtensionService {
                     .album
                     .as_deref()
                     .map(|album| format!("{album} {artist}"));
+                let title = raygun_resolver::core_title(&query.title);
+                let song_covers = |result: &ProviderSearchResult| {
+                    result
+                        .tracks
+                        .iter()
+                        .filter(|track| {
+                            raygun_resolver::core_title(&track.title) == title
+                                && credited(track.artist.as_deref(), query.artist.as_deref())
+                        })
+                        .filter_map(|track| {
+                            Some(raygun_model::CoverOption {
+                                url: track.artwork_url.clone()?,
+                                source: result.provider.name.clone(),
+                                of: track.album.clone().filter(|album| !album.is_empty()),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                };
                 let (songs, albums) = futures_util::future::join(
-                    self.host
-                        .search_music(songs_query.trim(), COVER_SEARCH_LIMIT),
+                    self.host.search_music_as_answered(
+                        songs_query.trim(),
+                        COVER_SEARCH_LIMIT,
+                        listings,
+                        |result, _| add(song_covers(result)),
+                    ),
                     async {
-                        match &album_query {
-                            Some(text) => {
+                        match (&album_query, &query.album) {
+                            (Some(text), Some(album)) => {
                                 self.host
-                                    .search_albums(text.trim(), COVER_SEARCH_LIMIT)
+                                    .search_albums_as_answered(
+                                        text.trim(),
+                                        COVER_SEARCH_LIMIT,
+                                        |_, albums, _| {
+                                            add(album_covers(
+                                                albums.to_vec(),
+                                                album,
+                                                query.artist.as_deref(),
+                                            ));
+                                        },
+                                    )
                                     .await
                             }
-                            None => Vec::new(),
+                            _ => Vec::new(),
                         }
                     },
                 )
                 .await;
                 answered = songs.iter().any(|result| result.error.is_none()) || !albums.is_empty();
-                let title = raygun_resolver::core_title(&query.title);
-                for result in songs {
-                    for track in result.tracks {
-                        let same = raygun_resolver::core_title(&track.title) == title
-                            && credited(track.artist.as_deref(), query.artist.as_deref());
-                        if let (true, Some(url)) = (same, track.artwork_url) {
-                            options.push(raygun_model::CoverOption {
-                                url,
-                                source: result.provider.name.clone(),
-                                of: track.album.filter(|album| !album.is_empty()),
-                            });
-                        }
-                    }
-                }
-                if let Some(album) = &query.album {
-                    options.extend(album_covers(albums, album, query.artist.as_deref()));
-                }
             }
             DetailTarget::Album { artist, album } => {
                 let text = format!("{album} {}", artist.as_deref().unwrap_or_default());
-                let albums = self
-                    .host
-                    .search_albums(text.trim(), COVER_SEARCH_LIMIT)
+                self.host
+                    .search_albums_as_answered(text.trim(), COVER_SEARCH_LIMIT, |_, albums, _| {
+                        add(album_covers(albums.to_vec(), album, artist.as_deref()));
+                    })
                     .await;
-                options.extend(album_covers(albums, album, artist.as_deref()));
             }
             DetailTarget::Artist { name } => {
                 let wanted = raygun_resolver::normalize(name);
-                for artist in self.host.search_artists(name, COVER_SEARCH_LIMIT).await {
-                    if raygun_resolver::normalize(&artist.name) == wanted
-                        && let Some(url) = artist.image_url
-                    {
-                        options.push(raygun_model::CoverOption {
-                            url,
-                            source: artist.provider.name,
-                            of: None,
-                        });
-                    }
-                }
+                self.host
+                    .search_artists_as_answered(name, COVER_SEARCH_LIMIT, |_, artists, _| {
+                        add(artists
+                            .iter()
+                            .filter(|artist| raygun_resolver::normalize(&artist.name) == wanted)
+                            .filter_map(|artist| {
+                                Some(raygun_model::CoverOption {
+                                    url: artist.image_url.clone()?,
+                                    source: artist.provider.name.clone(),
+                                    of: None,
+                                })
+                            })
+                            .collect());
+                    })
+                    .await;
             }
             // Its songs' covers come from the playlist itself (`detail_cover_options`).
             DetailTarget::Playlist { .. } => {}
         }
-        let mut seen = std::collections::HashSet::new();
-        options.retain(|option| seen.insert(option.url.clone()));
-        options.truncate(COVER_OPTIONS);
+        let options = found.into_inner().expect("covers poisoned");
         (options, answered)
     }
 
@@ -937,6 +978,26 @@ impl ExtensionService {
                 .iter()
                 .any(|kind| kind == raygun_ext_host::MUSIC_STREAM)
         })
+    }
+
+    /// [`Self::stream_candidates`] (up to `limit` candidates each, else the usual number), each
+    /// provider's answer handed to `each` as it comes.
+    pub async fn stream_candidates_each(
+        &self,
+        query: &TrackQuery,
+        limit: Option<u32>,
+        quality: raygun_resolver::QualityTarget,
+        mut each: impl FnMut(ProviderCandidates),
+    ) {
+        let _ready = self.loading.read().await;
+        let answers = self
+            .host
+            .stream_candidates_each(query, limit.unwrap_or(CANDIDATE_LIMIT), quality)
+            .await;
+        let mut answers = std::pin::pin!(answers);
+        while let Some(answer) = futures_util::StreamExt::next(&mut answers).await {
+            each(answer);
+        }
     }
 
     /// [`Self::stream_candidates`] asking each provider for up to `limit` candidates.

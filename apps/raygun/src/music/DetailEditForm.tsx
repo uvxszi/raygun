@@ -1,8 +1,8 @@
-import { commands } from '@raygun/bindings';
-import type { DetailEdit, DetailTarget } from '@raygun/bindings';
+import { commands, events } from '@raygun/bindings';
+import type { CoverOption, DetailEdit, DetailTarget } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImagePlus, LoaderCircle, RotateCcw, Search } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FC, KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -207,6 +207,27 @@ const searchedAs = (target: DetailTarget, names: CoverNames): DetailTarget => {
 };
 
 /**
+ * The covers a cover search (`request`) has found so far, as Rust sends them while its sources
+ * still answer (`CoverOptionsEvent`); followed while `searching`.
+ */
+const useArrivingCovers = (request: string, searching: boolean): CoverOption[] => {
+  const [arriving, setArriving] = useState<{ request: string; covers: CoverOption[] }>({
+    request: '',
+    covers: [],
+  });
+  useEffect(() => {
+    if (!searching) return;
+    const unlisten = events.coverOptionsEvent.listen(({ payload: [asked, covers] }) => {
+      if (asked === request) setArriving({ request, covers });
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [request, searching]);
+  return arriving.request === request ? arriving.covers : [];
+};
+
+/**
  * Covers from the music sources (M46.36): when one doesn't load, or the user prefers another
  * source's picture. Asked only on request, since it searches every source; the names it searches
  * by show above the covers, to change and search again (a misspelt title finds nothing).
@@ -219,12 +240,14 @@ const SourceCovers: FC<{
   const { t } = useTranslation();
   const [names, setNames] = useState(() => namesOf(target));
   const [asked, setAsked] = useState<DetailTarget | null>(null);
+  const request = JSON.stringify(asked);
   const options = useQuery({
-    queryKey: ['detailCoverOptions', JSON.stringify(asked)],
-    queryFn: () => unwrapResult(commands.detailCoverOptions(asked ?? target)),
+    queryKey: ['detailCoverOptions', request],
+    queryFn: () => unwrapResult(commands.detailCoverOptions(asked ?? target, request)),
     enabled: asked !== null,
     staleTime: 10 * 60_000,
   });
+  const arriving = useArrivingCovers(request, options.isPending && asked !== null);
   const search = () => setAsked(names ? searchedAs(target, names) : target);
   if (!asked) {
     return (
@@ -244,7 +267,8 @@ const SourceCovers: FC<{
     event.preventDefault();
     if (names?.title.trim()) search();
   };
-  const list = options.data ?? [];
+  // While sources still answer, the covers found so far.
+  const list = options.data ?? arriving;
   return (
     <div className="flex flex-col gap-2">
       <span className="text-muted text-xs font-semibold uppercase">
@@ -299,13 +323,14 @@ const SourceCovers: FC<{
           </button>
         </div>
       )}
-      {options.isPending ? (
+      {options.isPending && (
         <p className="text-muted flex items-center gap-2 text-sm">
           <LoaderCircle aria-hidden size={15} className="animate-spin" />
           {t('details.coverFinding')}
         </p>
-      ) : list.length === 0 ? (
-        <p className="text-muted text-sm">{t('details.coverNone')}</p>
+      )}
+      {list.length === 0 ? (
+        !options.isPending && <p className="text-muted text-sm">{t('details.coverNone')}</p>
       ) : (
         <ul
           data-testid="source-covers"

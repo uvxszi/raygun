@@ -161,6 +161,11 @@ pub struct SourceQueueEvent(pub raygun_model::SourceQueueStatus);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SearchProgressEvent(pub raygun_model::SearchProgress);
 
+/// The covers found so far for an Edit details cover search (`detail_cover_options`), as each
+/// source answers: `[request, covers]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct CoverOptionsEvent(pub String, pub Vec<raygun_model::CoverOption>);
+
 /// A model download's progress (M34).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct AiModelEvent(pub raygun_model::AiModelProgress);

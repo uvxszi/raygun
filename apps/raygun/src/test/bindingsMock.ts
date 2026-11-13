@@ -6,6 +6,7 @@ import type {
   CastStatus,
   ConnectRequest,
   ConnectStatus,
+  CoverOption,
   DeviceState,
   EngineCommand,
   ExportJob,
@@ -77,6 +78,7 @@ type EventPayloads = {
   extensionInstallsEvent: ExtensionInstallStatus;
   sourceQueueEvent: SourceQueueStatus;
   searchProgressEvent: SearchProgress;
+  coverOptionsEvent: [string, CoverOption[]];
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
@@ -913,6 +915,7 @@ export const bindingsMock = {
     extensionInstallsEvent: makeEvent('extensionInstallsEvent'),
     sourceQueueEvent: makeEvent('sourceQueueEvent'),
     searchProgressEvent: makeEvent('searchProgressEvent'),
+    coverOptionsEvent: makeEvent('coverOptionsEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),

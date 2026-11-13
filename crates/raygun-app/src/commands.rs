@@ -2394,14 +2394,18 @@ pub async fn detail_edit_set(
     details.set(&target, edit).await
 }
 
-/// Covers the music sources have for a song, an album or an artist (M46.36: Edit details).
+/// Covers the music sources have for a song, an album or an artist (M46.36: Edit details). The
+/// covers found so far are also sent as a [`crate::events::CoverOptionsEvent`] under `request`
+/// each time a source answers.
 #[tauri::command]
 #[specta::specta]
 pub async fn detail_cover_options(
+    app: tauri::AppHandle,
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
     collections: tauri::State<'_, CollectionsService>,
     target: raygun_model::DetailTarget,
+    request: String,
 ) -> Result<Vec<raygun_model::CoverOption>, String> {
     use raygun_model::DetailTarget;
     // A playlist's: the covers of its songs (M46.45).
@@ -2428,7 +2432,16 @@ pub async fn detail_cover_options(
         },
         other => other,
     };
-    Ok(extensions.cover_options(&target).await)
+    let (options, _) = extensions
+        .cover_options_each(&target, |found| {
+            use tauri_specta::Event;
+            let event = crate::events::CoverOptionsEvent(request.clone(), found.to_vec());
+            if let Err(error) = event.emit(&app) {
+                tracing::warn!(%error, "could not send the covers found so far");
+            }
+        })
+        .await;
+    Ok(options)
 }
 
 /// Another source's cover for a song, an album or an artist whose own is missing or failed to
