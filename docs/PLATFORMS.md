@@ -51,7 +51,8 @@ debs, so they need it in the same run.
 ## Linux
 
 Built on Ubuntu 22.04, so the binary needs glibc 2.35 or newer and WebKitGTK 4.1 (Ubuntu 22.04+,
-Debian 12+, Fedora 37+, Arch, openSUSE Tumbleweed). The riscv64 build is cross-compiled against
+Debian 12+, Fedora 37+, Arch, openSUSE Tumbleweed). Linux builds use thin LTO: the release
+profile's whole-program LTO ran the runners (16 GB) out of memory at the final link. The riscv64 build is cross-compiled against
 Ubuntu 24.04's riscv64 libraries (glibc 2.39: Ubuntu 24.04+, Debian 13+, Fedora 40+): 22.04's
 riscv64 archive lags its amd64 updates, and the two must agree on shared libraries' versions.
 

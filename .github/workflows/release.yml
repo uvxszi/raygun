@@ -252,6 +252,9 @@ jobs:
             rpm: aarch64
     env:
       VERSION: ${{ needs.meta.outputs.version }}
+      # Whole-program (fat) LTO of the final binary needs more memory than these runners have (the
+      # linker was killed); thin LTO optimizes across crates in pieces.
+      CARGO_PROFILE_RELEASE_LTO: thin
     steps:
       - uses: actions/checkout@v7
         with:
@@ -342,6 +345,8 @@ jobs:
     container: ubuntu:24.04
     env:
       VERSION: ${{ needs.meta.outputs.version }}
+      # As for the other Linux builds: fat LTO's final link runs out of memory here.
+      CARGO_PROFILE_RELEASE_LTO: thin
       TARGET: riscv64gc-unknown-linux-gnu
       PKG_CONFIG_ALLOW_CROSS: 1
       PKG_CONFIG_SYSROOT_DIR: /
