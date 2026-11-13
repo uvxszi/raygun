@@ -148,6 +148,48 @@ fn appimage_data_goes_next_to_the_appimage_file() {
 }
 
 #[test]
+fn packaged_copies_use_the_system_folder_without_asking() {
+    for (os, exe) in [
+        ("linux", "/usr/bin/raygun"),
+        ("linux", "/app/bin/raygun"),
+        ("linux", "/opt/Raygun/raygun"),
+        ("linux", "/snap/raygun/12/usr/bin/raygun"),
+        ("freebsd", "/usr/local/bin/raygun"),
+    ] {
+        let mut environment = env(os, PathBuf::from(exe));
+        environment.system_dir = Some(PathBuf::from("/home/me/.local/share/app.raygun.player"));
+
+        let paths = ready(resolve(&environment).unwrap());
+
+        assert_eq!(paths.mode(), StorageMode::Installed, "{exe}");
+        assert_eq!(
+            paths.root(),
+            Path::new("/home/me/.local/share/app.raygun.player"),
+            "{exe}"
+        );
+    }
+}
+
+#[test]
+fn packaged_copies_need_the_system_folder() {
+    let environment = env("linux", PathBuf::from("/usr/bin/raygun"));
+
+    assert_eq!(resolve(&environment), Err(ResolveError::MissingSystemDir));
+}
+
+#[test]
+fn copies_elsewhere_stay_portable_on_linux() {
+    let temp = TempDir::new().unwrap();
+    let mut environment = env("linux", temp.path().join("raygun"));
+    environment.system_dir = Some(temp.path().join("system"));
+
+    let paths = ready(resolve(&environment).unwrap());
+
+    assert_eq!(paths.mode(), StorageMode::Portable);
+    assert_eq!(paths.root(), temp.path().join(DATA_DIR_NAME));
+}
+
+#[test]
 fn appimage_variable_is_ignored_off_linux() {
     let temp = TempDir::new().unwrap();
     let mut environment = env("windows", temp.path().join("raygun.exe"));

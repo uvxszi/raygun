@@ -295,8 +295,9 @@ pub fn speed_up_dkjson(lua: &Lua, library: &Value) -> mlua::Result<()> {
             }
         };
         let value = to_lua(lua, &parsed, &null, &object_meta, &array_meta)?;
-        let end = bytes.len() + 1;
-        Ok(MultiValue::from_iter([value, Value::Integer(end as i64)]))
+        // Lua's integers are as wide as a pointer (32-bit builds have `i32`).
+        let end = (bytes.len() + 1) as mlua::Integer;
+        Ok(MultiValue::from_iter([value, Value::Integer(end)]))
     })?;
     json.set("decode", decode)
 }

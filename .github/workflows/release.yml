@@ -1,33 +1,89 @@
 name: Release
 
-# A tag like v1.0.0 builds Raygun for Windows (portable exe, setup exe, MSI) and Android (signed
-# APKs), makes a draft release with the notes in docs/releases/<tag>.md, uploads the files to it,
-# then publishes it. Android APKs are signed with the key in the repository's secrets, so each
-# release installs as an update over the last one.
+# A tag like v1.0.0 builds Raygun for every platform below, makes a draft release with the notes in
+# docs/releases/<tag>.md, uploads the files to it, then publishes it. Android APKs are signed with
+# the key in the repository's secrets, so each release installs as an update over the last one.
+#
+# Run by hand (Actions → Release → Run workflow) with a tag, it builds and releases that tag again.
+# Without a tag it builds the branch it runs on and keeps the files as the run's artifacts; nothing
+# is released. `only` picks jobs by name (e.g. `linux,macos`), `quick` trades the release profile's
+# whole-program optimization for a faster build.
+#
+# The release waits for Windows x64 and Android (the platforms every earlier release had); the other
+# platforms add their files when they built and never hold a release back.
+#
+# File names are what the in-app updater looks for (`updates.rs` `pick_asset`). Copies of 1.9.4 and
+# earlier take the first `-setup.exe` and the first `.msi` in GitHub's name order, so no other
+# Windows file may sort before the x64 ones with those endings: x86 files sort after them, and the
+# ARM64 setup is `_arm64_setup.exe` (no ARM64 MSI).
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v1.0.0)'
-        required: true
+        description: 'Tag to release (e.g. v1.0.0); empty builds this branch without releasing'
+        required: false
+        default: ''
+      only:
+        description: 'Jobs to run, comma-separated (windows, windows-more, linux, linux-riscv64, macos, flatpak, arch, android; freebsd only when named); empty runs all'
+        required: false
+        default: ''
+      quick:
+        description: 'Thin LTO and parallel codegen: faster test builds, never for a release'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
 
 jobs:
-  windows:
-    name: Windows
-    runs-on: windows-latest
+  meta:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      ref: ${{ steps.version.outputs.ref }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
+
+      - name: The version files are named with
+        id: version
+        run: |
+          if [ -n "$TAG" ]; then
+            {
+              echo "version=${TAG#v}"
+              echo "ref=$TAG"
+              echo "release=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            version=$(jq -r .version apps/raygun/src-tauri/tauri.conf.json)
+            {
+              echo "version=${version}-dev.${GITHUB_SHA::7}"
+              echo "ref=$GITHUB_SHA"
+              echo "release=false"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows x64
+    needs: meta
+    if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',windows,') }}
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
 
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
@@ -42,6 +98,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Faster test build
+        if: ${{ inputs.quick }}
+        shell: bash
+        run: |
+          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
+
       - name: Build the installers and the exe
         working-directory: apps/raygun
         run: pnpm tauri build
@@ -49,11 +112,10 @@ jobs:
       - name: Name the files
         shell: pwsh
         run: |
-          $version = "$env:TAG".TrimStart('v')
           New-Item -ItemType Directory -Force out | Out-Null
-          Copy-Item target/release/raygun.exe "out/Raygun_${version}_x64_portable.exe"
-          Get-ChildItem target/release/bundle/nsis/*-setup.exe | ForEach-Object { Copy-Item $_ "out/Raygun_${version}_x64-setup.exe" }
-          Get-ChildItem target/release/bundle/msi/*.msi | ForEach-Object { Copy-Item $_ "out/Raygun_${version}_x64_en-US.msi" }
+          Copy-Item target/release/raygun.exe "out/Raygun_${env:VERSION}_x64_portable.exe"
+          Get-ChildItem target/release/bundle/nsis/*-setup.exe | ForEach-Object { Copy-Item $_ "out/Raygun_${env:VERSION}_x64-setup.exe" }
+          Get-ChildItem target/release/bundle/msi/*.msi | ForEach-Object { Copy-Item $_ "out/Raygun_${env:VERSION}_x64_en-US.msi" }
           Get-ChildItem out
 
       - uses: actions/upload-artifact@v7
@@ -62,15 +124,625 @@ jobs:
           path: out/*
           if-no-files-found: error
 
-  android:
-    name: Android
-    runs-on: ubuntu-24.04
+  windows-more:
+    name: Windows ${{ matrix.arch }}
+    needs: meta
+    if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',windows-more,') }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 32-bit Windows runs on x64 runners too, so its exe gets a start test.
+          - arch: x86
+            target: i686-pc-windows-msvc
+            bundles: nsis,msi
+            setup: x86-setup.exe
+            starts: true
+          # Cross-compiled from x64: MSVC's ARM64 tools and LLVM (ring's assembly) are on the runner.
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
+            setup: arm64_setup.exe
+            starts: false
     env:
-      NDK_VERSION: 28.2.13676358
+      VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ needs.meta.outputs.ref }}
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows-${{ matrix.arch }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Faster test build
+        if: ${{ inputs.quick }}
+        shell: bash
+        run: |
+          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
+
+      - name: Build the installer and the exe
+        working-directory: apps/raygun
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Name the files
+        shell: pwsh
+        run: |
+          $release = "target/${{ matrix.target }}/release"
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item "$release/raygun.exe" "out/Raygun_${env:VERSION}_${{ matrix.arch }}_portable.exe"
+          Get-ChildItem "$release/bundle/nsis/*-setup.exe" | ForEach-Object { Copy-Item $_ "out/Raygun_${env:VERSION}_${{ matrix.setup }}" }
+          if (Test-Path "$release/bundle/msi") {
+            Get-ChildItem "$release/bundle/msi/*.msi" | ForEach-Object { Copy-Item $_ "out/Raygun_${env:VERSION}_${{ matrix.arch }}_en-US.msi" }
+          }
+          Get-ChildItem out
+
+      - name: Start the exe
+        if: ${{ matrix.starts }}
+        shell: pwsh
+        run: |
+          $env:RAYGUN_HOME = Join-Path $env:RUNNER_TEMP raygun-home
+          $logs = Join-Path $env:RAYGUN_HOME logs
+          $app = Start-Process -FilePath "out/Raygun_${env:VERSION}_${{ matrix.arch }}_portable.exe" -PassThru
+          # Raygun logs that its start went well after 20 healthy seconds.
+          foreach ($second in 1..45) {
+            Start-Sleep -Seconds 2
+            if ($app.HasExited) { break }
+            if (Select-String -Path (Join-Path $logs 'raygun.*') -Pattern 'the start went well' -Quiet -ErrorAction SilentlyContinue) { break }
+          }
+          Start-Sleep -Seconds 5
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $shot.Save("shots/windows-${{ matrix.arch }}.png")
+          if (Test-Path $logs) { Get-ChildItem -Recurse $logs | Where-Object { -not $_.PSIsContainer } | ForEach-Object { Get-Content $_.FullName -Tail 40 } }
+          if ($app.HasExited) { Write-Error "Raygun stopped by itself (exit $($app.ExitCode))"; exit 1 }
+          Stop-Process -Id $app.Id -Force
+          # Crash records are `<time>-<kind>.txt`; the folder also holds the start markers.
+          if (Get-ChildItem (Join-Path $logs crashes) -Filter *.txt -ErrorAction SilentlyContinue) { Write-Error "Raygun wrote a crash log"; exit 1 }
+          if (-not (Select-String -Path (Join-Path $logs 'raygun.*') -Pattern 'the start went well' -Quiet)) { Write-Error "Raygun's log doesn't say its start went well"; exit 1 }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && matrix.starts }}
+        with:
+          name: screenshots-windows-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    needs: meta
+    if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',linux,') }}
+    # Ubuntu 22.04 (glibc 2.35, WebKitGTK 4.1) so the binary runs on older systems too.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+            appimage: amd64
+            deb: amd64
+            rpm: x86_64
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            appimage: aarch64
+            deb: arm64
+            rpm: aarch64
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      # Whole-program (fat) LTO of the final binary needs more memory than these runners have (the
+      # linker was killed); thin LTO optimizes across crates in pieces.
+      CARGO_PROFILE_RELEASE_LTO: thin
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+
+      # GStreamer's plugins are what WebKitGTK plays sound and video with; the AppImage carries
+      # the ones installed here (`bundleMediaFramework`), the deb and rpm depend on the system's.
+      - name: Install the libraries Raygun builds and bundles with
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf file libfuse2 desktop-file-utils xvfb dbus imagemagick \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux-${{ matrix.arch }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Faster test build
+        if: ${{ inputs.quick }}
+        run: |
+          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
+
+      - name: Build the AppImage, deb and rpm
+        working-directory: apps/raygun
+        env:
+          # linuxdeploy is an AppImage itself; this runs it without FUSE.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: |
+          rm -rf ../../target/release/bundle
+          pnpm tauri build --bundles appimage,deb,rpm
+
+      - name: Name the files
+        run: |
+          bundle=target/release/bundle
+          mkdir -p out
+          cp "$(ls $bundle/appimage/*.AppImage | head -1)" "out/Raygun_${VERSION}_${{ matrix.appimage }}.AppImage"
+          cp "$(ls $bundle/deb/*.deb | head -1)" "out/Raygun_${VERSION}_${{ matrix.deb }}.deb"
+          cp "$(ls $bundle/rpm/*.rpm | head -1)" "out/Raygun_${VERSION}_${{ matrix.rpm }}.rpm"
+          chmod +x out/*.AppImage
+          ls -la out
+          dpkg-deb --info out/*.deb
+
+      # Each build starts in a virtual display (.github/scripts/start-test.sh): still running 40 s
+      # later with no crash log passes; the screenshots are kept with the run.
+      - name: Start the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: bash .github/scripts/start-test.sh "shots/linux-${{ matrix.arch }}-appimage.png" "out/Raygun_${VERSION}_${{ matrix.appimage }}.AppImage"
+
+      - name: Install the deb and start it
+        run: |
+          sudo apt-get install -y "./out/Raygun_${VERSION}_${{ matrix.deb }}.deb"
+          bash .github/scripts/start-test.sh "shots/linux-${{ matrix.arch }}-deb.png" raygun
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots-linux-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
+
+  linux-riscv64:
+    name: Linux riscv64
+    needs: meta
+    if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',linux-riscv64,') }}
+    # Cross-compiled against Ubuntu's riscv64 ports (no riscv64 runners); no AppImage (linuxdeploy
+    # has no riscv64 build) and no start test. Ubuntu 24.04 (glibc 2.39): 22.04's riscv64 ports
+    # lag its amd64 updates, and a library must have one version for both. In a plain container,
+    # since the runner's own packages are newer still.
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      # As for the other Linux builds: fat LTO's final link runs out of memory here.
+      CARGO_PROFILE_RELEASE_LTO: thin
+      TARGET: riscv64gc-unknown-linux-gnu
+      PKG_CONFIG_ALLOW_CROSS: 1
+      PKG_CONFIG_SYSROOT_DIR: /
+      PKG_CONFIG_LIBDIR: /usr/lib/riscv64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+      CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
+      CXX_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-g++
+      AR_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-ar
+    steps:
+      - name: Install the build tools and riscv64 libraries from Ubuntu's ports
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          dpkg --add-architecture riscv64
+          # The archive's mirrors carry amd64; ports.ubuntu.com has riscv64.
+          sed -i '/^Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+          printf '%s\n' 'Types: deb' 'URIs: http://ports.ubuntu.com/ubuntu-ports/' \
+            'Suites: noble noble-updates noble-security' 'Components: main restricted universe multiverse' \
+            'Architectures: riscv64' 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+            > /etc/apt/sources.list.d/riscv64.sources
+          apt-get update
+          apt-get dist-upgrade -y
+          apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd \
+            build-essential pkg-config file dpkg-dev python3 libglib2.0-dev-bin \
+            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross
+          # The riscv64 libraries are unpacked, not installed: some setup scripts of theirs run
+          # riscv64 programs (Python), which can't run here. Only their libraries, headers and
+          # pkg-config files are copied in, where apt would put them.
+          apt-get install -y --no-install-recommends --download-only \
+            libwebkit2gtk-4.1-dev:riscv64 libgtk-3-dev:riscv64 librsvg2-dev:riscv64 libdbus-1-dev:riscv64
+          root=$(mktemp -d)
+          for deb in /var/cache/apt/archives/*.deb; do
+            dpkg-deb -x "$deb" "$root"
+          done
+          mkdir -p /usr/lib/riscv64-linux-gnu /usr/share/pkgconfig
+          for dir in "$root/usr/lib/riscv64-linux-gnu" "$root/lib/riscv64-linux-gnu"; do
+            if [ -d "$dir" ]; then cp -a "$dir/." /usr/lib/riscv64-linux-gnu/; fi
+          done
+          cp -a "$root"/usr/lib/ld-linux-riscv64* "$root"/lib/ld-linux-riscv64* /usr/lib/ 2>/dev/null || true
+          cp -a "$root/usr/include/." /usr/include/
+          if [ -d "$root/usr/share/pkgconfig" ]; then cp -a "$root/usr/share/pkgconfig/." /usr/share/pkgconfig/; fi
+          ls /usr/lib/riscv64-linux-gnu/pkgconfig | head -50
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux-riscv64
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Faster test build
+        if: ${{ inputs.quick }}
+        run: |
+          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
+
+      - name: Build the deb and rpm
+        working-directory: apps/raygun
+        run: pnpm tauri build --target "$TARGET" --bundles deb,rpm
+
+      - name: Name the files
+        run: |
+          release=target/$TARGET/release
+          file "$release/raygun"
+          mkdir -p out
+          cp "$(ls $release/bundle/deb/*.deb | head -1)" "out/Raygun_${VERSION}_riscv64.deb"
+          cp "$(ls $release/bundle/rpm/*.rpm | head -1)" "out/Raygun_${VERSION}_riscv64.rpm"
+          ls -la out
+          dpkg-deb --info out/*.deb
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-riscv64
+          path: out/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    needs: meta
+    if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',macos,') }}
+    # Both built on Apple silicon runners (Intel cross-compiled). Not signed or notarized: the first
+    # start needs right-click → Open (or `xattr -dr com.apple.quarantine Raygun.app`).
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-apple-darwin
+          - arch: x64
+            target: x86_64-apple-darwin
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos-${{ matrix.arch }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Faster test build
+        if: ${{ inputs.quick }}
+        run: |
+          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
+
+      - name: Build the app and the dmg
+        working-directory: apps/raygun
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg
+
+      - name: Name the files
+        run: |
+          bundle=target/${{ matrix.target }}/release/bundle
+          mkdir -p out
+          cp "$(ls $bundle/dmg/*.dmg | head -1)" "out/Raygun_${VERSION}_${{ matrix.arch }}.dmg"
+          ls -la out
+          file "$bundle/macos/Raygun.app/Contents/MacOS/raygun"
+
+      # Intel builds start through Rosetta on these runners.
+      - name: Start the app
+        run: |
+          export RAYGUN_HOME="$RUNNER_TEMP/raygun-home"
+          "target/${{ matrix.target }}/release/bundle/macos/Raygun.app/Contents/MacOS/raygun" &
+          pid=$!
+          # Raygun logs that its start went well after 20 healthy seconds.
+          for _ in $(seq 1 45); do
+            sleep 2
+            kill -0 "$pid" 2>/dev/null || break
+            grep -qs "the start went well" "$RAYGUN_HOME"/logs/raygun.* && break
+          done
+          sleep 5
+          mkdir -p shots
+          screencapture -x "shots/macos-${{ matrix.arch }}.png" || echo "No screenshot was taken"
+          find "$RAYGUN_HOME/logs" -type f -exec tail -n 40 {} + || true
+          if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid"; echo "::error::Raygun stopped by itself (exit $?)"; exit 1
+          fi
+          kill "$pid"
+          # Crash records are `<time>-<kind>.txt`; the folder also holds the start markers.
+          if compgen -G "$RAYGUN_HOME/logs/crashes/*.txt" > /dev/null; then echo "::error::Raygun wrote a crash log"; exit 1; fi
+          grep -q "the start went well" "$RAYGUN_HOME"/logs/raygun.* || { echo "::error::Raygun's log doesn't say its start went well"; exit 1; }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots-macos-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
+
+  flatpak:
+    name: Flatpak ${{ matrix.arch }}
+    needs: [meta, linux]
+    if: ${{ !cancelled() && (!inputs.only || contains(format(',{0},', inputs.only), ',flatpak,')) }}
+    # The deb of the Linux job, repackaged on the GNOME runtime (packaging/flatpak).
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            linux: x64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            linux: arm64
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-${{ matrix.linux }}
+          path: linux
+
+      - name: Put the deb beside the manifest
+        run: cp linux/*.deb packaging/flatpak/raygun.deb
+
+      # `repo/` is Raygun's extension repository: the Flatpak's OSTree repository goes elsewhere.
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/app.raygun.player.yml
+          bundle: Raygun_${{ env.VERSION }}_${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
+          repo-dir: flatpak-repo
+          cache: false
+          upload-artifact: false
+
+      # Installed and started like the Linux builds; a Flatpak keeps its data in its own folder
+      # (a packaged copy: no question where).
+      - name: Install the bundle and start it
+        run: |
+          flatpak install --user --noninteractive "Raygun_${VERSION}_${{ matrix.arch }}.flatpak"
+          START_TEST_LOGS="$HOME/.var/app/app.raygun.player/data/app.raygun.player/logs" \
+            bash .github/scripts/start-test.sh "shots/flatpak-${{ matrix.arch }}.png" flatpak run app.raygun.player
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: Raygun_*.flatpak
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots-flatpak-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
+
+  arch:
+    name: Arch Linux ${{ matrix.arch }}
+    needs: [meta, linux]
+    if: ${{ !cancelled() && (!inputs.only || contains(format(',{0},', inputs.only), ',arch,')) }}
+    # packaging/arch/PKGBUILD over the Linux job's deb (also what CachyOS and other Arch-based
+    # systems install). The x86_64 package is installed with pacman and started.
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            linux: x64
+            deb: amd64
+          - arch: aarch64
+            linux: arm64
+            deb: arm64
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-${{ matrix.linux }}
+          path: linux
+
+      - name: Build the package
+        run: |
+          pacman -Syu --noconfirm --needed base-devel
+          id builder >/dev/null 2>&1 || useradd -m builder
+          work=/home/builder/raygun
+          mkdir -p "$work"
+          cp packaging/arch/PKGBUILD "$work/"
+          deb="Raygun_${VERSION}_${{ matrix.deb }}.deb"
+          cp "linux/$deb" "$work/$deb"
+          sum=$(sha256sum "$work/$deb" | cut -d' ' -f1)
+          sed -i -e "s/^_ver=.*/_ver=${VERSION}/" \
+            -e "s/^sha256sums_${{ matrix.arch }}=.*/sha256sums_${{ matrix.arch }}=('${sum}')/" "$work/PKGBUILD"
+          # The aarch64 package is the same files with ARM binaries: repackaged on this x86_64
+          # system with makepkg told the other architecture.
+          sed -e 's/^CARCH=.*/CARCH="${{ matrix.arch }}"/' -e 's/^CHOST=.*/CHOST="${{ matrix.arch }}-pc-linux-gnu"/' \
+            /etc/makepkg.conf > "$work/makepkg.conf"
+          chown -R builder "$work"
+          su builder -c "cd $work && makepkg --config makepkg.conf --nodeps --noconfirm"
+          mkdir -p out
+          cp "$work"/*.pkg.tar.zst out/
+          pacman -Qip out/*.pkg.tar.zst
+
+      - name: Install the package and start it
+        if: ${{ matrix.arch == 'x86_64' }}
+        run: |
+          pacman -U --noconfirm out/*.pkg.tar.zst
+          pacman -S --noconfirm --needed xorg-server-xvfb xorg-xauth dbus imagemagick ttf-dejavu
+          bash .github/scripts/start-test.sh shots/arch-x86_64.png raygun
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: arch-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && matrix.arch == 'x86_64' }}
+        with:
+          name: screenshots-arch
+          path: shots/*
+          if-no-files-found: ignore
+
+  freebsd:
+    name: FreeBSD x86_64
+    needs: meta
+    # Experimental, so only when asked for by name (`only: freebsd`): librqbit (torrents) doesn't
+    # build for FreeBSD yet (docs/PLATFORMS.md).
+    if: ${{ contains(format(',{0},', inputs.only), ',freebsd,') }}
+    # Built in a FreeBSD VM (Tauri's CLI has no FreeBSD build, so cargo builds it and the pages are
+    # built here first). A tarball: the binary, its desktop entry and icon; it needs the packages
+    # listed in its README. Thin LTO keeps the VM's build within the job's time.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      # The VM gets a copy of this folder: the pages are built here, and Node's packages (not
+      # needed by cargo) stay out of the copy.
+      - name: Build the pages
+        run: |
+          pnpm --filter @raygun/app build:web
+          find . -name node_modules -type d -prune -exec rm -rf {} +
+
+      - name: Build in FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: '14.3'
+          mem: 12288
+          cpu: 4
+          envs: 'VERSION'
+          # freetype2.pc requires a bzip2.pc, which FreeBSD's own bzip2 (in base) doesn't have.
+          prepare: |
+            pkg install -y curl pkgconf dbus webkit2-gtk_41
+            if ! pkg-config --exists bzip2; then
+              printf '%s\n' 'prefix=/usr' 'libdir=${prefix}/lib' 'includedir=${prefix}/include' \
+                'Name: bzip2' 'Description: bzip2 (FreeBSD base)' 'Version: 1.0.8' \
+                'Libs: -L${libdir} -lbz2' 'Cflags: -I${includedir}' > /usr/local/libdata/pkgconfig/bzip2.pc
+            fi
+            curl --proto '=https' -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          run: |
+            . "$HOME/.cargo/env"
+            export CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+            cargo build --release --locked -p raygun --features tauri/custom-protocol
+            dir="Raygun_${VERSION}_freebsd_x86_64"
+            mkdir -p "out/$dir"
+            cp target/release/raygun "out/$dir/raygun"
+            cp apps/raygun/src-tauri/icons/128x128.png "out/$dir/raygun.png"
+            cp packaging/freebsd/raygun.desktop packaging/freebsd/README "out/$dir/"
+            tar -czf "out/$dir.tar.gz" -C out "$dir"
+            rm -rf "out/$dir"
+            ls -la out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: freebsd
+          path: out/*.tar.gz
+          if-no-files-found: error
+
+  android:
+    name: Android
+    needs: meta
+    if: ${{ !inputs.only || contains(format(',{0},', inputs.only), ',android,') }}
+    runs-on: ubuntu-24.04
+    env:
+      NDK_VERSION: 28.2.13676358
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
 
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
@@ -116,10 +788,15 @@ jobs:
             echo "keyPassword=$KEY_PASSWORD"
           } > "$android/keystore.properties"
 
+      - name: Faster test build
+        if: ${{ inputs.quick }}
+        run: |
+          echo "CARGO_PROFILE_RELEASE_LTO=thin" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
+
       - name: Build the APKs (one for every phone, and one per processor)
         run: |
           export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
-          version="${TAG#v}"
           apks=apps/raygun/src-tauri/gen/android/app/build/outputs/apk
           mkdir -p out
           # Copies the one APK matching a pattern, or fails the release.
@@ -129,10 +806,10 @@ jobs:
             cp "$found" "out/$2"
           }
           pnpm android:build --apk --target aarch64 --target x86_64
-          take "*universal*.apk" "Raygun_${version}_android_universal.apk"
+          take "*universal*.apk" "Raygun_${VERSION}_android_universal.apk"
           pnpm android:build --apk --split-per-abi --target aarch64 --target x86_64
-          take "*arm64*.apk" "Raygun_${version}_android_arm64.apk"
-          take "*x86_64*.apk" "Raygun_${version}_android_x86_64.apk"
+          take "*arm64*.apk" "Raygun_${VERSION}_android_arm64.apk"
+          take "*x86_64*.apk" "Raygun_${VERSION}_android_x86_64.apk"
           ls -la out
 
       - name: Check the signature
@@ -148,8 +825,12 @@ jobs:
 
   release:
     name: Release
-    needs: [windows, android]
+    needs:
+      [meta, windows, windows-more, linux, linux-riscv64, macos, flatpak, arch, freebsd, android]
+    if: ${{ !cancelled() && needs.meta.outputs.release == 'true' && needs.windows.result == 'success' && needs.android.result == 'success' }}
     runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -164,13 +845,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="${TAG#v}"
+          # The start tests' screenshots stay with the run.
+          find files -name '*.png' -delete
+          ls -la files
           notes="docs/releases/${TAG}.md"
           if [ ! -f "$notes" ]; then echo "::error::$notes is missing"; exit 1; fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" files/* --clobber
-            gh release edit "$TAG" --notes-file "$notes" --title "Raygun ${version}"
+            gh release edit "$TAG" --notes-file "$notes" --title "Raygun ${VERSION}"
           else
-            gh release create "$TAG" files/* --draft --title "Raygun ${version}" --notes-file "$notes" --verify-tag
+            gh release create "$TAG" files/* --draft --title "Raygun ${VERSION}" --notes-file "$notes" --verify-tag
           fi
           gh release edit "$TAG" --draft=false --latest

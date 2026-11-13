@@ -13,3 +13,10 @@ raygun-data/
 !extensions/*/dist/
 dist-desktop/
 dist-web/
+# Package builds (packaging/): the deb a Flatpak or Arch package is made from, and their output.
+packaging/flatpak/raygun.deb
+.flatpak-builder/
+packaging/arch/*.deb
+packaging/arch/*.pkg.tar.*
+packaging/arch/pkg/
+packaging/arch/src/

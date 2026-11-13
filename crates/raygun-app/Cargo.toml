@@ -43,6 +43,8 @@ tokio-util = { version = "0.7", default-features = false }
 sha2 = "0.11"
 flate2 = "1"
 tar = "0.4"
+# yt-dlp's Linux FFmpeg builds are `.tar.xz` (pure Rust; RustPython already builds it).
+xz = "0.4.6-rc.0"
 scraper = "0.24"
 ego-tree = "0.10"
 url = "2"
@@ -95,12 +97,15 @@ rten-imageproc = "0.26"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true
-# One running copy on desktop (M46.11): two would share one database.
-tauri-plugin-single-instance = "2.5"
 # Copying a page to the clipboard on desktop (M46.6).
 arboard = { version = "3", default-features = false, features = ["image-data"] }
 # Installed font families for the font pickers (the system's font folders, fontconfig's on Linux).
 fontdb = { version = "0.24", default-features = false, features = ["std", "fs", "memmap", "fontconfig"] }
+
+# One running copy on desktop (M46.11): two would share one database. The plugin has no BSD
+# implementation; there a second copy isn't kept out.
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+tauri-plugin-single-instance = "2.5"
 
 # The desktop browser's blocker (M46.6): WebView2's request filter, at Tauri's own versions.
 # The browser-check window sends the checked request's body as a memory stream (`Win32_UI_Shell`).

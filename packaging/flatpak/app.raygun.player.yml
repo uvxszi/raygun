@@ -1,0 +1,42 @@
+# Raygun as a Flatpak: the release's deb repackaged on the GNOME runtime, which carries WebKitGTK
+# 4.1 and GStreamer. The release workflow puts the deb beside this file as `raygun.deb` and builds
+# the bundle with flatpak-builder (.github/workflows/release.yml, job `flatpak`). By hand:
+#   cp Raygun_<version>_amd64.deb packaging/flatpak/raygun.deb
+#   flatpak-builder --user --install --force-clean build packaging/flatpak/app.raygun.player.yml
+id: app.raygun.player
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: raygun
+rename-desktop-file: Raygun.desktop
+rename-icon: raygun
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  # Saved songs, exports, saved pages and backups go to the user's own folders, as elsewhere.
+  - --filesystem=xdg-download
+  - --filesystem=xdg-music
+  - --filesystem=xdg-pictures
+  - --filesystem=xdg-videos
+  - --talk-name=org.freedesktop.Notifications
+modules:
+  - name: raygun
+    buildsystem: simple
+    sources:
+      - type: file
+        path: raygun.deb
+      - type: file
+        path: app.raygun.player.metainfo.xml
+    build-commands:
+      - ar -x raygun.deb
+      - tar -xf data.tar.gz
+      - install -Dm755 usr/bin/raygun /app/bin/raygun
+      - install -Dm644 usr/share/applications/Raygun.desktop /app/share/applications/Raygun.desktop
+      - cp -r usr/share/icons /app/share/icons
+      - install -Dm644 app.raygun.player.metainfo.xml /app/share/metainfo/app.raygun.player.metainfo.xml
+      # Every library Raygun links is in the runtime.
+      - "! ldd /app/bin/raygun | grep 'not found'"

@@ -4185,7 +4185,9 @@ export type InstallKind =
 "msi" | 
 /**  Android: the new APK, through Android's installer. */
 "android" | 
-/**  Anything else (Linux, macOS, a development build): the release page. */
+/**  A Linux AppImage: the new AppImage takes the place of this one's file, then starts. */
+"appImage" | 
+/**  Anything else (Linux packages, macOS, a development build): the release page. */
 "other";
 
 /**  A song of an `ImportedList` joined from two screenshot rows, and the rows as they were read. */

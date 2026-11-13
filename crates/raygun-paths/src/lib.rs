@@ -3,8 +3,11 @@
 //! This is the only place allowed to decide filesystem locations (ARCHITECTURE §3).
 //! Desktop builds are portable: everything lives in a `raygun-data` folder next to the
 //! executable, so the app can be moved or carried on a USB stick. Mobile builds use the
-//! app sandbox. The crate has no Tauri dependency; the shell gathers an [`Environment`]
-//! and hands it over, which keeps every branch unit-testable.
+//! app sandbox, and so do copies a package installed on Linux and the BSDs (deb, rpm, Arch,
+//! Flatpak, Snap, ports): their folder belongs to the system, so data goes to the system's
+//! app-data folder without asking. An AppImage stays portable. The crate has no Tauri
+//! dependency; the shell gathers an [`Environment`] and hands it over, which keeps every branch
+//! unit-testable.
 
 mod paths;
 
@@ -122,6 +125,18 @@ pub fn resolve(env: &Environment) -> Result<Resolution, ResolveError> {
 
     let portable_root = portable_base(env)?.join(DATA_DIR_NAME);
 
+    // A `raygun-data` folder already beside a packaged copy is still its data (the rule below).
+    if is_packaged(env) && !portable_root.is_dir() {
+        let system_dir = env
+            .system_dir
+            .clone()
+            .ok_or(ResolveError::MissingSystemDir)?;
+        return Ok(Resolution::Ready(Paths::new(
+            system_dir,
+            StorageMode::Installed,
+        )));
+    }
+
     if env.os == "macos" && is_translocated(&env.exe) {
         return Ok(Resolution::NeedsChoice {
             reason: ChoiceReason::Translocated,
@@ -217,6 +232,22 @@ fn portable_base(env: &Environment) -> Result<PathBuf, ResolveError> {
         .parent()
         .map(Path::to_path_buf)
         .ok_or(ResolveError::NoExecutableDir)
+}
+
+/// Unix-like systems whose packages install programs into the system's own folders.
+const PACKAGED_SYSTEMS: [&str; 5] = ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"];
+
+/// Where packages put programs there: the package manager's (`/usr`, `/usr/local`, `/opt`), a
+/// Flatpak's (`/app`), a Snap's (`/snap`).
+const PACKAGED_PREFIXES: [&str; 4] = ["/usr", "/opt", "/app", "/snap"];
+
+/// Whether a package installed this copy (an AppImage runs from a temporary mount, never one).
+fn is_packaged(env: &Environment) -> bool {
+    PACKAGED_SYSTEMS.contains(&env.os.as_str())
+        && env.appimage.is_none()
+        && PACKAGED_PREFIXES
+            .iter()
+            .any(|prefix| env.exe.starts_with(prefix))
 }
 
 fn is_translocated(exe: &Path) -> bool {

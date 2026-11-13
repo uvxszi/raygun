@@ -760,7 +760,9 @@ fn apply_settings(
         };
         let value = match value {
             serde_json::Value::Bool(flag) => Value::Boolean(flag),
-            serde_json::Value::Number(number) => Value::Integer(number.as_i64().unwrap_or(0)),
+            serde_json::Value::Number(number) => {
+                Value::Integer(to_lua_integer(number.as_i64().unwrap_or(0)))
+            }
             serde_json::Value::String(text) => Value::String(lua.create_string(text)?),
             _ => continue,
         };
@@ -930,10 +932,22 @@ pub(crate) fn lua52(code: &str) -> std::borrow::Cow<'_, str> {
     if changed { out.into() } else { code.into() }
 }
 
+/// Lua's integers are as wide as a pointer: `i64`, or `i32` in 32-bit builds.
+#[allow(clippy::useless_conversion)]
+fn from_lua_integer(number: mlua::Integer) -> i64 {
+    i64::from(number)
+}
+
+/// An `i64` as Lua's integer; one too large for a 32-bit build's is 0.
+#[allow(clippy::unnecessary_fallible_conversions)]
+fn to_lua_integer(number: i64) -> mlua::Integer {
+    mlua::Integer::try_from(number).unwrap_or(0)
+}
+
 /// A whole Lua number (LuaJ hands out integers as floats).
 fn integer(value: &Value) -> Option<i64> {
     match value {
-        Value::Integer(number) => Some(*number),
+        Value::Integer(number) => Some(from_lua_integer(*number)),
         Value::Number(number) if number.fract() == 0.0 => Some(*number as i64),
         Value::String(text) => text.to_str().ok()?.trim().parse().ok(),
         _ => None,

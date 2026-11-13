@@ -910,6 +910,224 @@
     ]
   },
   {
+    "id": "sherpa-onnx-windows-arm64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "windows-aarch64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib.tar.bz2",
+        "sha256": "22cd2b2b5e35c1132abc74a91ee77f683645437382617af6a4bd5818b9c509f4",
+        "size": 7622849,
+        "unpack": {
+          "files": {
+            "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/sherpa-onnx-c-api.dll": "sherpa-onnx-c-api.dll",
+            "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/onnxruntime.dll": "onnxruntime.dll",
+            "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-windows-x86",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "windows-x86",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-win-x86-shared-MT-Release-lib.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x86-shared-MT-Release-lib.tar.bz2",
+        "sha256": "d0c4850d98693336a9e3446dc0969b32b599540830dd0b64c0368a0817d5d440",
+        "size": 6921399,
+        "unpack": {
+          "files": {
+            "sherpa-onnx-v1.13.8-win-x86-shared-MT-Release-lib/lib/sherpa-onnx-c-api.dll": "sherpa-onnx-c-api.dll",
+            "sherpa-onnx-v1.13.8-win-x86-shared-MT-Release-lib/lib/onnxruntime.dll": "onnxruntime.dll",
+            "sherpa-onnx-v1.13.8-win-x86-shared-MT-Release-lib/lib/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-linux-x64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "linux-x86_64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-linux-x64-shared-lib.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared-lib.tar.bz2",
+        "sha256": "3892d184be41027e18165e67f549cd4e4cdd8dcd73ac5579e97afd55e14e30b6",
+        "size": 9816899,
+        "unpack": {
+          "files": {
+            "sherpa-onnx-v1.13.8-linux-x64-shared-lib/lib/libsherpa-onnx-c-api.so": "libsherpa-onnx-c-api.so",
+            "sherpa-onnx-v1.13.8-linux-x64-shared-lib/lib/libonnxruntime.so": "libonnxruntime.so"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-linux-arm64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "linux-aarch64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib.tar.bz2",
+        "sha256": "fb98b80628a383909bf83626daca2e0d0ffc93bf1f7d222eaaa4282b388f072f",
+        "size": 12595068,
+        "unpack": {
+          "files": {
+            "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib/lib/libsherpa-onnx-c-api.so": "libsherpa-onnx-c-api.so",
+            "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib/lib/libonnxruntime.so": "libonnxruntime.so"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-macos-arm64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "macos-aarch64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-osx-arm64-shared-lib.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-osx-arm64-shared-lib.tar.bz2",
+        "sha256": "ae77050cdae565496059d96f5ab33d77b397a0864282a4e4a26e3b3b3effb948",
+        "size": 8773198,
+        "unpack": {
+          "files": {
+            "sherpa-onnx-v1.13.8-osx-arm64-shared-lib/lib/libsherpa-onnx-c-api.dylib": "libsherpa-onnx-c-api.dylib",
+            "sherpa-onnx-v1.13.8-osx-arm64-shared-lib/lib/libonnxruntime.dylib": "libonnxruntime.dylib"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-macos-x64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "macos-x86_64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-osx-x64-shared-lib.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-osx-x64-shared-lib.tar.bz2",
+        "sha256": "0f88371565a06372889c76266e253abd1b415fcc6f98232cabd968933efb0711",
+        "size": 10014197,
+        "unpack": {
+          "files": {
+            "sherpa-onnx-v1.13.8-osx-x64-shared-lib/lib/libsherpa-onnx-c-api.dylib": "libsherpa-onnx-c-api.dylib",
+            "sherpa-onnx-v1.13.8-osx-x64-shared-lib/lib/libonnxruntime.dylib": "libonnxruntime.dylib"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
     "id": "piper-en-us-ljspeech-medium",
     "name": "Piper: LJ Speech (US English)",
     "kind": "tts",

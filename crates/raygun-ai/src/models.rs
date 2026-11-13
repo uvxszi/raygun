@@ -507,6 +507,12 @@ mod tests {
             "android-arm",
             "android-x86",
             "windows-x86_64",
+            "windows-aarch64",
+            "windows-x86",
+            "linux-x86_64",
+            "linux-aarch64",
+            "macos-aarch64",
+            "macos-x86_64",
         ] {
             let runtime = models
                 .iter()
