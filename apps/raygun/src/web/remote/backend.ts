@@ -3,14 +3,17 @@
 // go to it (routing.ts), its events reach the page's screens, and its pictures and media come
 // through the service worker (media.ts). When it goes away the page answers again by itself, and
 // tries the app again later.
-import { setRemoteHandler } from '../core';
+import type { QueueItem } from '@raygun/bindings';
+
+import { setRemoteFinder, setRemoteHandler } from '../core';
 import type { WebCore } from '../core';
 import { SyncError } from '../sync/channel';
 import type { Connection, PeerRecord } from '../sync/engine';
 import { toHex } from '../sync/protocol';
 import type { WebInvite } from '../sync/protocol';
 import { connectWebRtc } from '../sync/webrtc';
-import { setRemoteControls, setRemoteState } from '../remoteState';
+import { remoteState, setRemoteControls, setRemoteState } from '../remoteState';
+import type { Found } from '../core/playback';
 import { RemoteChannel } from './channel';
 import { RemoteClient } from './client';
 import type { Piece, Welcome } from './client';
@@ -42,6 +45,22 @@ export type BackendOptions = {
 
 const describe = (error: unknown) =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
+
+/**
+ * An event's links made the page's. The video player's messages carry their request as JSON text
+ * (`VideoPlayerMessage.json`), whose links are made the page's inside it.
+ */
+export const pageLinksInEvent = (event: string, payload: unknown, base: string): unknown => {
+  const message = payload as { json?: unknown } | null;
+  if (event === 'video-player-event' && typeof message?.json === 'string') {
+    try {
+      return { ...message, json: JSON.stringify(toPageLinks(JSON.parse(message.json), base)) };
+    } catch {
+      return payload;
+    }
+  }
+  return toPageLinks(payload, base);
+};
 
 const connectRemote = (invite: WebInvite) =>
   connectWebRtc(invite, { id: 1, label: 'raygun-remote', timeoutMs: READ_TIMEOUT_MS });
@@ -114,6 +133,7 @@ export class RemoteBackend {
   /** Starts using a linked app when there is one; the page calls it once. */
   start() {
     setRemoteHandler((command, args, local) => this.handle(command, args, local));
+    setRemoteFinder((item) => this.streamFor(item));
     setRemoteControls({
       setEnabled: (enabled) => {
         this.savePrefs({ enabled });
@@ -143,6 +163,7 @@ export class RemoteBackend {
     if (this.timer) clearTimeout(this.timer);
     this.disconnect();
     setRemoteHandler(null);
+    setRemoteFinder(null);
     setRemoteControls(null);
   }
 
@@ -210,7 +231,7 @@ export class RemoteBackend {
       this.retry = 0;
       this.savePrefs({ proxy: welcome.proxy });
       client.onEvent = (event, payload) =>
-        this.options.emit(event, toPageLinks(payload, this.options.base));
+        this.options.emit(event, pageLinksInEvent(event, payload, this.options.base));
       client.onClose = () => {
         if (this.client !== client) return;
         this.client = null;
@@ -255,6 +276,43 @@ export class RemoteBackend {
       // The app went away mid-call: the page's own answer.
       () => local(),
     );
+  }
+
+  /**
+   * What a queued song plays from, found by the app: a stream through its proxy (played from the
+   * page's `__remote/` paths, HLS by hls.js over the same route) or a YouTube video. Null when no
+   * app is in use or it found nothing, so the page's own sources look.
+   */
+  async streamFor(item: QueueItem): Promise<Found | null> {
+    const client = this.client;
+    if (!client || client.closed) return null;
+    const source = item.source;
+    // A plain address plays as it is; one needing headers goes through the app's proxy.
+    if (source.kind === 'youTube') return null;
+    if (source.kind === 'url' && Object.keys(source.headers ?? {}).length === 0) return null;
+    try {
+      const result = await client.resolve(toAppLinks(item, this.options.base, this.prefs.proxy));
+      if (result.kind !== 'ok') return null;
+      const found = result.value as {
+        kind?: string;
+        url?: string;
+        hls?: boolean;
+        videoId?: string;
+      };
+      if (found.kind === 'youTube' && found.videoId)
+        return { kind: 'youTube', videoId: found.videoId };
+      if (found.kind === 'url' && found.url) {
+        return {
+          kind: 'url',
+          url: toPageLinks(found.url, this.options.base),
+          hls: found.hls === true,
+          label: remoteState().device,
+        };
+      }
+    } catch {
+      // The app went away: the page's own sources look.
+    }
+    return null;
   }
 
   /** Fetches a proxy path through the app in use. */

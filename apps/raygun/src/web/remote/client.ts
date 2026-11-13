@@ -90,6 +90,16 @@ export class RemoteClient {
     });
   }
 
+  /** Asks the app what a queued song plays from (its resolver; its player isn't touched). */
+  resolve(item: unknown): Promise<CallResult> {
+    if (this.closedWith) return Promise.reject(this.closedWith);
+    const id = this.nextId++;
+    return new Promise<CallResult>((resolve, reject) => {
+      this.calls.set(id, { resolve: resolve as (value: never) => void, reject });
+      this.post({ t: 'resolve', id, item });
+    });
+  }
+
   /** Fetches a proxy path (`cover/…`, `media/…`), or a range of it. */
   fetch(path: string, range: string | null): Promise<Piece> {
     if (this.closedWith) return Promise.reject(this.closedWith);

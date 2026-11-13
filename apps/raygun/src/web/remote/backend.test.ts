@@ -98,6 +98,15 @@ const answers = (message: Message, app: FakeApp) => {
         ok: { cmd: message.cmd, args: message.args, cover: `${PROXY}/cover/abc` },
       });
     }
+  } else if (message.t === 'resolve') {
+    const item = message.item as { title: string };
+    if (item.title === 'Nowhere') app.send({ t: 'result', id, err: 'no stream was found' });
+    else
+      app.send({
+        t: 'result',
+        id,
+        ok: { kind: 'url', url: `${PROXY}/media/t/https/x/a.m3u8`, hls: true },
+      });
   } else if (message.t === 'fetch') {
     app.send({ t: 'head', id, status: 200, headers: { 'content-type': 'image/png' } });
     app.body(id, Uint8Array.of(1, 2, 3));
@@ -147,6 +156,7 @@ vi.mock('../core', () => ({
   setRemoteHandler: (handler: RemoteHandler | null) => {
     core.handler = handler;
   },
+  setRemoteFinder: () => undefined,
 }));
 
 let stops: Array<() => void> = [];
@@ -204,12 +214,55 @@ describe('a linked app as the back end', () => {
         { cover: `${BASE}__remote/cover/z` },
       ]),
     );
+    const request = { id: 'v', url: `${PROXY}/media/t/https/x/v.m3u8` };
+    apps[0]?.send({
+      t: 'event',
+      event: 'video-player-event',
+      payload: { kind: 'open', json: JSON.stringify(request) },
+    });
+    await vi.waitFor(() =>
+      expect(emitted).toContainEqual([
+        'video-player-event',
+        {
+          kind: 'open',
+          json: JSON.stringify({ id: 'v', url: `${BASE}__remote/media/t/https/x/v.m3u8` }),
+        },
+      ]),
+    );
     const piece = await backend.fetch('cover/abc', null);
     expect(piece).toEqual({
       status: 200,
       headers: { 'content-type': 'image/png' },
       body: Uint8Array.of(1, 2, 3),
     });
+  });
+
+  it('finds songs through the app, played from the page’s paths', async () => {
+    const { backend } = await started();
+    const item = (title: string, source: unknown) =>
+      ({
+        id: '1',
+        title,
+        artist: 'A',
+        album: null,
+        durationMs: null,
+        artworkUrl: null,
+        source,
+      }) as never;
+    const lookup = { kind: 'lookup', title: 'Song', artist: 'A', album: null, durationMs: null };
+    expect(await backend.streamFor(item('Song', lookup))).toEqual({
+      kind: 'url',
+      url: `${BASE}__remote/media/t/https/x/a.m3u8`,
+      hls: true,
+      label: 'Laptop',
+    });
+    expect(await backend.streamFor(item('Nowhere', lookup))).toBeNull();
+    expect(
+      await backend.streamFor(
+        item('Song', { kind: 'url', url: 'https://a.org/s.mp3', headers: {} }),
+      ),
+    ).toBeNull();
+    expect(await backend.streamFor(item('Song', { kind: 'youTube', videoId: 'v' }))).toBeNull();
   });
 
   it('answers in the page when the app goes away, and connects again', async () => {

@@ -121,6 +121,21 @@ anyway.
   outside Raygun's data, and what each side keeps itself (library, history, quick access)
   (`DENIED`, `DENIED_PREFIXES`; a test checks each names real commands). While the app's window is
   closed (Android, swiped away) commands answer that Raygun needs opening there.
+- **Songs**: `resolve {id, item}` finds what a queued song plays from with the app's resolver,
+  without its player: a proxy link (`/stream/` with the source's headers, `/media/` for HLS, said
+  by `hls`) or a YouTube video for the page's embed. The web core asks it first
+  (`setRemoteFinder`) for songs to look up, files and streams that need headers, and plays the
+  answer from its `__remote/` path in the page's engines (HLS through hls.js over the same route);
+  when the app finds nothing the page's own sources look.
+- **Videos**: commands that start a video (`video_play`, `stremio_play`, `video_resume`, …) run the
+  app's session as for itself, but the app's player stays shut: while a linked browser started
+  one, `video::open_player`/`update_player` send its messages to that browser as
+  `video-player-event`s (`RemoteViewer`, streams linked through `/media/`), and the page's
+  desktop-style player (`video/VideoPlayer.tsx`) plays them from `__remote/` paths (HLS and DASH
+  through its media engine, subtitles through `__remote/subtitle/`). Its reports
+  (`video_player_report`, taken only from that browser) go into the app's report queue, so links
+  fall back, episodes follow and progress is kept on the app, where Continue watching (asked
+  through the channel) reads it; video progress isn't a synced table.
 - **Events**: the events the page's screens follow (sources, searches as they answer, downloads,
   catalogue and podcast changes) come as `event {event, payload}`; the app's player, prompts and
   settings stay its own.
@@ -140,7 +155,9 @@ anyway.
   Devices has a "Sources from your apps" switch and a choice of app, Browse says "via <device>".
 
 Check it from a PC: `peer -- <dir> serve --bind 127.0.0.1 --web --remote` answers the back-end
-channel as a stand-in (the command `test_echo`, any proxy path as a 3 MB file with ranges).
+channel as a stand-in: `test_echo`, `video_play` opening the page's player on a tone with
+subtitles, songs resolved to that tone (an HLS playlist for one titled "Hls"), and proxy paths
+with ranges.
 
 ## Sources
 
@@ -186,9 +203,7 @@ Not in the browser, and why:
 - Downloads, exports, recordings, yt-dlp, torrents, casting, the LAN remote, Connect (playing on
   another device), on-device AI (transcription, translation, OCR) and the apps' system integrations:
   they need the app; downloads and exports work through a linked app, landing on it.
-- Through a linked app, playing a title's videos (they open the app's own player, so they're
-  refused) and songs whose stream only the app's sources find (the page's player looks among its
-  own sources) aren't wired yet.
+- Through a linked app, a video page link (`format: 'page'`) and trailers still open on the app.
 - Sources whose sites don't allow web pages, and sources in other formats: they need the app.
 
 ## Publishing

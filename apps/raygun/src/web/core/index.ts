@@ -52,6 +52,18 @@ export type RemoteHandler = (
 
 let remoteHandler: RemoteHandler | null = null;
 
+/**
+ * A linked app finding what a queued song plays from (web/remote/): null when it can't, and the
+ * page's own sources look.
+ */
+export type RemoteFinder = (item: QueueItem) => Promise<Found | null>;
+
+let remoteFinder: RemoteFinder | null = null;
+
+export const setRemoteFinder = (finder: RemoteFinder | null) => {
+  remoteFinder = finder;
+};
+
 /** Sets (or, with null, takes away) the linked app that answers for the page. */
 export const setRemoteHandler = (handler: RemoteHandler | null) => {
   remoteHandler = handler;
@@ -120,6 +132,11 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
 
   const find = async (item: QueueItem): Promise<Found> => {
     const source = item.source;
+    // A linked app in use looks first: its sources, files and headers the page can't reach.
+    if (source.kind !== 'youTube') {
+      const remote = await remoteFinder?.(item).catch(() => null);
+      if (remote) return remote;
+    }
     switch (source.kind) {
       case 'url':
         return { kind: 'url', url: source.url };

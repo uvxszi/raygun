@@ -9,14 +9,18 @@
 //! files outside Raygun's data, backups, permissions) are refused: the page keeps its own.
 //!
 //! Messages (JSON, `t` names the kind):
-//! - page → app: `call {id, cmd, args}`, `fetch {id, path, range?}`, `cancel {id}`, `ping`
+//! - page → app: `call {id, cmd, args}`, `resolve {id, item}`, `fetch {id, path, range?}`,
+//!   `cancel {id}`, `ping`
 //! - app → page: `welcome {deviceId, name, proxy}`, `result {id, ok | err | denied}`,
 //!   `event {event, payload}`, `head {id, status, headers}`, body pieces, `end {id, error?}`, `pong`
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use raygun_model::{MediaSource, TrackQuery, VideoPlayerMessage, VideoPlayerMessageKind};
+use raygun_net::MediaLinks;
 use raygun_sync::remote::{BODY_PART, Outgoing, RemoteHandler, RemoteSession};
 use serde_json::{Value, json};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeError, InvokeResponse, InvokeResponseBody};
@@ -121,6 +125,13 @@ const DENIED: &[&str] = &[
     "podcast_queue",
     "podcast_queue_picks",
     "audiobook_play",
+    "video_external_players",
+    "storage_clear",
+];
+
+/// Commands that start a video. From a linked browser the video plays in the page's own player:
+/// the session runs here as for this device ([`RemoteViewer`]), its player messages go there.
+const VIDEO_PLAYS: &[&str] = &[
     "video_play",
     "video_play_link",
     "video_resume",
@@ -130,9 +141,152 @@ const DENIED: &[&str] = &[
     "video_source_play",
     "video_download_play",
     "stremio_play",
-    "video_external_players",
-    "storage_clear",
 ];
+
+/// The player's reports (`video_player_report`), taken from the page whose video plays.
+const VIDEO_REPORT: &str = "video_player_report";
+
+static SESSIONS: AtomicU64 = AtomicU64::new(1);
+
+/// The linked browser whose page plays the video it started, while it does: video sessions'
+/// player messages (`video::open_player`, `update_player`) go there instead of this device's
+/// player, and its reports come back into the same queue.
+#[derive(Default)]
+pub struct RemoteViewer(Mutex<Option<(u64, mpsc::UnboundedSender<Outgoing>)>>);
+
+impl RemoteViewer {
+    fn set(&self, session: u64, outgoing: &mpsc::UnboundedSender<Outgoing>) {
+        *self.0.lock().expect("viewer lock poisoned") = Some((session, outgoing.clone()));
+    }
+
+    fn is(&self, session: u64) -> bool {
+        self.0
+            .lock()
+            .expect("viewer lock poisoned")
+            .as_ref()
+            .is_some_and(|(viewer, _)| *viewer == session)
+    }
+
+    fn clear(&self, session: u64) {
+        let mut viewer = self.0.lock().expect("viewer lock poisoned");
+        if viewer.as_ref().is_some_and(|(id, _)| *id == session) {
+            *viewer = None;
+        }
+    }
+}
+
+/// Sends a player message to the linked browser watching, if one is: true when it went there.
+pub fn to_viewer(app: &AppHandle, kind: VideoPlayerMessageKind, payload: &Value) -> bool {
+    let Some(viewer) = app.try_state::<RemoteViewer>() else {
+        return false;
+    };
+    let mut held = viewer.0.lock().expect("viewer lock poisoned");
+    let Some((_, outgoing)) = held.as_ref() else {
+        return false;
+    };
+    let media = app.try_state::<MediaLinks>();
+    let payload = match (kind, media) {
+        (VideoPlayerMessageKind::Open, Some(media)) => linked_for_page(&media, payload),
+        (VideoPlayerMessageKind::Update, Some(media))
+            if payload.get("type").and_then(Value::as_str) == Some("load") =>
+        {
+            let mut update = payload.clone();
+            if let Some(request) = payload.get("request") {
+                update["request"] = linked_for_page(&media, request);
+            }
+            update
+        }
+        _ => payload.clone(),
+    };
+    let message = VideoPlayerMessage {
+        kind,
+        json: payload.to_string(),
+    };
+    let event = json!({
+        "t": "event",
+        "event": <events::VideoPlayerEvent as tauri_specta::Event>::NAME,
+        "payload": message,
+    });
+    if outgoing.send(Outgoing::Json(event)).is_err() {
+        *held = None;
+        return false;
+    }
+    true
+}
+
+/// A request as a page plays it: a remote stream through the proxy's `/media/` route with its
+/// headers left there (`video_desktop::for_webview`, which Android builds lack).
+fn linked_for_page(media: &MediaLinks, payload: &Value) -> Value {
+    let mut payload = payload.clone();
+    let Some(url) = payload
+        .get("url")
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty() && !media.is_local(url))
+    else {
+        return payload;
+    };
+    let headers: BTreeMap<String, String> = payload
+        .get("headers")
+        .cloned()
+        .and_then(|headers| serde_json::from_value(headers).ok())
+        .unwrap_or_default();
+    if let Some(link) = media.link(url, &headers) {
+        payload["url"] = json!(link);
+        payload["headers"] = json!({});
+    }
+    payload
+}
+
+/// What a queued song plays from, found by this device's resolver without its player: a proxy
+/// link (`/media/` for HLS, which then says so) or a YouTube video for the page's own embed.
+async fn resolve(app: &AppHandle, item: &Value) -> Result<Value, String> {
+    let source: MediaSource = serde_json::from_value(item["source"].clone())
+        .map_err(|error| format!("not a song's source: {error}"))?;
+    let found = match source {
+        MediaSource::Lookup {
+            title,
+            artist,
+            album,
+            duration_ms,
+        } => {
+            let resolver = app
+                .try_state::<Arc<crate::resolver::ResolverService>>()
+                .ok_or("this device can't look for songs now")?
+                .inner()
+                .clone();
+            let query = TrackQuery {
+                title,
+                artist,
+                album,
+                duration_ms,
+            };
+            resolver
+                .resolve(&query, &crate::resolution::Exclusions::default())
+                .await?
+                .source
+        }
+        other => other,
+    };
+    match found {
+        MediaSource::YouTube { video_id } => Ok(json!({ "kind": "youTube", "videoId": video_id })),
+        MediaSource::Lookup { .. } => Err("no stream was found for this song".into()),
+        source => {
+            let playback = app
+                .try_state::<crate::playback::PlaybackService>()
+                .ok_or("this device's player isn't ready")?;
+            let hls = match &source {
+                MediaSource::Url { url, headers } if raygun_net::manifest::names_hls(url) => app
+                    .try_state::<MediaLinks>()
+                    .and_then(|media| media.link(url, headers)),
+                _ => None,
+            };
+            let url = hls
+                .clone()
+                .unwrap_or_else(|| playback.register_source(&source));
+            Ok(json!({ "kind": "url", "url": url, "hls": hls.is_some() }))
+        }
+    }
+}
 
 /// Why a page may not run `command` here, or None when it may.
 pub(crate) fn refusal(command: &str) -> Option<String> {
@@ -192,6 +346,7 @@ fn forwarded_events() -> Vec<&'static str> {
 
 /// Takes each linked browser's channel (`raygun_sync::Engine::on_remote`).
 pub fn handler(app: AppHandle) -> RemoteHandler {
+    app.manage(RemoteViewer::default());
     Arc::new(move |session| {
         tauri::async_runtime::spawn(serve(app.clone(), session));
     })
@@ -204,6 +359,7 @@ async fn serve(app: AppHandle, session: RemoteSession) {
         outgoing,
     } = session;
     tracing::info!(browser = %peer.name, "a browser uses this device as its back end");
+    let session = SESSIONS.fetch_add(1, Ordering::Relaxed);
     let proxy = app.try_state::<ProxyOrigin>().map(|origin| origin.0);
     let (device_id, name) = app
         .try_state::<crate::device_sync::SyncService>()
@@ -242,6 +398,33 @@ async fn serve(app: AppHandle, session: RemoteSession) {
                     args => args.clone(),
                 };
                 tauri::async_runtime::spawn(async move {
+                    let viewer = app.try_state::<RemoteViewer>();
+                    if command == VIDEO_REPORT {
+                        // The page's player reports on the video this device runs for it.
+                        let answer = match viewer.filter(|viewer| viewer.is(session)) {
+                            Some(viewer) => {
+                                let report = args["report"].as_str().unwrap_or_default();
+                                if serde_json::from_str::<Value>(report)
+                                    .is_ok_and(|parsed| parsed["state"] == "closed")
+                                {
+                                    viewer.clear(session);
+                                }
+                                if let Some(reports) = app.try_state::<crate::video::VideoReports>()
+                                {
+                                    reports.send(report.to_owned());
+                                }
+                                json!({ "t": "result", "id": id, "ok": null })
+                            }
+                            None => json!({ "t": "result", "id": id, "denied": "no video" }),
+                        };
+                        let _ = outgoing.send(Outgoing::Json(answer));
+                        return;
+                    }
+                    if VIDEO_PLAYS.contains(&command.as_str())
+                        && let Some(viewer) = &viewer
+                    {
+                        viewer.set(session, &outgoing);
+                    }
                     let answer = match refusal(&command) {
                         Some(reason) => json!({ "t": "result", "id": id, "denied": reason }),
                         None => match call(&app, &command, args).await {
@@ -282,6 +465,18 @@ async fn serve(app: AppHandle, session: RemoteSession) {
                     task.abort();
                 }
             }
+            "resolve" => {
+                let app = app.clone();
+                let outgoing = outgoing.clone();
+                let item = message["item"].clone();
+                tauri::async_runtime::spawn(async move {
+                    let answer = match resolve(&app, &item).await {
+                        Ok(found) => json!({ "t": "result", "id": id, "ok": found }),
+                        Err(error) => json!({ "t": "result", "id": id, "err": error }),
+                    };
+                    let _ = outgoing.send(Outgoing::Json(answer));
+                });
+            }
             "ping" => {
                 let _ = outgoing.send(Outgoing::Json(json!({ "t": "pong" })));
             }
@@ -290,6 +485,9 @@ async fn serve(app: AppHandle, session: RemoteSession) {
     }
     for listener in listeners {
         app.unlisten(listener);
+    }
+    if let Some(viewer) = app.try_state::<RemoteViewer>() {
+        viewer.clear(session);
     }
     for (_, task) in fetches.lock().expect("fetches lock poisoned").drain() {
         task.abort();
@@ -433,7 +631,7 @@ mod tests {
             "app_restart_safe",
             "favorite_set",
             "plugin:event|listen",
-            "video_play",
+            "video_player_external",
             "",
         ] {
             assert!(refusal(command).is_some(), "{command} should be refused");
@@ -460,6 +658,9 @@ mod tests {
             "music_artist",
             "podcast_search",
             "answers_ask",
+            "video_play",
+            "stremio_play",
+            "stremio_streams",
         ] {
             assert_eq!(refusal(command), None, "{command} should be allowed");
         }
@@ -481,6 +682,29 @@ mod tests {
                 "no command starts with {prefix}"
             );
         }
+    }
+
+    #[test]
+    fn the_viewer_is_the_browser_that_started_the_video_until_it_goes() {
+        let viewer = RemoteViewer::default();
+        let (outgoing, _sent) = mpsc::unbounded_channel();
+        assert!(!viewer.is(1));
+        viewer.set(1, &outgoing);
+        assert!(viewer.is(1) && !viewer.is(2));
+        viewer.clear(2);
+        assert!(viewer.is(1), "another browser leaving changes nothing");
+        viewer.set(2, &outgoing);
+        assert!(
+            viewer.is(2) && !viewer.is(1),
+            "the latest browser to start a video watches"
+        );
+        viewer.clear(2);
+        assert!(!viewer.is(2));
+        assert!(VIDEO_PLAYS.iter().all(|command| refusal(command).is_none()));
+        assert!(
+            refusal(VIDEO_REPORT).is_some(),
+            "reports are taken only from the viewer"
+        );
     }
 
     #[test]
