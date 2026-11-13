@@ -5613,6 +5613,11 @@ export type PictureEffects = {
 	deflicker?: number,
 	/**  Smooths grain and noise over neighbouring pixels and frames. */
 	denoise?: number,
+	/**
+	 *  In-between frames made from the motion between two (about 60 a second, at most the
+	 *  screen's), so pans and movement look smoother.
+	 */
+	smoothMotion?: boolean,
 };
 
 /**  A colour look laid over the picture. */

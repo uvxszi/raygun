@@ -78,7 +78,8 @@
       "sharpen": 0,
       "look": "none",
       "deflicker": 0,
-      "denoise": 0
+      "denoise": 0,
+      "smoothMotion": false
     },
     "smartAudio": {
       "dialogue": false,

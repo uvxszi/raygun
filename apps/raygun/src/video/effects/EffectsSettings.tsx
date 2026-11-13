@@ -47,6 +47,13 @@ export const EffectsSettings: FC<Props> = ({ prefs, set, busy }) => {
             onChange={(value) => set({ pictureEffects: { ...picture, [adjustment.key]: value } })}
           />
         ))}
+        <PrefSwitch
+          title={t('videoPlayer.effectSmoothMotion')}
+          summary={t('videoPlayer.effectSmoothMotionHint')}
+          checked={picture.smoothMotion}
+          disabled={busy}
+          onChange={(on) => set({ pictureEffects: { ...picture, smoothMotion: on } })}
+        />
       </PrefGroup>
       <PrefGroup
         title={t('settings.player.effects.sound')}

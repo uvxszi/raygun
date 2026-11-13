@@ -17,7 +17,18 @@ export type FakeDraw = {
   uniforms: Record<string, unknown>;
 };
 
+const MOTION_PASSES: [string, string][] = [
+  ['uCopyFrom', 'motionCopy'],
+  ['uLumaFrom', 'motionLuma'],
+  ['uInit', 'motionSearch'],
+  ['uFlowIn', 'motionSmooth'],
+  ['uCosts', 'motionError'],
+  ['uFlowTexel', 'motionWarp'],
+];
+
 const passOf = (source: string) => {
+  const motion = MOTION_PASSES.find(([uniform]) => source.includes(uniform));
+  if (motion) return motion[1];
   if (source.includes('uBlocks')) return 'mean';
   if (source.includes('uHistory')) return 'clean';
   if (source.includes('uColour')) return 'final';

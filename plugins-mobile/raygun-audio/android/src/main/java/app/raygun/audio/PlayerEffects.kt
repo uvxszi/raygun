@@ -10,7 +10,9 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.VideoFrameProcessor
 import androidx.media3.common.util.UnstableApi
 import org.json.JSONObject
 import java.util.Locale
@@ -18,8 +20,11 @@ import java.util.Locale
 /** How often frames are checked while heavy effects play. */
 private const val WATCH_MS = 1_000L
 
-/** A slider moved while paused: the frame is drawn again with it after this long. */
-private const val PREVIEW_MS = 150L
+/** A change while paused: the frame is drawn again with it after this long (changes in between join it). */
+private const val PREVIEW_MS = 40L
+
+/** Without Media3's replay cache, the paused frame comes again through a seek, after this long. */
+private const val SEEK_PREVIEW_MS = 150L
 
 /** One adjustment of the Effects sheet: its field, its words and its range. */
 private class Adjustment(val key: String, val label: String, val fallback: String, val min: Int, val max: Int)
@@ -96,6 +101,11 @@ private val SMART_OPTIONS = listOf(
  * live (the passes read them each frame). While frames drop with heavy effects on (denoise, then
  * deflicker, then sharpen), the heaviest is turned off for this player, with a note; the title
  * keeps it. A pipeline that fails turns the picture's effects off for the rest of the run.
+ *
+ * Paused, a change draws the frame shown again at once: Media3's replay cache ([VideoGraphChoice])
+ * sends the last frames through the passes again with the new values. Smooth motion
+ * ([SmoothMotionGl]) comes after the picture's passes and goes first when frames drop, or by
+ * itself when it can't keep up.
  */
 @UnstableApi
 internal class PlayerEffects(private val host: VideoPlayerActivity) {
@@ -104,6 +114,11 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private val params = EffectParams()
     private val status = EffectStatus()
     private val effect = PictureEffectsGl(params, status)
+    private val motionStatus = MotionStatus()
+    private val motion = SmoothMotionGl(params, motionStatus)
+
+    /** How the video renderer builds its effect graph ([PlayerRenderers]). */
+    val graph = VideoGraphChoice()
 
     private var defaults = PictureEffects.NONE
     private var defaultAudio = SmartAudioPrefs()
@@ -138,6 +153,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         audio.setPrefs(sound)
         audio.newProgram()
         params.shader = EffectMath.shader(applied)
+        followMotion()
         status.reset()
         startOnPrepare = wantsPipeline()
     }
@@ -171,7 +187,8 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
      */
     private fun startPipeline(prepare: Boolean) {
         val player = host.player
-        player.setVideoEffects(listOf(effect))
+        graph.wantReplay = !applied.smoothMotion
+        player.setVideoEffects(listOf(effect, motion))
         pipeline = true
         status.reset()
         if (player.playbackState == Player.STATE_IDLE) return
@@ -186,20 +203,44 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private fun apply() {
         val effects = applied
         params.shader = EffectMath.shader(effects)
+        followMotion()
         if (!effects.neutral && !pipeline && !failedThisRun && host.player.currentMediaItem != null) {
             startPipeline(prepare = true)
         }
         if (pipeline && !host.player.isPlaying) {
             host.main.removeCallbacks(preview)
-            host.main.postDelayed(preview, PREVIEW_MS)
+            host.main.postDelayed(preview, if (graph.replayable) PREVIEW_MS else SEEK_PREVIEW_MS)
         }
         watchFrames()
     }
 
-    /** Paused: the same place again, so the frame comes through the passes with the new values. */
+    /**
+     * Paused: the frame shown goes through the passes again with the new values. Media3 replays
+     * its last frames when its graph keeps them, else the same place is sought again.
+     */
     private val preview = Runnable {
         val player = host.player
-        if (!player.isPlaying && player.playbackState != Player.STATE_IDLE) player.seekTo(player.currentPosition)
+        if (player.isPlaying || player.playbackState == Player.STATE_IDLE || !pipeline || failedThisRun) return@Runnable
+        if (graph.replayable) {
+            player.setVideoEffects(VideoFrameProcessor.REDRAW)
+        } else {
+            player.seekTo(player.currentPosition)
+        }
+    }
+
+    private var listening = false
+
+    /** Smooth motion's switch and what it follows: the screen's refresh rate and the speed. */
+    private fun followMotion() {
+        val player = host.player
+        val hz = host.window?.decorView?.display?.refreshRate ?: 60f
+        params.motion = MotionParams(on = applied.smoothMotion, displayHz = hz, speed = player.playbackParameters.speed)
+        if (!listening) {
+            listening = true
+            player.addListener(object : Player.Listener {
+                override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) = followMotion()
+            })
+        }
     }
 
     /** A failed pipeline: the video goes on without picture effects. True when it was the effects'. */
@@ -252,6 +293,14 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
      */
     private fun checkFrames() {
         val player = host.player
+        // Smooth motion found it can't keep up (or its passes failed here): it goes, with a note.
+        if (motionStatus.gaveUp && applied.smoothMotion) {
+            dropped += PictureEffects.SMOOTH_MOTION
+            followMotion()
+            watchFrames()
+            host.showHint(label("effectsSmoothSlow", "Smooth motion turned off: this phone can't keep up"), 3_000)
+            return
+        }
         val counters = player.videoDecoderCounters
         if (!player.isPlaying || counters == null) {
             window.clear()
@@ -280,6 +329,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
                 String.format(Locale.ROOT, "%s off: %d of %d frames dropped, %.2f ms a frame", heaviest, drops, drops + shown, status.averageMs),
             )
             params.shader = EffectMath.shader(applied)
+            followMotion()
             status.reset()
             window.clear()
             watchFrames()
@@ -342,7 +392,11 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     fun summary(): String = if (picture.neutral) label("off", "Off") else label("effectsOn", "On")
 
     private fun adjustmentName(key: String): String =
-        ADJUSTMENTS.firstOrNull { it.key == key }?.let { label(it.label, it.fallback) } ?: key
+        if (key == PictureEffects.SMOOTH_MOTION) {
+            label("effectSmoothMotion", "Smooth motion")
+        } else {
+            ADJUSTMENTS.firstOrNull { it.key == key }?.let { label(it.label, it.fallback) } ?: key
+        }
 
     private fun lookName(look: String): String = when (look) {
         "warm" -> label("effectsLookWarm", "Warm")
@@ -367,6 +421,8 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private fun note(): String? = when {
         failedThisRun -> label("effectsFailed", "Picture effects can't play here, so they're off")
         status.hdr -> label("effectsHdr", "HDR videos play without picture effects")
+        picture.smoothMotion && motionStatus.gaveUp ->
+            label("effectsSmoothSlow", "Smooth motion turned off: this phone can't keep up")
         dropped.isNotEmpty() ->
             label("effectsDropped", "{n} turned off: frames were dropping", dropped.joinToString(", ") { adjustmentName(it) })
         status.limited -> label("effectsLimited", "Only the colours apply on this phone")
@@ -385,11 +441,12 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         sheet.header(label("effectsPresets", "Presets"))
         sheet.chips(
             presets.map { (key, _) -> label(key, presetFallback(key)) },
-            presets.indexOfFirst { it.second == effects },
+            presets.indexOfFirst { it.second == effects.adjustments },
         ) { picked ->
             // Picked again: what dropped for speed gets another try.
             dropped.clear()
-            setPicture(presets[picked].second)
+            motionStatus.again()
+            setPicture(presets[picked].second.copy(smoothMotion = picture.smoothMotion))
             open()
         }
         sheet.header(label("effectsLook", "Look"))
@@ -399,6 +456,21 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         }
         sheet.header(label("effectsAdjust", "Adjust"))
         adjuster(sheet)
+        sheet.header(label("effectsMotion", "Motion"))
+        sheet.row(
+            label("effectSmoothMotion", "Smooth motion"),
+            label("effectSmoothMotionHint", "In-between frames for smoother movement"),
+            effects.smoothMotion,
+        ) {
+            val on = !picture.smoothMotion
+            if (on) {
+                // Asked for again: it gets another try.
+                dropped.remove(PictureEffects.SMOOTH_MOTION)
+                motionStatus.again()
+            }
+            setPicture(picture.copy(smoothMotion = on))
+            open()
+        }
         sheet.custom(LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(host.dp(12), host.dp(8), host.dp(20), host.dp(4))
@@ -418,6 +490,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
             }
         })
         note()?.let { sheet.row(it, onClick = null) }
+        soundRows(sheet, label("effectsSound", "Sound")) { open() }
         sheet.show()
     }
 
@@ -514,8 +587,11 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     }
 
     /** The Audio sheet's smart audio: four switches, and Make default once they differ. */
-    fun audioRows(sheet: PlayerSheet, redraw: () -> Unit) {
-        sheet.header(label("smartAudio", "Smart audio"))
+    fun audioRows(sheet: PlayerSheet, redraw: () -> Unit) = soundRows(sheet, label("smartAudio", "Smart audio"), redraw)
+
+    /** Smart audio's switches under `title`: the Audio sheet's, and the Effects sheet's Sound. */
+    private fun soundRows(sheet: PlayerSheet, title: String, redraw: () -> Unit) {
+        sheet.header(title)
         val current = sound
         SMART_OPTIONS.forEach { option ->
             sheet.row(label(option.label, option.fallback), label(option.hint, option.hintFallback), option.get(current)) {

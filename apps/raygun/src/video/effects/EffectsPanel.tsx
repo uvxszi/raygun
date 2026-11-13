@@ -3,8 +3,15 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PanelHeading, PanelOption, PlayerPanel } from '../PlayerPanel';
-import { ADJUSTMENT_LABEL, LOOK_LABEL, SMART_AUDIO } from './effectLabels';
-import { ADJUSTMENTS, EFFECT_PRESETS, LOOKS, sameEffects, shownValue } from './effectParams';
+import { ADJUSTMENT_LABEL, HEAVY_LABEL, LOOK_LABEL, SMART_AUDIO } from './effectLabels';
+import {
+  adjustmentsOf,
+  ADJUSTMENTS,
+  EFFECT_PRESETS,
+  LOOKS,
+  sameEffects,
+  shownValue,
+} from './effectParams';
 import type { Adjustment, HeavyKind } from './effectParams';
 import type { VideoEffects } from './useVideoEffects';
 
@@ -62,7 +69,7 @@ type Props = { effects: VideoEffects; onClose: () => void };
 export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
   const { t } = useTranslation();
   const { picture } = effects;
-  const names = (kinds: HeavyKind[]) => kinds.map((kind) => t(ADJUSTMENT_LABEL[kind])).join(', ');
+  const names = (kinds: HeavyKind[]) => kinds.map((kind) => t(HEAVY_LABEL[kind])).join(', ');
   const note = effects.unavailable
     ? t('videoPlayer.effectsNoWebGl')
     : effects.dropped.length
@@ -73,13 +80,15 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
       <PanelHeading>{t('videoPlayer.effectsPresets')}</PanelHeading>
       <div className="flex flex-wrap gap-1.5 px-3 py-1">
         {EFFECT_PRESETS.map((preset) => {
-          const pressed = sameEffects(preset.effects, picture);
+          const pressed = sameEffects(preset.effects, adjustmentsOf(picture));
           return (
             <button
               key={preset.id}
               type="button"
               aria-pressed={pressed}
-              onClick={() => effects.setPicture(preset.effects)}
+              onClick={() =>
+                effects.setPicture({ ...preset.effects, smoothMotion: picture.smoothMotion })
+              }
               className={pill(pressed)}
             >
               {t(`videoPlayer.${preset.id}`)}
@@ -111,6 +120,14 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
           onChange={(value) => effects.setPicture({ ...picture, [adjustment.key]: value })}
         />
       ))}
+      <PanelHeading>{t('videoPlayer.effectsMotion')}</PanelHeading>
+      <PanelOption
+        toggle
+        label={t('videoPlayer.effectSmoothMotion')}
+        hint={t('videoPlayer.effectSmoothMotionHint')}
+        selected={picture.smoothMotion}
+        onSelect={() => effects.setPicture({ ...picture, smoothMotion: !picture.smoothMotion })}
+      />
       <div className="flex flex-wrap gap-2 px-3 pt-3">
         <button type="button" onClick={effects.resetPicture} className={pill(false)}>
           {t('videoPlayer.effectsResetAll')}
@@ -125,17 +142,20 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
         )}
       </div>
       {note && <p className="px-3 pt-3 text-xs text-white/60">{note}</p>}
+      <SmartAudioOptions effects={effects} title={t('videoPlayer.effectsSound')} />
     </PlayerPanel>
   );
 };
 
-/** Smart audio's switches, under the Audio panel's tracks. */
-export const SmartAudioOptions: FC<{ effects: VideoEffects }> = ({ effects }) => {
+type SmartAudioProps = { effects: VideoEffects; title?: string };
+
+/** Smart audio's switches: under the Audio panel's tracks, and as the Effects panel's Sound. */
+export const SmartAudioOptions: FC<SmartAudioProps> = ({ effects, title }) => {
   const { t } = useTranslation();
   const { audio } = effects;
   return (
     <>
-      <PanelHeading>{t('videoPlayer.smartAudio')}</PanelHeading>
+      <PanelHeading>{title ?? t('videoPlayer.smartAudio')}</PanelHeading>
       {SMART_AUDIO.map(({ key, label, hint }) => (
         <PanelOption
           key={key}

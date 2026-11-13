@@ -86,6 +86,56 @@ describe('effects in the desktop player', () => {
     expect(within(player).queryByTestId('video-effects')).not.toBeInTheDocument();
   });
 
+  it('turns smooth motion on and smart audio from the Effects panel', async () => {
+    const { gl, draws } = fakeGl();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => gl as unknown as RenderingContext,
+    );
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    const video = (await within(player).findByTestId('desktop-video')) as HTMLVideoElement;
+    Object.defineProperty(video, 'videoWidth', { value: 640, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: 360, configurable: true });
+    Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+    Object.defineProperty(video, 'paused', { value: true, configurable: true });
+
+    await user.click(within(player).getByRole('button', { name: 'More' }));
+    await user.click(screen.getByRole('menuitemradio', { name: /^Effects/ }));
+    const panel = screen.getByRole('region', { name: 'Effects' });
+    await user.click(within(panel).getByRole('menuitemcheckbox', { name: /Smooth motion/ }));
+    // Paused, the frame is kept and shown as it is.
+    await vi.waitFor(() => expect(draws.some((draw) => draw.pass === 'motionCopy')).toBe(true));
+    await vi.waitFor(() =>
+      expect(requests()).toContainEqual(
+        expect.objectContaining({
+          action: 'state',
+          change: { pictureEffects: expect.objectContaining({ smoothMotion: true }) },
+        }),
+      ),
+    );
+
+    // A preset keeps smooth motion on.
+    await user.click(within(panel).getByRole('button', { name: 'Cinema' }));
+    expect(within(panel).getByRole('button', { name: 'Cinema' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(panel).getByRole('menuitemcheckbox', { name: /Smooth motion/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    // Smart audio is under Sound in the same panel.
+    expect(within(panel).getByText('Sound')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('menuitemcheckbox', { name: /Night mode/ }));
+    expect(requests().at(-1)).toMatchObject({
+      action: 'state',
+      change: { smartAudio: expect.objectContaining({ night: true }) },
+    });
+  });
+
   it('says when there is no WebGL 2, and keeps smart audio in the Audio panel', async () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => null);
     const user = userEvent.setup();

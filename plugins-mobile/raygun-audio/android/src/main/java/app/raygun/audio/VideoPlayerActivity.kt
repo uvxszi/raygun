@@ -351,7 +351,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         effects = PlayerEffects(this)
         // A hardware decoder that fails (some phones, the emulator at 1080p) hands over to the
         // next one, ending with the software decoders.
-        val renderers = PlayerRenderers(this, effects.audio) { tracks.text = it }
+        val renderers = PlayerRenderers(this, effects.audio, effects.graph) { tracks.text = it }
             .setEnableDecoderFallback(true)
             .setMediaCodecSelector(codecSelector)
         player = ExoPlayer.Builder(this, renderers)

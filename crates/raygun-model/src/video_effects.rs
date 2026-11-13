@@ -48,6 +48,9 @@ pub struct PictureEffects {
     pub deflicker: u32,
     /// Smooths grain and noise over neighbouring pixels and frames.
     pub denoise: u32,
+    /// In-between frames made from the motion between two (about 60 a second, at most the
+    /// screen's), so pans and movement look smoother.
+    pub smooth_motion: bool,
 }
 
 impl PictureEffects {
@@ -130,6 +133,7 @@ mod tests {
         assert!(audio.night && !audio.dialogue && !audio.normalize && !audio.leveling);
         let json = serde_json::to_value(PictureEffects::default()).unwrap();
         assert_eq!(json["look"], "none");
+        assert_eq!(json["smoothMotion"], false);
         assert_eq!(json["deflicker"], 0);
     }
 

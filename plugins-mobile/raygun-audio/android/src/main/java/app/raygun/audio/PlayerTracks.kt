@@ -3,6 +3,7 @@ package app.raygun.audio
 import android.content.Context
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Handler
 import android.os.Looper
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
@@ -22,10 +23,12 @@ import androidx.media3.common.text.LanguageFeatureSpan
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.text.TextRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.ui.CaptionStyleCompat
@@ -62,8 +65,30 @@ internal class OffsetTextRenderer(inner: TextRenderer) : ForwardingRenderer(inne
 internal class PlayerRenderers(
     context: Context,
     private val smartAudio: AudioProcessor,
+    private val graph: VideoGraphChoice,
     private val onText: (OffsetTextRenderer) -> Unit,
 ) : DefaultRenderersFactory(context) {
+    override fun buildVideoRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        allowedVideoJoiningTimeMs: Long,
+        out: ArrayList<Renderer>,
+    ) {
+        super.buildVideoRenderers(
+            context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener,
+            allowedVideoJoiningTimeMs, out,
+        )
+        // Effects redraw a paused frame through a replay cache ([VideoGraphChoice]).
+        replaceVideoRenderer(
+            out, context, codecAdapterFactory, mediaCodecSelector, allowedVideoJoiningTimeMs, enableDecoderFallback,
+            eventHandler, eventListener, graph,
+        )
+    }
+
     override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
