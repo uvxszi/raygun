@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 
-import { NeedsAppNote, useNeedsApp } from '../../shell/NeedsApp';
+import { NeedsAppNote } from '../../shell/NeedsApp';
+import { useNeedsApp } from '../../shell/useNeedsApp';
 import { BackupCard } from '../BackupCard';
 import { DataCategoriesCard } from '../DataCategoriesCard';
 import { DeveloperCard } from '../DeveloperCard';

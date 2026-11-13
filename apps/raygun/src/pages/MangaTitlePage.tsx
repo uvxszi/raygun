@@ -12,7 +12,7 @@ import { useKnownCard } from '../manga/knownCard';
 import { ChapterOrderButton } from '../manga/ChapterOrderButton';
 import { orderChapters, useChapterOrder } from '../manga/chapterOrder';
 import { DownloadMenu } from '../manga/DownloadMenu';
-import { useNeedsApp } from '../shell/NeedsApp';
+import { useNeedsApp } from '../shell/useNeedsApp';
 import { SelectionTopBar } from '../manga/LibrarySelection';
 import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { unwrapResult } from '../lib/commandResult';

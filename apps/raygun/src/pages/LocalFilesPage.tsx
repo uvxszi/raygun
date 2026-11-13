@@ -21,7 +21,8 @@ import { useLocalFolderActions, useLocalFolders } from '../localFiles/useLocalFo
 import { useMediaGate } from '../permissions/useMediaGate';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import { EmptyState } from '../shell/EmptyState';
-import { NeedsAppNote, useNeedsApp } from '../shell/NeedsApp';
+import { NeedsAppNote } from '../shell/NeedsApp';
+import { useNeedsApp } from '../shell/useNeedsApp';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { useIsDesktop } from '../shell/useIsDesktop';

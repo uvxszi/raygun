@@ -34,7 +34,7 @@ import { ServerPicker } from '../watch/ServerPicker';
 import type { PickIntent, ServerTarget } from '../watch/ServerPicker';
 import { StremioPoster } from '../watch/StremioRow';
 import { VideoDownloadControl } from '../watch/VideoDownloadControl';
-import { useNeedsApp } from '../shell/NeedsApp';
+import { useNeedsApp } from '../shell/useNeedsApp';
 import { EpisodeCheck, EpisodeSelectionBar } from '../watch/EpisodeSelection';
 import { useEpisodeSelection } from '../watch/useEpisodeSelection';
 import type { ExportEpisode } from '../export/ExportSheet';

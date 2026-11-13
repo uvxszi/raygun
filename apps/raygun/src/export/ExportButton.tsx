@@ -4,7 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { Medium } from '../manga/medium';
-import { useNeedsApp } from '../shell/NeedsApp';
+import { useNeedsApp } from '../shell/useNeedsApp';
 import { TopBarAction } from '../shell/TopBar';
 import { ExportSheet } from './ExportSheet';
 import type { ExportChapter, ExportEpisode } from './ExportSheet';
