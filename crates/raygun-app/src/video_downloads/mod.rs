@@ -55,6 +55,12 @@ const PARALLEL: usize = 2;
 const LINK_FILE: &str = "link.json";
 /// `local_value` key of the device's language (for the subtitles ticked at first).
 const DEVICE_LANGUAGE: &str = "video.deviceLanguage";
+/// When a deleted video's folder is tried again while a file in it is still open (a player or the
+/// torrent engine letting go of it, which Windows waits for); the next start's sweep takes it
+/// after that.
+const DELETE_RETRIES_MS: [u64; 3] = [1_000, 5_000, 20_000];
+/// After start, folders no download owns are looked for once things have settled.
+const SWEEP_DELAY: Duration = Duration::from_secs(20);
 
 /// Which subtitle tracks a download keeps (`subtitles`).
 #[derive(Debug, Clone, Default)]
@@ -104,7 +110,8 @@ impl VideoDownloadService {
     }
 
     /// Starts the worker. Downloads cut off by the last exit go back to the queue first and
-    /// continue where they stopped.
+    /// continue where they stopped. A while later, what deleted videos left behind goes
+    /// ([`Self::sweep`]).
     pub fn start(self: &Arc<Self>) {
         let downloads = self.clone();
         tauri::async_runtime::spawn(async move {
@@ -114,6 +121,20 @@ impl VideoDownloadService {
                 Err(error) => tracing::warn!(%error, "could not reset interrupted video downloads"),
             }
             downloads.work().await;
+        });
+        let sweeper = self.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(SWEEP_DELAY).await;
+            match sweeper.sweep().await {
+                Ok(swept) if swept.folders > 0 || swept.entries > 0 => tracing::info!(
+                    folders = swept.folders,
+                    bytes = swept.bytes,
+                    entries = swept.entries,
+                    "removed what deleted videos left behind"
+                ),
+                Ok(_) => {}
+                Err(error) => tracing::warn!(%error, "could not look for leftover video files"),
+            }
         });
     }
 
@@ -555,10 +576,14 @@ impl VideoDownloadService {
         }
     }
 
-    /// Takes a download out, stopping it if it runs; its files are deleted.
+    /// Takes a download out, stopping it if it runs; its folder (the video, its subtitles, a
+    /// torrent's pieces) is deleted, the video folder too once it's empty, and its poster stops
+    /// being kept for offline.
     pub async fn remove(&self, id: &str) -> Result<(), String> {
         let db = self.db();
         let Some(row) = store::get(&db, id).await.map_err(to_message)? else {
+            // Already gone from the list: what it left on disk goes all the same.
+            self.delete_files(id).await;
             return Ok(());
         };
         // A queued one may be starting right now: either way the worker stops and deletes what
@@ -572,7 +597,26 @@ impl VideoDownloadService {
         store::remove(&db, id).await.map_err(to_message)?;
         self.delete_files(id).await;
         self.changed("");
+        if row.state == store::DONE && row.download.poster.is_some() {
+            let app = self.app.clone();
+            tauri::async_runtime::spawn(async move { crate::caches::sort_kept(&app).await });
+        }
         Ok(())
+    }
+
+    /// What deleted videos left behind: folders under `downloads/video/` that no download owns
+    /// (one still in use when its video was deleted, a run cut off in between) and finished
+    /// downloads whose files are gone. Runs a while after start and from Settings → Data.
+    pub async fn sweep(&self) -> Result<raygun_model::VideoDownloadsSwept, String> {
+        let swept = sweep_in(&self.db(), &self.root).await?;
+        if swept.entries > 0 {
+            self.changed("");
+        }
+        if swept.folders > 0 || swept.entries > 0 {
+            let app = self.app.clone();
+            tauri::async_runtime::spawn(async move { crate::caches::sort_kept(&app).await });
+        }
+        Ok(swept)
     }
 
     /// Queues a failed download again; it continues with what it saved.
@@ -672,11 +716,14 @@ impl VideoDownloadService {
                         done_parts: row.done_parts.max(0) as u32,
                         total_parts: row.total_parts.map(|total| total.max(0) as u32),
                         error: row.error,
-                        poster: row
-                            .download
-                            .poster
-                            .as_deref()
-                            .map(|url| self.images.cover(url, &Default::default())),
+                        // A downloaded video's poster stays for offline (`caches::kept_tokens`).
+                        poster: row.download.poster.as_deref().map(|url| {
+                            if row.state == store::DONE {
+                                self.images.kept_cover(url, &Default::default())
+                            } else {
+                                self.images.cover(url, &Default::default())
+                            }
+                        }),
                         source_id: title.map(|title| title.source_id.clone()),
                         remote_id: title.map(|title| title.remote_id.clone()),
                         episode_id: title
@@ -774,13 +821,33 @@ impl VideoDownloadService {
         self.root.join(FOLDER).join(id)
     }
 
+    /// Deletes a download's folder, then the video folder once it's empty. A file still open in
+    /// it (a player, the torrent engine) keeps it on Windows: it's tried again a few times, and
+    /// the next start's sweep takes whatever is left.
     async fn delete_files(&self, id: &str) {
-        let dir = self.dir(id);
-        if tokio::fs::try_exists(&dir).await.unwrap_or(false)
-            && let Err(error) = tokio::fs::remove_dir_all(&dir).await
-        {
-            tracing::warn!(%error, "could not delete a downloaded video");
+        // Only a download's own folder: never a path an id could climb out of.
+        if !is_download_id(id) {
+            return;
         }
+        let dir = self.dir(id);
+        let folder = self.root.join(FOLDER);
+        if remove_tree(&dir).await {
+            remove_if_empty(&folder).await;
+            return;
+        }
+        tauri::async_runtime::spawn(async move {
+            for wait in DELETE_RETRIES_MS {
+                tokio::time::sleep(Duration::from_millis(wait)).await;
+                if remove_tree(&dir).await {
+                    remove_if_empty(&folder).await;
+                    return;
+                }
+            }
+            tracing::warn!(
+                dir = %dir.display(),
+                "a deleted video's folder is still in use; the next start removes it"
+            );
+        });
     }
 
     fn is_stopped(&self, id: &str) -> bool {
@@ -844,6 +911,109 @@ pub struct Offline {
 pub async fn offline(app: &AppHandle, key: &str) -> Option<Offline> {
     let service = app.try_state::<Arc<VideoDownloadService>>()?;
     service.offline(key).await
+}
+
+/// [`VideoDownloadService::sweep`] over the downloads folder `root`: folders under its `video/`
+/// no download owns, and finished downloads whose files are gone.
+async fn sweep_in(
+    db: &raygun_db::Db,
+    root: &Path,
+) -> Result<raygun_model::VideoDownloadsSwept, String> {
+    let rows = store::all(db).await.map_err(to_message)?;
+    let owned: HashSet<String> = rows.iter().map(|row| row.id.clone()).collect();
+    let folder = root.join(FOLDER);
+    let mut swept = raygun_model::VideoDownloadsSwept::default();
+    for dir in leftover_folders(&folder, &owned).await {
+        let Some(name) = dir
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        // Queued since the list was read: its folder is its own.
+        if matches!(store::get(db, &name).await, Ok(Some(_))) {
+            continue;
+        }
+        let path = dir.clone();
+        let bytes = tokio::task::spawn_blocking(move || folder_bytes(&path))
+            .await
+            .unwrap_or(0);
+        if remove_tree(&dir).await {
+            swept.folders += 1;
+            swept.bytes += bytes as f64;
+        }
+    }
+    for row in rows.iter().filter(|row| row.state == store::DONE) {
+        let present = match row.file.as_deref() {
+            Some(file) => tokio::fs::try_exists(folder.join(&row.id).join(file))
+                .await
+                .unwrap_or(true),
+            None => false,
+        };
+        if !present && store::remove(db, &row.id).await.is_ok() {
+            swept.entries += 1;
+        }
+    }
+    remove_if_empty(&folder).await;
+    Ok(swept)
+}
+
+/// A download's id as its folder is named (a UUID): one path part, never `..` or a separator.
+fn is_download_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+/// Removes a folder and everything in it; true once it's gone (or was never there).
+async fn remove_tree(dir: &Path) -> bool {
+    match tokio::fs::remove_dir_all(dir).await {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => {
+            tracing::info!(%error, dir = %dir.display(), "a video's folder couldn't be deleted yet");
+            false
+        }
+    }
+}
+
+/// Removes `dir` when nothing is left in it.
+async fn remove_if_empty(dir: &Path) {
+    // Fails, as it should, while anything is in it.
+    let _ = tokio::fs::remove_dir(dir).await;
+}
+
+/// The download folders under `folder` whose names aren't in `owned`.
+async fn leftover_folders(folder: &Path, owned: &HashSet<String>) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(mut entries) = tokio::fs::read_dir(folder).await else {
+        return found;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_dir = entry.file_type().await.is_ok_and(|kind| kind.is_dir());
+        if is_dir && is_download_id(&name) && !owned.contains(&name) {
+            found.push(entry.path());
+        }
+    }
+    found
+}
+
+/// Bytes of the files under `dir`, all the way down.
+fn folder_bytes(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => folder_bytes(&entry.path()),
+            Ok(kind) if kind.is_file() => entry.metadata().map_or(0, |meta| meta.len()),
+            _ => 0,
+        })
+        .sum()
 }
 
 enum Failure {

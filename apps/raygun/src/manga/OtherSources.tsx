@@ -45,6 +45,8 @@ import { SourceIssue } from '../shell/SourceIssue';
 import { TextField } from '../shell/TextField';
 import { PoweredByGoogle, TranslatorSelect } from '../translate/TranslatorSelect';
 import { isGoogle, useTranslatingProviders } from '../translate/translators';
+import { StremioMatchList } from '../watch/StremioMatchList';
+import { useStremioMatches } from '../watch/stremioMatches';
 import { videoTitleScore } from '../watch/videoMatch';
 import { groupWords } from './groupWords';
 import { authorsIn, bookWords, withAuthors } from './bookWords';
@@ -341,7 +343,18 @@ export const OtherSources: FC<{
   inLibrary?: boolean;
   /** An audiobook's or a show's own feed, left out of the matches. */
   feedUrl?: string;
-}> = ({ medium, title, author, sourceId = '', titleId, inLibrary = false, feedUrl = '' }) =>
+  /** A Stremio title's `<type>:<id>`, left out of the Stremio addons' matches. */
+  stremioId?: string;
+}> = ({
+  medium,
+  title,
+  author,
+  sourceId = '',
+  titleId,
+  inLibrary = false,
+  feedUrl = '',
+  stremioId,
+}) =>
   medium === 'audiobook' || medium === 'podcast' ? (
     <DirectoryOtherSources medium={medium} title={title} author={author ?? ''} feedUrl={feedUrl} />
   ) : (
@@ -352,6 +365,7 @@ export const OtherSources: FC<{
       sourceId={sourceId}
       titleId={titleId}
       inLibrary={inLibrary}
+      stremioId={stremioId ?? null}
     />
   );
 
@@ -436,11 +450,14 @@ const CatalogOtherSources: FC<{
   sourceId: string;
   titleId?: string;
   inLibrary: boolean;
-}> = ({ medium, title, author, sourceId, titleId, inLibrary }) => {
+  stremioId: string | null;
+}> = ({ medium, title, author, sourceId, titleId, inLibrary, stremioId }) => {
   const { t } = useTranslation();
   const find = useFindQuery(title, author);
   const sources = useMangaSources(medium);
   const [order, setOrder] = useState<Order>('closest');
+  // Movies and series: the Stremio addons' catalogs too (their streams come for the title's id).
+  const stremio = useStremioMatches(find.query, stremioId, medium === 'video');
   // A video site (its own Search pill: YouTube, PeerTube) holds videos, not a catalogue's titles.
   const others = useMemo(
     () =>
@@ -567,9 +584,10 @@ const CatalogOtherSources: FC<{
     : failed
       ? t('otherSources.languagesUnknown')
       : langs && t('otherSources.sourcesIn', { count: searched.length });
+  const searching = (pending || stremio.pending) && query !== '';
   return (
     <FindSection
-      busy={pending && query !== ''}
+      busy={searching}
       form={
         <FindForm
           find={find}
@@ -595,7 +613,7 @@ const CatalogOtherSources: FC<{
           ))}
         </div>
       )}
-      {!pending && found.length === 0 && query !== '' && (
+      {!searching && found.length === 0 && stremio.matches.length === 0 && query !== '' && (
         <p className="text-muted text-sm">
           {searched.length === 0
             ? find.language
@@ -616,6 +634,7 @@ const CatalogOtherSources: FC<{
           </li>
         ))}
       </ul>
+      <StremioMatchList matches={stremio.matches} />
     </FindSection>
   );
 };

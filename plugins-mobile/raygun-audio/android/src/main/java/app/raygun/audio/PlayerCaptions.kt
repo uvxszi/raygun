@@ -314,14 +314,20 @@ internal fun PlayerSheet.fontChips(host: VideoPlayerActivity, current: String, o
 }
 
 /**
- * The subtitle delay: typed in seconds (decimals; negative shows them earlier), or stepped with
- * the pills under it. `set` gets the new delay in milliseconds.
+ * A delay (the subtitles', the sound's): typed in seconds (decimals; negative for earlier), or
+ * stepped with the pills under it. `set` gets the new delay in milliseconds; `description` names
+ * the field for accessibility.
  */
-internal fun PlayerSheet.delayField(host: VideoPlayerActivity, delayMs: Long, set: (Long) -> Unit) {
+internal fun PlayerSheet.delayField(
+    host: VideoPlayerActivity,
+    delayMs: Long,
+    description: String = host.label("delaySeconds", "Subtitle delay in seconds"),
+    set: (Long) -> Unit,
+) {
     val context: Context = host
     val field = EditText(context).apply {
         setText(formatDelay(delayMs))
-        contentDescription = host.label("delaySeconds", "Subtitle delay in seconds")
+        contentDescription = description
         setTextColor(Color.WHITE)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         gravity = Gravity.CENTER

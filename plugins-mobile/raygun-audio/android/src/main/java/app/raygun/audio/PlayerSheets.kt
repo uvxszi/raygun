@@ -68,26 +68,8 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     /** Sources: clean names with their options, or the raw list ([PlayerSourcesSheet]). */
     fun sources() = host.sourcesSheet.open()
 
-    fun audio() {
-        val tracks = host.tracks.list(C.TRACK_TYPE_AUDIO)
-        val sheet = PlayerSheet(host, label("audio", "Audio"))
-        if (tracks.isEmpty()) sheet.row(label("off", "Off"), onClick = null)
-        // Two "English" tracks read "English" and "English 2", their channels under them.
-        val shown = distinctTracks(
-            tracks.mapIndexed { index, track -> host.tracks.facts(track, index + 1, host.tracks.audioDetail(track)) },
-            ::numbered,
-        )
-        tracks.forEachIndexed { index, track ->
-            sheet.row(shown[index].name, shown[index].detail, host.tracks.chosen(track)) {
-                host.tracks.select(C.TRACK_TYPE_AUDIO, track)
-                host.state.audio = track.choice()
-                host.remember(JSONObject().put("audio", track.choice().toJson()))
-                sheet.dismiss()
-            }
-        }
-        host.effects.audioRows(sheet) { audio() }
-        sheet.show()
-    }
+    /** Audio: the video's tracks, another source's sound, a file, the delay ([PlayerAudio]). */
+    fun audio() = host.audio.open()
 
     /** The subtitle sheet's tab: the subtitles (0) or the second subtitles (1). */
     private var subtitleTab = 0

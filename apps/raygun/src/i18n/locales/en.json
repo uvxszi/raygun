@@ -337,6 +337,23 @@
     },
     "overview": {
       "seeAll": "See all {{name}}"
+    },
+    "all": {
+      "actions": "Selected items",
+      "markDone": "Mark as finished",
+      "markNotDone": "Mark as not finished",
+      "merge": "Merge playlists",
+      "removeQuestion_one": "Remove {{count}} item from your library?",
+      "removeQuestion_other": "Remove {{count}} items from your library?",
+      "removePlaylists_one": "The playlist is deleted; its songs stay wherever they came from.",
+      "removePlaylists_other": "The {{count}} playlists are deleted; their songs stay wherever they came from.",
+      "removeSites_one": "The website leaves your list, and where you were on it is forgotten.",
+      "removeSites_other": "The {{count}} websites leave your list, and where you were on them is forgotten.",
+      "removeDownloads": "Also delete their downloaded chapters and episodes",
+      "removed_one": "{{count}} left your library",
+      "removed_other": "{{count}} left your library",
+      "removeFailed_one": "{{count}} couldn't be removed",
+      "removeFailed_other": "{{count}} couldn't be removed"
     }
   },
   "search": {
@@ -1925,6 +1942,10 @@
       "romanEverywhereHint": "Henry VIII, World War II",
       "romanOrdinals": "Read numbered titles as ordinals",
       "romanOrdinalsHint": "Chapter IV is read as Chapter the fourth",
+      "splitAtCommas": "Split long sentences at commas",
+      "splitAtCommasHint": "Downloaded voices then start long sentences sooner and need less memory, but pause at each cut comma as if the sentence ended. Off, they read on to a semicolon, colon or dash, and cut at a comma only while nothing is ready to play, so reading starts as soon",
+      "speedPicker": "Choose a reading speed",
+      "speedChoices": "Speeds",
       "voices": "Voices and downloads",
       "voicesHint": "Settings → AI → Reading aloud"
     },
@@ -3203,7 +3224,20 @@
     "translateComplete": "Translated to the end",
     "translateDone_one": "{{n}} of {{of}} line",
     "translateDone_other": "{{n}} of {{of}} lines",
-    "translateStop": "Stop translating"
+    "translateStop": "Stop translating",
+    "addAudioFile": "Add an audio file",
+    "audioDelaySeconds": "Audio delay in seconds",
+    "audioTracks": "Audio tracks",
+    "audioOwn": "The video's own sound",
+    "audioOtherSources": "From other sources",
+    "audioNoOtherSources": "No other source has this yet",
+    "audioSeveral": "Several languages",
+    "audioUnnamed": "Sound",
+    "audioFrom": "From {{n}}",
+    "audioFile": "Audio file",
+    "audioLoading": "Loading…",
+    "audioFailed": "Couldn't play that sound",
+    "audioFromSource": "Sound from {{n}}"
   },
   "export": {
     "title": "Export",
@@ -3646,7 +3680,16 @@
     "refreshDays_one": "{{count}} day",
     "refreshDays_other": "{{count}} days",
     "clearPagesOnStart": "Clear the page cache on start",
-    "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens."
+    "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens.",
+    "leftoverVideos": "Files of deleted videos",
+    "leftoverVideosHint": "Folders a deleted video left behind (a file still open when it went), and downloads whose files are gone. Also removed a while after each start.",
+    "leftoverRemove": "Remove",
+    "leftoverRemoved_one": "Removed {{count}} folder · {{size}}",
+    "leftoverRemoved_other": "Removed {{count}} folders · {{size}}",
+    "leftoverEntries_one": "Removed {{count}} download whose file was gone",
+    "leftoverEntries_other": "Removed {{count}} downloads whose files were gone",
+    "leftoverNone": "Nothing was left behind",
+    "leftoverFailed": "Couldn't look for leftover files"
   },
   "songMemory": {
     "title": "What's kept about songs",
@@ -5375,6 +5418,7 @@
   "otherSources": {
     "find": "Find in other sources",
     "title": "In other sources",
+    "stremioAddons": "In Stremio addons",
     "none": "No other source has it under this name.",
     "noSources": "Add more sources in Browse → Extensions to look in them.",
     "open": "Open",

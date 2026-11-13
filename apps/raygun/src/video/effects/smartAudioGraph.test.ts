@@ -1,5 +1,8 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
+
 import { NO_SMART_AUDIO } from './effectParams';
 import { dbToGain, VideoAudioGraph } from './smartAudio';
+import { useVideoAudio } from './useVideoAudio';
 
 /** An AudioParam that keeps the value last set or aimed at. */
 class FakeParam {
@@ -15,9 +18,15 @@ class FakeNode {
   channelCount = 2;
   channelCountMode = 'max';
   channelInterpretation = 'speakers';
+  /** What it was connected to, until let go. */
+  readonly targets: unknown[] = [];
   constructor(readonly kind: string) {}
   connect<T>(target: T) {
+    this.targets.push(target);
     return target;
+  }
+  disconnect() {
+    this.targets.length = 0;
   }
 }
 
@@ -60,6 +69,7 @@ class FakeContext {
   readonly gains: FakeGain[] = [];
   readonly filters: (FakeNode & { gain: FakeParam; frequency: FakeParam; Q: FakeParam })[] = [];
   readonly compressors: FakeCompressor[] = [];
+  readonly sourceNodes: FakeNode[] = [];
   sources = 0;
   constructor() {
     contexts.push(this);
@@ -97,7 +107,9 @@ class FakeContext {
   };
   createMediaElementSource = () => {
     this.sources += 1;
-    return new FakeNode('source');
+    const source = new FakeNode('source');
+    this.sourceNodes.push(source);
+    return source;
   };
   createChannelSplitter = () => new FakeNode('splitter');
   createChannelMerger = () => new FakeNode('merger');
@@ -138,6 +150,46 @@ describe('smart audio on desktop', () => {
     expect(context?.gains.at(-1)?.gain.value).toBeCloseTo(0.4);
     graph.setVolume(1.5);
     expect(context?.gains.at(-1)?.gain.value).toBeCloseTo(1.5);
+  });
+
+  it("takes the sound beside the picture through the same chain, at the graph's volume", () => {
+    const graph = new VideoAudioGraph(media());
+    graph.setVolume(0.5);
+    const [context] = contexts;
+    const input = context?.gains[0];
+    const beside = document.createElement('audio');
+    beside.volume = 0.5;
+    expect(graph.attach(beside)).toBe(true);
+    expect(context?.sources).toBe(2);
+    expect(context?.sourceNodes[1]?.targets).toEqual([input]);
+    expect(beside.volume).toBe(1);
+    // Once per element.
+    expect(graph.attach(beside)).toBe(true);
+    expect(context?.sources).toBe(2);
+    graph.detach(beside);
+    expect(context?.sourceNodes[1]?.targets).toEqual([]);
+  });
+
+  it('says when the sound beside the picture goes through it, so its element plays at full', async () => {
+    const video = media();
+    const { result, rerender } = renderHook(
+      ({ audio }) => useVideoAudio({ current: video }, 0.6, false, audio),
+      { initialProps: { audio: NO_SMART_AUDIO } },
+    );
+    // No graph without smart audio or a boost: the element's own volume.
+    expect(result.current.routed).toBe(false);
+    expect(video.volume).toBeCloseTo(0.6);
+
+    rerender({ audio: { ...NO_SMART_AUDIO, night: true } });
+    await waitFor(() => expect(result.current.routed).toBe(true));
+    expect(video.volume).toBe(1);
+    const beside = document.createElement('audio');
+    act(() => result.current.setExternal(beside));
+    await waitFor(() => expect(contexts[0]?.sources).toBe(2));
+    expect(result.current.routed).toBe(true);
+    expect(beside.volume).toBe(1);
+    act(() => result.current.setExternal(null));
+    expect(contexts[0]?.sourceNodes[1]?.targets).toEqual([]);
   });
 
   it('sets its parts from the switches, passing the sound through when off', () => {

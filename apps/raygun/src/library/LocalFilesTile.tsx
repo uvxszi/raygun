@@ -8,6 +8,8 @@ import { useLocalFolders } from '../localFiles/useLocalFolders';
 import { summarizeLengths, useLengthLabel } from '../music/collectionLength';
 import { useDownloadedSongs } from '../music/useSongDownloads';
 import { useFixedTileMenuItems } from './useFixedTileMenu';
+import type { FixedTile } from './useFixedTileMenu';
+import { useHoldMenu } from './useHoldMenu';
 import { CardMenu } from '../shell/CardMenu';
 
 /** What Local Files' folders hold, all kinds together, and whether one is being scanned. */
@@ -28,16 +30,29 @@ const useLocalCount = () => {
 };
 
 const TILE = 'flex flex-col gap-1.5';
+
+/** Library → All opens a block's menu on a hold or a right click too. */
+type TileProps = { menuOnHold?: boolean };
+
+/** The block's menu, and the hold and right click that open it where asked. */
+const useTileMenu = (tile: FixedTile, menuOnHold: boolean) => {
+  const menu = useFixedTileMenuItems();
+  const items = () => menu(tile);
+  const hold = useHoldMenu(items);
+  return { items, hold: menuOnHold ? hold : {} };
+};
+
 const NAME = 'truncate text-sm font-medium';
 const DETAIL = 'text-muted -mt-1 truncate text-xs';
 
 /**
  * The Library's red Favorites block (M46.29), always shown, with how many songs it has. Each
- * block has its menu on a right-click or a hold (`useFixedTileMenu`).
+ * block has its menu (`useFixedTileMenu`) on its ⋮, and in Library → All on a hold or a right
+ * click too.
  */
-export const FavoritesTile: FC = () => {
+export const FavoritesTile: FC<TileProps> = ({ menuOnHold = false }) => {
   const { t } = useTranslation();
-  const menu = useFixedTileMenuItems();
+  const { items, hold } = useTileMenu('favorites', menuOnHold);
   const favorites = useFavorites().data;
   const count = favorites?.length ?? 0;
   const length = useLengthLabel(
@@ -45,11 +60,8 @@ export const FavoritesTile: FC = () => {
   );
   return (
     <li className="w-28 shrink-0">
-      <Link to="/library" search={{ view: 'favorites' }} className={`relative ${TILE}`}>
-        <CardMenu
-          label={t('menu.options', { name: t('collections.favorites') })}
-          items={() => menu('favorites')}
-        />
+      <Link to="/library" search={{ view: 'favorites' }} className={`relative ${TILE}`} {...hold}>
+        <CardMenu label={t('menu.options', { name: t('collections.favorites') })} items={items} />
         <span className="bg-primary/20 text-primary grid aspect-square w-full place-items-center rounded-lg">
           <Heart aria-hidden size={36} fill="currentColor" />
         </span>
@@ -62,9 +74,9 @@ export const FavoritesTile: FC = () => {
 };
 
 /** The Library's blue Downloaded block (M46.29), always shown, with how many songs it has. */
-export const DownloadedTile: FC = () => {
+export const DownloadedTile: FC<TileProps> = ({ menuOnHold = false }) => {
   const { t } = useTranslation();
-  const menu = useFixedTileMenuItems();
+  const { items, hold } = useTileMenu('downloaded', menuOnHold);
   const downloaded = useDownloadedSongs().data;
   const count = downloaded?.length ?? 0;
   const length = useLengthLabel(
@@ -72,11 +84,8 @@ export const DownloadedTile: FC = () => {
   );
   return (
     <li className="w-28 shrink-0">
-      <Link to="/library" search={{ view: 'downloaded' }} className={`relative ${TILE}`}>
-        <CardMenu
-          label={t('menu.options', { name: t('library.view.downloaded') })}
-          items={() => menu('downloaded')}
-        />
+      <Link to="/library" search={{ view: 'downloaded' }} className={`relative ${TILE}`} {...hold}>
+        <CardMenu label={t('menu.options', { name: t('library.view.downloaded') })} items={items} />
         <span className="grid aspect-square w-full place-items-center rounded-lg bg-sky-500/20 text-sky-500">
           <span className="grid size-12 place-items-center rounded-full bg-sky-500 text-white">
             <ArrowDown aria-hidden size={28} strokeWidth={3} />
@@ -91,17 +100,14 @@ export const DownloadedTile: FC = () => {
 };
 
 /** The Library's green Local files block (M46.29), always shown: it opens the folders. */
-export const LocalFilesTile: FC = () => {
+export const LocalFilesTile: FC<TileProps> = ({ menuOnHold = false }) => {
   const { t } = useTranslation();
-  const menu = useFixedTileMenuItems();
+  const { items, hold } = useTileMenu('localFiles', menuOnHold);
   const { count, scanning } = useLocalCount();
   return (
     <li className="w-28 shrink-0">
-      <Link to="/local-files" className={`relative ${TILE}`}>
-        <CardMenu
-          label={t('menu.options', { name: t('localFiles.title') })}
-          items={() => menu('localFiles')}
-        />
+      <Link to="/local-files" className={`relative ${TILE}`} {...hold}>
+        <CardMenu label={t('menu.options', { name: t('localFiles.title') })} items={items} />
         <span className="grid aspect-square w-full place-items-center rounded-lg bg-emerald-500/20 text-emerald-500">
           <span className="grid size-12 place-items-center rounded-full bg-emerald-500 text-white">
             <Folder aria-hidden size={24} fill="currentColor" />

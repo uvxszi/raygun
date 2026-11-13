@@ -45,17 +45,21 @@ const swallow = (event: MouseEvent) => {
   event.stopPropagation();
 };
 
+/** Where a hold or a right click was, for the menu it opens. */
+export type MenuPoint = { x: number; y: number };
+
 /**
  * Handlers that make an element pickable. A finger held on it, a right click or a Shift-click
  * picks it (`extend`), a Ctrl or ⌘-click toggles it, and while anything is picked a tap toggles
- * instead of opening. Its own controls keep their presses. The hold is timed here rather than left
- * to the webview, whose long press on a link or a picture starts dragging it and never reports the
- * press; the drag is refused too.
+ * instead of opening. With `menu`, a hold or a right click opens the item's menu instead (Library
+ * → All), and a Shift-click still picks. Its own controls keep their presses. The hold is timed
+ * here rather than left to the webview, whose long press on a link or a picture starts dragging
+ * it and never reports the press; the drag is refused too.
  */
-export const usePickPress = (pick: PickState) => {
-  const latest = useRef(pick);
+export const usePickPress = (pick: PickState, menu?: (at: MenuPoint) => void) => {
+  const latest = useRef({ pick, menu });
   useEffect(() => {
-    latest.current = pick;
+    latest.current = { pick, menu };
   });
   const hold = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   // The hold picked it: the click (and the touch's context menu) that may follow are swallowed.
@@ -75,9 +79,12 @@ export const usePickPress = (pick: PickState) => {
     [],
   );
 
-  const pickByHold = () => {
+  // A hold picks it, or opens its menu where the finger is.
+  const pickByHold = (at: MenuPoint) => {
     held.current = true;
-    latest.current.extend();
+    const { pick: state, menu: open } = latest.current;
+    if (open) open(at);
+    else state.extend();
     navigator.vibrate?.(10);
   };
 
@@ -88,15 +95,15 @@ export const usePickPress = (pick: PickState) => {
       clearTimeout(heldTimer.current);
       cancelHold();
       if (!touch.current || onOwnControl(event.currentTarget, event.target)) return;
-      // The hold picks: a held icon shows no name for it (shell/ControlLabels).
+      // The hold is the item's own: a held icon shows no name for it (shell/ControlLabels).
       claimHold(event);
+      const at = { x: event.clientX, y: event.clientY };
       hold.current = {
         timer: setTimeout(() => {
           hold.current = null;
-          pickByHold();
+          pickByHold(at);
         }, HOLD_MS),
-        x: event.clientX,
-        y: event.clientY,
+        ...at,
       };
     },
     onPointerMove: (event: PointerEvent) => {
@@ -124,21 +131,23 @@ export const usePickPress = (pick: PickState) => {
         return;
       }
       if (onOwnControl(event.currentTarget, event.target)) return;
-      const { selecting, toggle, extend } = latest.current;
+      const { selecting, toggle, extend } = latest.current.pick;
       if (event.shiftKey) extend();
       else if (selecting || event.ctrlKey || event.metaKey) toggle();
       else return;
       swallow(event);
     },
-    // A finger's long press (Android reports it too) or a right click picks; the webview's own
-    // menu never shows.
+    // A finger's long press (Android reports it too) or a right click picks, or opens the item's
+    // menu; the webview's own menu never shows.
     onContextMenuCapture: (event: MouseEvent<HTMLElement>) => {
       if (onOwnControl(event.currentTarget, event.target)) return;
       swallow(event);
       if (held.current) return;
       cancelHold();
-      if (touch.current) pickByHold();
-      else latest.current.extend();
+      const at = { x: event.clientX, y: event.clientY };
+      if (touch.current) pickByHold(at);
+      else if (latest.current.menu) latest.current.menu(at);
+      else latest.current.pick.extend();
     },
     onDragStart: (event: DragEvent) => event.preventDefault(),
   };

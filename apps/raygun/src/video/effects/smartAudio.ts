@@ -146,9 +146,11 @@ export class LoudnessFollower {
 }
 
 /**
- * The graph on one video element. `createMediaElementSource` can be called once per element, so
- * it's made once (for smart audio or a volume past 100 %) and stays until the video closes. It is
- * connected only once the context runs: a context still asleep would silence the video.
+ * The graph on one video element, and on the sound played beside it (another source's, a file,
+ * the video's own moved by the audio delay: `useExternalAudio`), which joins the same chain.
+ * `createMediaElementSource` can be called once per element, so it's made once (for smart audio
+ * or a volume past 100 %) and stays until the video closes. It is connected only once the
+ * context runs: a context still asleep would silence the video.
  */
 export class VideoAudioGraph {
   private readonly context: AudioContext;
@@ -158,6 +160,7 @@ export class VideoAudioGraph {
   private readonly follower = new LoudnessFollower();
   private timer: ReturnType<typeof setInterval> | null = null;
   private nodes: {
+    input: GainNode;
     presence: BiquadFilterNode;
     side: GainNode;
     compressor: DynamicsCompressorNode;
@@ -166,9 +169,15 @@ export class VideoAudioGraph {
     output: GainNode;
     analysers: AnalyserNode[];
   } | null = null;
+  /** Other elements whose sound goes through the chain, by element. */
+  private readonly beside = new Map<HTMLMediaElement, MediaElementAudioSourceNode>();
   private readonly buffer = new Float32Array(8192);
 
-  constructor(private readonly media: HTMLMediaElement) {
+  /** `onConnected`: the sound goes through the graph from now on. */
+  constructor(
+    private readonly media: HTMLMediaElement,
+    private readonly onConnected: () => void = () => undefined,
+  ) {
     this.context = new AudioContext();
     if (this.context.state === 'running') this.connect();
     else
@@ -176,6 +185,35 @@ export class VideoAudioGraph {
         () => this.connect(),
         () => undefined,
       );
+  }
+
+  /** Whether the sound goes through the graph yet. */
+  get routed() {
+    return this.nodes !== null;
+  }
+
+  /**
+   * `element`'s sound through the chain too (once connected); false when it can't be (its own
+   * volume then stays its own). Its volume is the graph's from then on.
+   */
+  attach(element: HTMLMediaElement): boolean {
+    if (!this.nodes) return false;
+    if (this.beside.has(element)) return true;
+    try {
+      const source = this.context.createMediaElementSource(element);
+      source.connect(this.nodes.input);
+      this.beside.set(element, source);
+      element.volume = 1;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** `element` is gone: its node lets go of the chain. */
+  detach(element: HTMLMediaElement) {
+    this.beside.get(element)?.disconnect();
+    this.beside.delete(element);
   }
 
   setAudio(audio: Audio) {
@@ -187,13 +225,14 @@ export class VideoAudioGraph {
   }
 
   /**
-   * The volume (0–2). Once connected the element plays at full and the graph's last gain takes
+   * The volume (0–2). Once connected the elements play at full and the graph's last gain takes
    * the volume: loudness is measured before it, so turning the volume down isn't undone.
    */
   setVolume(volume: number) {
     this.volume = volume;
     if (this.nodes) {
       this.media.volume = 1;
+      for (const element of this.beside.keys()) element.volume = 1;
       this.nodes.output.gain.value = volume;
     } else {
       this.media.volume = Math.min(1, volume);
@@ -203,6 +242,7 @@ export class VideoAudioGraph {
   close() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.beside.clear();
     void this.context.close().catch(() => undefined);
   }
 
@@ -211,15 +251,16 @@ export class VideoAudioGraph {
     this.connected = true;
     const { context } = this;
     const source = context.createMediaElementSource(this.media);
-    // Two channels, mono copied to both and surround mixed down, for the middle and the sides.
-    const stereo = context.createGain();
-    stereo.channelCount = 2;
-    stereo.channelCountMode = 'explicit';
-    stereo.channelInterpretation = 'speakers';
+    // Where every element's sound comes in: two channels, mono copied to both and surround mixed
+    // down, for the middle and the sides.
+    const input = context.createGain();
+    input.channelCount = 2;
+    input.channelCountMode = 'explicit';
+    input.channelInterpretation = 'speakers';
     const splitter = context.createChannelSplitter(2);
     const mid = context.createGain();
     const sideSum = context.createGain();
-    source.connect(stereo).connect(splitter);
+    source.connect(input).connect(splitter);
     // Middle = (left + right) / 2, side = (left − right) / 2.
     [0.5, 0.5].forEach((weight, channel) => {
       const gain = context.createGain();
@@ -279,10 +320,11 @@ export class VideoAudioGraph {
       analyser.fftSize = 8192;
       meterSplit.connect(analyser, channel);
     });
-    this.nodes = { presence, side, compressor, trim, level, output, analysers };
+    this.nodes = { input, presence, side, compressor, trim, level, output, analysers };
     this.setVolume(this.volume);
     this.apply();
     this.watch();
+    this.onConnected();
   }
 
   /** The switches as the nodes' values; off, each part passes the sound through. */

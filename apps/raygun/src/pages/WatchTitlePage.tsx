@@ -559,6 +559,7 @@ export const WatchTitlePage: FC = () => {
           sourceId="stremio"
           titleId={view.titleId ?? undefined}
           inLibrary={view.inLibrary}
+          stremioId={`${view.kind}:${view.id}`}
         />
       )}
       {hasEpisodes && <Episodes meta={view} downloads={downloads} onPick={pick} />}

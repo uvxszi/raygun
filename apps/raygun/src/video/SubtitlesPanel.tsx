@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { cssColor } from '../settings/playerOptions';
 import { AiSubtitles } from './AiSubtitles';
+import { DelayControls } from './DelayControls';
 import { PanelHeading, PanelOption } from './PlayerPanel';
 import { edgeShadow, subtitleFontCss } from './subtitleLook';
 import { parseSubtitles } from './subtitles';
@@ -17,9 +18,6 @@ import type { TrackOption } from './trackPicking';
 
 /** A track the subtitles panel offers: the video's own, a file, AI subtitles, a translation. */
 export type SubtitleOption = TrackOption & { cues?: Cue[]; hint?: string };
-
-/** The largest delay either way (ten minutes), as the Android player keeps it. */
-const MAX_DELAY_S = 600;
 
 type Props = {
   videoKey: string;
@@ -252,32 +250,7 @@ export const SubtitlesPanel: FC<Props> = ({
           {t('videoPlayer.translate')}
         </button>
       </div>
-      <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
-      <div className="flex items-center gap-2 px-3 py-1">
-        <button
-          type="button"
-          onClick={() => onDelay(delayMs - 100)}
-          className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-        >
-          −0.1 s
-        </button>
-        <DelayField delayMs={delayMs} onChange={onDelay} />
-        <button
-          type="button"
-          onClick={() => onDelay(delayMs + 100)}
-          className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-        >
-          +0.1 s
-        </button>
-        <button
-          type="button"
-          disabled={delayMs === 0}
-          onClick={() => onDelay(0)}
-          className="rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 disabled:opacity-40"
-        >
-          {t('videoPlayer.reset')}
-        </button>
-      </div>
+      <DelayControls delayMs={delayMs} label={t('desktopPlayer.delaySeconds')} onChange={onDelay} />
       {/* The style is a card of its own, with a sample, so it doesn't read as one more track. */}
       <button
         type="button"
@@ -315,46 +288,5 @@ export const SubtitlesPanel: FC<Props> = ({
       {find}
       {editor}
     </>
-  );
-};
-
-/**
- * The subtitle delay as a typed number of seconds (M46.33): decimals, negative for earlier, up to
- * ten minutes either way, as on Android.
- */
-const DelayField: FC<{ delayMs: number; onChange: (ms: number) => void }> = ({
-  delayMs,
-  onChange,
-}) => {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState<string | null>(null);
-  const commit = () => {
-    if (draft === null) return;
-    const seconds = Number(
-      draft.trim().replace(/s$/i, '').trim().replace(',', '.').replace('−', '-'),
-    );
-    if (draft.trim() !== '' && Number.isFinite(seconds)) {
-      onChange(Math.round(Math.max(-MAX_DELAY_S, Math.min(MAX_DELAY_S, seconds)) * 1000));
-    }
-    setDraft(null);
-  };
-  return (
-    <label className="flex flex-1 items-center justify-center gap-1 text-sm tabular-nums">
-      <input
-        type="text"
-        inputMode="decimal"
-        aria-label={t('desktopPlayer.delaySeconds')}
-        value={draft ?? (delayMs / 1000).toFixed(2)}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          // Enter leaves the field, which keeps what's typed (once).
-          if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
-          event.stopPropagation();
-        }}
-        className="w-16 rounded-md bg-white/10 px-2 py-1 text-center outline-none focus:ring-1 focus:ring-white/40"
-      />
-      s
-    </label>
   );
 };

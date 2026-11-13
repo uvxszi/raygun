@@ -15,6 +15,7 @@ import {
   withCache,
 } from './cacheDefaults';
 import type { Cache } from './cacheDefaults';
+import { LeftoverVideos } from './LeftoverVideos';
 import { LyricsStorage } from './LyricsStorage';
 import { PrefBlock, PrefChoice, PrefGroup, PrefInfo, PrefSwitch } from './prefs';
 import { Problem } from './Problem';
@@ -197,6 +198,7 @@ export const StorageSettings: FC = () => {
         {usage.data?.map((row) => (
           <UsageRow key={row.area} usage={row} busy={busy} onClear={(area) => clear.mutate(area)} />
         ))}
+        <LeftoverVideos />
         {(usage.isError || clear.isError) && (
           <PrefBlock>
             <Problem

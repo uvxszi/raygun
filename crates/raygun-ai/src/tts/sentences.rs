@@ -3,16 +3,30 @@
 
 use std::ops::Range;
 
+use super::abbreviations;
+
 /// Longest piece read at once, in characters: longer sentences are cut at a comma (or a space).
 /// Voice models read long inputs less well and keep listeners waiting before they start.
 pub const MAX_SENTENCE: usize = 300;
 
-/// Words a full stop follows without ending the sentence.
+/// Words a full stop follows without ending the sentence ("etc." ends one when a capitalized word
+/// follows: in a sentence, what comes after it is in lower case or a mark).
 const ABBREVIATIONS: &[&str] = &[
-    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "etc", "e.g", "i.e", "cf", "mt",
+    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "e.g", "i.e", "cf", "viz", "mt",
     "gen", "col", "lt", "capt", "sgt", "rev", "hon", "inc", "ltd", "dept", "hr", "frau", "herr",
     "sra", "srta", "z.b", "bzw", "usw",
 ];
+
+/// The same, but only capitalized ("Ft. Worth", "Fr. Brown"): in lower case they are words that
+/// end sentences ("one more rep.").
+const TITLES: &[&str] = &[
+    "Ft", "Fr", "Gov", "Sen", "Rep", "Pres", "Supt", "Insp", "Det", "Maj", "Cpl", "Adm", "Brig",
+    "Atty", "Mme", "Mlle", "Messrs",
+];
+
+/// Abbreviations whose stop also ends the sentence when one starts after it ("…on Baker St. The
+/// house", "…Smith Jr. He wrote"); "St." and "Dr." are streets in an address ("221 Baker St.").
+const MAY_END: &[&str] = &["st", "dr", "jr", "sr", "inc", "ltd"];
 
 /// Abbreviations a full stop ends the sentence after unless a number follows (`No. 5`, `Vol.
 /// III`, a letter's `Dec. 11th`).
@@ -74,15 +88,40 @@ fn continues(text: &str, chars: &[(usize, char)], index: usize, after: usize, ma
     if mark != '.' || chars.get(index + 1).is_some_and(|(_, c)| *c == '.') {
         return false;
     }
-    let before = &text[..chars[index].0];
-    let word = before
-        .rsplit(|c: char| c.is_whitespace() || "(\"'“‘«".contains(c))
-        .next()
-        .unwrap_or("");
-    let word = word.to_lowercase();
+    let stop = chars[index].0;
+    // The word before the stop, after a space or an opening quote; an apostrophe after a letter
+    // is the word's own ("Paul's" is no initial "s").
+    let head = &text[..stop];
+    let written_from = head
+        .char_indices()
+        .rev()
+        .find(|&(at, c)| {
+            c.is_whitespace()
+                || "(\"“‘«".contains(c)
+                || (matches!(c, '\'' | '’')
+                    && !head[..at]
+                        .chars()
+                        .next_back()
+                        .is_some_and(char::is_alphabetic))
+        })
+        .map_or(0, |(at, c)| at + c.len_utf8());
+    let written = &head[written_from..];
+    let word = written.to_lowercase();
+    let resumes = chars.get(after).map_or(text.len(), |(at, _)| *at);
+    if MAY_END.contains(&word.as_str())
+        && abbreviations::stop_ends(
+            text,
+            written_from,
+            resumes,
+            matches!(word.as_str(), "st" | "dr"),
+        )
+    {
+        return false;
+    }
     // An initial (`J. R. R. Tolkien`), or a known abbreviation.
     (word.chars().count() == 1 && word.chars().all(char::is_alphabetic))
         || ABBREVIATIONS.contains(&word.as_str())
+        || TITLES.contains(&written)
         || (NUMBERED.contains(&word.as_str())
             && (next_word.is_some_and(|c| c.is_ascii_digit())
                 || numeral_follows(text, chars, after)))
@@ -144,15 +183,18 @@ const MIN_PIECE: usize = 24;
 /// when it all fits in `limit` characters): after the last comma, semicolon, colon or dash that
 /// leaves a piece within the limit, else after the first one when that's not far past it, else
 /// (for a text over twice the limit) at a space. Pieces are made one at a time, so a long
-/// sentence starts sooner and takes less memory while it's made; the voice pauses at the marks
-/// anyway.
-pub fn piece_end(text: &str, limit: usize) -> usize {
+/// sentence starts sooner and takes less memory while it's made.
+///
+/// Without `commas`, only semicolons, colons and dashes cut: a voice reads each piece as a
+/// sentence of its own, so a cut comma sounds like a sentence's end. A comma then cuts only a text
+/// over twice the limit with no stronger break, rather than a space.
+pub fn piece_end(text: &str, limit: usize, commas: bool) -> usize {
     let length = text.chars().count();
     if length <= limit.max(MIN_PIECE) {
         return text.len();
     }
     // Places after a mark (and the quotes closing on it) with at least MIN_PIECE characters
-    // before and some after: (byte offset, characters before).
+    // before and some after: (byte offset, characters before, a stronger break than a comma).
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut marks = Vec::new();
     for (index, (_, c)) in chars.iter().enumerate() {
@@ -169,17 +211,34 @@ pub fn piece_end(text: &str, limit: usize) -> usize {
             continue;
         }
         if after >= MIN_PIECE && length - after >= MIN_PIECE / 2 {
-            marks.push((chars.get(after).map_or(text.len(), |(at, _)| *at), after));
+            marks.push((
+                chars.get(after).map_or(text.len(), |(at, _)| *at),
+                after,
+                is_strong_break(*c),
+            ));
         }
     }
-    let within = marks.iter().rev().find(|(_, count)| *count <= limit);
-    let near = marks.first().filter(|(_, count)| *count <= limit * 2);
-    if let Some((at, _)) = within.or(near) {
-        return *at;
+    let cut = |strong_only: bool| {
+        let mut allowed = marks
+            .iter()
+            .filter(|(_, _, strong)| *strong || !strong_only);
+        let near = allowed
+            .clone()
+            .next()
+            .filter(|(_, count, _)| *count <= limit * 2);
+        let within = allowed.rfind(|(_, count, _)| *count <= limit);
+        within.or(near).map(|(at, _, _)| *at)
+    };
+    if let Some(at) = cut(!commas) {
+        return at;
     }
-    // No mark to cut at: whole when not much longer, else at the last space before the limit.
+    // No mark to cut at: whole when not much longer, else at a comma (when only stronger breaks
+    // were asked for), else at the last space before the limit.
     if length <= limit * 2 {
         return text.len();
+    }
+    if !commas && let Some(at) = cut(false) {
+        return at;
     }
     chars
         .iter()
@@ -194,12 +253,17 @@ pub fn piece_end(text: &str, limit: usize) -> usize {
 
 /// Marks a voice pauses at within a sentence.
 fn is_pause_mark(c: char) -> bool {
-    matches!(c, ',' | ';' | ':' | '—' | '–' | '，' | '、' | '；' | '：')
+    matches!(c, ',' | '，' | '、') || is_strong_break(c)
 }
 
-/// A sentence longer than [`MAX_SENTENCE`] in pieces: cut after the last comma, semicolon,
-/// colon or dash that leaves a piece of at least a third of the limit, else at the last space,
-/// else at the limit.
+/// Marks that break a sentence more than a comma does: semicolons, colons and dashes.
+fn is_strong_break(c: char) -> bool {
+    matches!(c, ';' | ':' | '—' | '–' | '；' | '：')
+}
+
+/// A sentence longer than [`MAX_SENTENCE`] in pieces: cut after the last semicolon, colon or
+/// dash that leaves a piece of at least a third of the limit, else after the last comma, else at
+/// the last space, else at the limit.
 fn split_long(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
     let mut pieces = Vec::new();
     let mut rest = range;
@@ -214,13 +278,13 @@ fn split_long(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
             .char_indices()
             .nth(MAX_SENTENCE / 3)
             .map_or(0, |(at, _)| at);
-        let at_mark = head
-            .char_indices()
-            .filter(|(at, c)| {
-                *at >= floor && matches!(c, ',' | ';' | ':' | '—' | '–' | '，' | '、' | '；')
-            })
-            .map(|(at, c)| at + c.len_utf8())
-            .next_back();
+        let last_mark = |mark: fn(char) -> bool| {
+            head.char_indices()
+                .filter(|(at, c)| *at >= floor && mark(*c))
+                .map(|(at, c)| at + c.len_utf8())
+                .next_back()
+        };
+        let at_mark = last_mark(is_strong_break).or_else(|| last_mark(is_pause_mark));
         let at_space = head
             .char_indices()
             .filter(|(at, c)| *at >= floor && c.is_whitespace())
@@ -309,6 +373,80 @@ mod tests {
     }
 
     #[test]
+    fn keeps_titles_saints_and_latin_abbreviations_in_the_sentence() {
+        assert_eq!(
+            split(
+                "St. Paul wrote to them. Mt. Everest is high. Ft. Worth is in Texas. \
+                 Mrs. Hudson and Ms. Marple met Prof. Moriarty."
+            ),
+            vec![
+                "St. Paul wrote to them.",
+                "Mt. Everest is high.",
+                "Ft. Worth is in Texas.",
+                "Mrs. Hudson and Ms. Marple met Prof. Moriarty."
+            ]
+        );
+        assert_eq!(
+            split("Gov. Smith spoke. Fr. Brown listened, i.e. He slept."),
+            vec!["Gov. Smith spoke.", "Fr. Brown listened, i.e. He slept."]
+        );
+        assert_eq!(
+            split("Bands, e.g. The Beatles, played. It was Godzilla vs. The Thing."),
+            vec![
+                "Bands, e.g. The Beatles, played.",
+                "It was Godzilla vs. The Thing."
+            ]
+        );
+        assert_eq!(
+            split("Martin Luther King Jr. Day is a holiday."),
+            vec!["Martin Luther King Jr. Day is a holiday."]
+        );
+        // In lower case, these are words that end sentences.
+        assert_eq!(
+            split("He did one more rep. Then he stopped."),
+            vec!["He did one more rep.", "Then he stopped."]
+        );
+    }
+
+    #[test]
+    fn ends_sentences_at_streets_suffixes_and_etc_when_one_starts() {
+        assert_eq!(
+            split("I live at 221 Baker St. The house is old."),
+            vec!["I live at 221 Baker St.", "The house is old."]
+        );
+        assert_eq!(
+            split("He lives on Mulholland Dr. It is a long road."),
+            vec!["He lives on Mulholland Dr.", "It is a long road."]
+        );
+        assert_eq!(
+            split("I live at 221 Baker St. Paul lives next door."),
+            vec!["I live at 221 Baker St.", "Paul lives next door."]
+        );
+        assert_eq!(
+            split("It was written by John Smith Jr. He was young."),
+            vec!["It was written by John Smith Jr.", "He was young."]
+        );
+        assert_eq!(
+            split("Tea, coffee, etc. Then we left. Tea, etc., and cake."),
+            vec!["Tea, coffee, etc.", "Then we left.", "Tea, etc., and cake."]
+        );
+        // A name after them: the sentence goes on.
+        assert_eq!(
+            split("They met at St. Paul's. Dr. Watson came too."),
+            vec!["They met at St. Paul's.", "Dr. Watson came too."]
+        );
+        // A possessive isn't an initial; a quoted title still is a title.
+        assert_eq!(
+            split("It was the dog's. Then it ran. 'Mr. Holmes,' she said."),
+            vec![
+                "It was the dog's.",
+                "Then it ran.",
+                "'Mr. Holmes,' she said."
+            ]
+        );
+    }
+
+    #[test]
     fn splits_chinese_and_japanese_without_spaces() {
         assert_eq!(
             split("你好。我很好！你呢？"),
@@ -326,12 +464,17 @@ mod tests {
         assert_eq!(split("End. — . Start."), vec!["End.", "Start."]);
     }
 
-    /// `text` in the pieces [`piece_end`] cuts it into with `limit`.
+    /// `text` in the pieces [`piece_end`] cuts it into with `limit`, at commas too.
     fn pieces(text: &str, limit: usize) -> Vec<&str> {
+        pieces_at(text, limit, true)
+    }
+
+    /// `text` in the pieces [`piece_end`] cuts it into with `limit`.
+    fn pieces_at(text: &str, limit: usize, commas: bool) -> Vec<&str> {
         let mut out = Vec::new();
         let mut rest = text;
         while !rest.is_empty() {
-            let end = piece_end(rest, limit);
+            let end = piece_end(rest, limit, commas);
             out.push(&rest[..end]);
             rest = rest[end..].trim_start();
         }
@@ -391,6 +534,60 @@ mod tests {
                 format!("{}。", "乙".repeat(30))
             ]
         );
+    }
+
+    #[test]
+    fn cuts_only_at_stronger_breaks_without_commas() {
+        let long = "There, Margaret, the sun is for ever visible, its broad disk just skirting the \
+                    horizon and diffusing a perpetual splendour; there snow and frost are banished, \
+                    and, sailing over a calm sea, we may be wafted to a land surpassing in wonders.";
+        assert_eq!(
+            pieces_at(long, 80, false),
+            vec![
+                "There, Margaret, the sun is for ever visible, its broad disk just skirting the \
+                 horizon and diffusing a perpetual splendour;",
+                "there snow and frost are banished, and, sailing over a calm sea, we may be wafted \
+                 to a land surpassing in wonders."
+            ]
+        );
+        // Commas only, not much longer than the limit: whole, where commas cut it.
+        let clauses = "It was a dark night, and the wind blew hard, and nobody came to the door.";
+        assert_eq!(pieces_at(clauses, 40, false), vec![clauses]);
+        assert_eq!(pieces_at(clauses, 40, true).len(), 2);
+        // A colon or a dash cuts it.
+        let colon = "He knew one thing for certain after all those years: nobody would come back.";
+        assert_eq!(
+            pieces_at(colon, 40, false),
+            vec![
+                "He knew one thing for certain after all those years:",
+                "nobody would come back."
+            ]
+        );
+        // Far longer than the limit with commas only: at a comma rather than in a clause.
+        let commas = "and the road went on and on for miles, ".repeat(4);
+        let cut = pieces_at(commas.trim_end(), 40, false);
+        assert!(cut.len() > 1);
+        assert!(
+            cut[..cut.len() - 1]
+                .iter()
+                .all(|piece| piece.ends_with(',')),
+            "{cut:?}"
+        );
+        // No mark at all: at spaces, as with commas.
+        let unmarked = "word ".repeat(40);
+        assert_eq!(
+            pieces_at(unmarked.trim_end(), 60, false),
+            pieces(unmarked.trim_end(), 60)
+        );
+    }
+
+    #[test]
+    fn cuts_overlong_sentences_at_stronger_breaks_first() {
+        let head = "a clause that goes on, and on, ".repeat(5);
+        let text = format!("{head}until a colon: {}", "then more words, ".repeat(12));
+        let pieces = split(&text);
+        assert!(pieces.len() > 1);
+        assert!(pieces[0].ends_with(':'), "{pieces:?}");
     }
 
     #[test]

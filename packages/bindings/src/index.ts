@@ -1841,6 +1841,16 @@ export const commands = {
 	videoDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_retry", { id })),
 	/**  Cancels a download or deletes a downloaded video. */
 	videoDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_remove", { id })),
+	/**
+	 *  Removes what deleted videos left behind (Settings → Data): folders no download owns, and
+	 *  finished downloads whose files are gone.
+	 */
+	videoDownloadsSweep: () => typedError<VideoDownloadsSwept, string>(__TAURI_INVOKE("video_downloads_sweep")),
+	/**
+	 *  The desktop player's address for another source's stream picked for its sound: linked
+	 *  through the stream proxy with its headers (Android's player opens the address itself).
+	 */
+	videoMediaLink: (url: string, headers: { [key in string]: string }) => typedError<string, string>(__TAURI_INVOKE("video_media_link", { url, headers })),
 	/**  Plays a download (from the device once it's finished). */
 	videoDownloadPlay: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_play", { id })),
 	/**  Marks a downloaded video watched or not. */
@@ -5306,8 +5316,11 @@ export type NovelReaderPrefs = {
 	width: NovelWidth,
 	/**  Pages turned sideways instead of one scrolling column. */
 	paged: boolean,
-	/**  Reading-aloud speed in tenths, 5–20 (0.5×–2×). */
-	ttsRate?: number,
+	/**
+	 *  Reading-aloud speed in hundredths, within [`TTS_SPEEDS`] (0.5×–3×). Older versions stored
+	 *  `ttsRate` in tenths, which loading settings reads as this.
+	 */
+	ttsSpeed?: number,
 	/**
 	 *  How far the first line of each paragraph starts in, as in printed books (M46.10), in
 	 *  tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
@@ -6059,7 +6072,7 @@ export type ReadAloudEngine =
 "kokoro";
 
 /**
- *  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). Set in
+ *  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_speed`). Set in
  *  Settings → AI → Reading aloud and in the reader's options.
  */
 export type ReadAloudPrefs = {
@@ -6081,6 +6094,12 @@ export type ReadAloudPrefs = {
 	romanEverywhere?: boolean,
 	/**  Numbered titles as ordinals ("Chapter the fourth"). */
 	romanOrdinals?: boolean,
+	/**
+	 *  Downloaded voices make long sentences in pieces cut at commas too: they start sooner on
+	 *  slow devices, but each cut sounds like a sentence's end. Off, pieces end at semicolons,
+	 *  colons and dashes, and at a comma only while nothing waits to be heard (reading starts).
+	 */
+	splitAtCommas?: boolean,
 };
 
 /**  What an AI layer in a reader does. */
@@ -8347,13 +8366,13 @@ export type TtsParagraph_Serialize = {
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest = TtsRequest_Serialize | TtsRequest_Deserialize;
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest_Deserialize = {
 	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
@@ -8381,7 +8400,7 @@ export type TtsRequest_Deserialize = {
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest_Serialize = {
 	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
@@ -8588,6 +8607,16 @@ export type VideoDownloads = {
 
 /**  The video downloads changed; carries the download's id when one did (else empty) (M43). */
 export type VideoDownloadsEvent = string;
+
+/**
+ *  What deleted videos left behind and was removed: folders no download owns (and the bytes in
+ *  them), and finished downloads whose files were gone.
+ */
+export type VideoDownloadsSwept = {
+	folders: number,
+	bytes: number | null,
+	entries: number,
+};
 
 export type VideoEpisodeView = {
 	/**  The stored episode's id. */

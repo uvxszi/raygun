@@ -99,13 +99,16 @@ fn cover_size_from(columns: u32, width: u32) -> i32 {
 /// the novel text's size in px becomes px more or less than the screen's own (18 px then), and
 /// the manga reader's widths in percent of the window become percent more or less than the
 /// screen's own. The novel reader's paragraph indent was a switch: on is the indent it gave
-/// (2 em), off none.
+/// (2 em), off none. Its reading-aloud speed was in tenths (`ttsRate`); it's in hundredths now.
 fn migrate_row(key: &str, value: &str) -> String {
     if key == "rail" {
         return crate::quick_access::migrate_row(value);
     }
     type Rename = (&'static str, &'static str, fn(i64) -> i64);
-    const NOVEL: &[Rename] = &[("fontSize", "textSize", old_novel_text)];
+    const NOVEL: &[Rename] = &[
+        ("fontSize", "textSize", old_novel_text),
+        ("ttsRate", "ttsSpeed", old_tts_rate),
+    ];
     const READER: &[Rename] = &[
         ("webtoonWidth", "webtoonSize", old_reader_width),
         ("barWidth", "barSize", old_reader_width),
@@ -142,6 +145,14 @@ fn migrate_row(key: &str, value: &str) -> String {
 /// Novel text in px (18 being the size then) as px more or less than the screen's own.
 fn old_novel_text(px: i64) -> i64 {
     (px - 18).clamp(-6, 12)
+}
+
+/// A reading-aloud speed in tenths as hundredths.
+fn old_tts_rate(tenths: i64) -> i64 {
+    (tenths * 10).clamp(
+        i64::from(*raygun_model::TTS_SPEEDS.start()),
+        i64::from(*raygun_model::TTS_SPEEDS.end()),
+    )
 }
 
 /// A reader width in percent of the window (0: the screen's) as percent more or less than the
@@ -315,7 +326,7 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
     let read_aloud = differs("readAloud", &|before| {
         before.read_aloud == settings.read_aloud
     }) || differs("novelReader", &|before| {
-        before.novel_reader.tts_rate == settings.novel_reader.tts_rate
+        before.novel_reader.tts_speed == settings.novel_reader.tts_speed
     });
     if read_aloud && before.is_some() {
         let app = app.clone();
@@ -739,6 +750,29 @@ mod tests {
         // Only the novel reader's row has one.
         let other = r#"{"indent":true}"#;
         assert_eq!(migrate_row("mangaReader", other), other);
+    }
+
+    #[test]
+    fn the_old_reading_speed_in_tenths_becomes_hundredths() {
+        let speed = |fields: &str| {
+            let row = format!(
+                r#"{{"lineSpacing":16,"font":"serif","width":"narrow","paged":false{fields}}}"#
+            );
+            match parse_row("novelReader", &migrate_row("novelReader", &row)) {
+                Ok(SettingChange::NovelReader(prefs)) => prefs.tts_speed,
+                other => panic!("{fields}: {other:?}"),
+            }
+        };
+        assert_eq!(speed(r#","ttsRate":15"#), 150);
+        assert_eq!(speed(r#","ttsRate":8"#), 80);
+        assert_eq!(
+            speed(r#","ttsRate":2"#),
+            50,
+            "kept within the speeds offered"
+        );
+        assert_eq!(speed(""), 100, "none stored: normal speed");
+        // A speed saved now wins over an old one beside it.
+        assert_eq!(speed(r#","ttsRate":15,"ttsSpeed":125"#), 125);
     }
 
     #[tokio::test]

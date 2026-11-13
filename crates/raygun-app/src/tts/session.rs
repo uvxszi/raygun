@@ -2,6 +2,7 @@
 //! read them), the ids engines get for them and send back, and the place kept for each chapter so
 //! reading goes on from it.
 
+use raygun_ai::tts::abbreviations::read_abbreviations;
 use raygun_ai::tts::language::foreign_passage;
 use raygun_ai::tts::numerals::{Rules, read_numerals};
 use raygun_ai::tts::sentences::sentences;
@@ -14,7 +15,8 @@ pub struct Utterance {
     pub paragraph: u32,
     /// As written.
     pub text: String,
-    /// As voices read it: Roman numerals as numbers where settings say.
+    /// As voices read it: Roman numerals as numbers where settings say, and abbreviations in full
+    /// ("St. Paul" as "Saint Paul").
     pub spoken: String,
     /// Where it is in its paragraph's text, in UTF-16 units (what the UI counts).
     pub start: u32,
@@ -55,11 +57,9 @@ pub fn utterances(paragraphs: &[TtsParagraph], reading: &Reading<'_>) -> Vec<Utt
                     paragraph: paragraph.id,
                     start: utf16(&paragraph.text[..range.start]),
                     end: utf16(&paragraph.text[..range.end]),
-                    spoken: read_numerals(
-                        text,
-                        paragraph.heading,
+                    spoken: read_abbreviations(
+                        &read_numerals(text, paragraph.heading, language.as_deref(), reading.rules),
                         language.as_deref(),
-                        reading.rules,
                     ),
                     text: text.to_owned(),
                     language: passage.clone(),
@@ -379,13 +379,47 @@ mod tests {
             spoken,
             vec![
                 "LETTER one.",
-                "To Mrs. Saville, England.",
-                "St. Petersburgh, Dec. 11th, 17—.",
+                "To Missus Saville, England.",
+                "Saint Petersburgh, December 11th, 17—.",
                 "CHAPTER twenty-four.",
                 "LETTER four.",
             ]
         );
         assert_eq!(items[0].text, "LETTER I.");
+    }
+
+    #[test]
+    fn reads_abbreviations_in_full_but_shows_and_marks_them_as_written() {
+        let text = "Dr. Watson lived at 221 Baker St. The house was near St. Paul's, i.e. close.";
+        let items = utterances(&[paragraph(0, text)], &ENGLISH);
+        let read: Vec<(&str, &str)> = items
+            .iter()
+            .map(|item| (item.text.as_str(), item.spoken.as_str()))
+            .collect();
+        assert_eq!(
+            read,
+            vec![
+                (
+                    "Dr. Watson lived at 221 Baker St.",
+                    "Doctor Watson lived at 221 Baker Street."
+                ),
+                (
+                    "The house was near St. Paul's, i.e. close.",
+                    "The house was near Saint Paul's, that is close."
+                ),
+            ]
+        );
+        // Highlighting follows the text as written.
+        assert_eq!((items[1].start, items[1].end), (34, text.len() as u32));
+        // A book in another language keeps its own.
+        let german = Reading {
+            language: Some("de"),
+            ..ENGLISH
+        };
+        assert_eq!(
+            utterances(&[paragraph(0, "St. Pauli ist in Hamburg.")], &german)[0].spoken,
+            "St. Pauli ist in Hamburg."
+        );
     }
 
     /// Frankenstein from Project Gutenberg as the reader gets it, through the Gutenberg source:

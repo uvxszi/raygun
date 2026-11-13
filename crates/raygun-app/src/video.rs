@@ -80,7 +80,7 @@ const STATE_PREFIX: &str = "video.playerState.";
 /// The brightness the player last had, for "remember brightness".
 const BRIGHTNESS_KEY: &str = "video.brightness";
 /// What a title remembers: speed, aspect, subtitle and audio choices, subtitle delay, intro length.
-const STATE_KEYS: [&str; 10] = [
+const STATE_KEYS: [&str; 12] = [
     "speed",
     "aspect",
     "subtitle",
@@ -90,6 +90,11 @@ const STATE_KEYS: [&str; 10] = [
     "introMs",
     // Subtitle lines changed by hand in the desktop player, per episode and track (M46.12).
     "subtitleEdits",
+    // How much later (or earlier) the sound plays than the picture.
+    "audioDelayMs",
+    // Sound from another source (`{source, language}`): the next episode takes it again from the
+    // same source when it offers that language.
+    "externalAudio",
     // The title's own picture effects and smart audio (`raygun_model::PictureEffects`).
     "pictureEffects",
     "smartAudio",
@@ -1760,17 +1765,24 @@ mod tests {
                 "subtitleDelayMs": -300,
                 "volume": 1,
                 "subtitleEdits": { "ep1|English|en": [{ "at": 1000, "startMs": 1200, "endMs": 3000, "text": "Hi" }] },
+                "audioDelayMs": 1200,
+                "externalAudio": { "source": "Torrentio", "language": "it" },
             })),
         );
         assert_eq!(
-            Value::Object(saved),
+            Value::Object(saved.clone()),
             json!({
                 "speed": 150,
                 "audio": { "language": "ja" },
                 "subtitleDelayMs": -300,
                 "subtitleEdits": { "ep1|English|en": [{ "at": 1000, "startMs": 1200, "endMs": 3000, "text": "Hi" }] },
+                "audioDelayMs": 1200,
+                "externalAudio": { "source": "Torrentio", "language": "it" },
             })
         );
+        // Picking the video's own sound again forgets the other source's.
+        merge_state(&mut saved, &object(json!({ "externalAudio": null })));
+        assert!(!saved.contains_key("externalAudio"));
     }
 
     #[test]
