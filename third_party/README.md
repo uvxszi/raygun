@@ -48,6 +48,18 @@ Upstream hashes with one of two C libraries: OpenSSL (through `crypto-hash`, whi
 
 Wired in through `[patch.crates-io]` in the workspace `Cargo.toml`.
 
+## librqbit-dualstack-sockets 0.7.0
+Upstream: https://github.com/ikatson/librqbit-dualstack-sockets (Apache-2.0, `LICENSE`). librqbit's sockets, under the torrent engine `raygun-torrent` uses.
+
+Upstream binds a socket to a network device with `socket2::Socket::bind_device` on every system but macOS and Windows, and socket2 has it only on Linux, Android and Fuchsia, so FreeBSD builds failed:
+
+| File | Change |
+|---|---|
+| `src/bind_device.rs` | `bind_device` on Linux, Android and Fuchsia only; elsewhere (the BSDs) binding to a device is unsupported, as on Windows. |
+| `Cargo.toml` | `publish = false`. |
+
+Wired in through `[patch.crates-io]` in the workspace `Cargo.toml`. Drop this copy once upstream builds on the BSDs.
+
 ## rustpython-host_env 0.6.0
 Upstream: https://github.com/RustPython/RustPython (MIT, `LICENSE`). It's the host-OS layer of RustPython, the Python interpreter Kodi add-ons run in (`raygun-ext-host::kodi`).
 

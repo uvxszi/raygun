@@ -30,9 +30,14 @@ xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- bash -c '
 status=$?
 
 find "$home/logs" -maxdepth 1 -type f -exec tail -n 30 {} + 2>/dev/null
-if [ -d "$home/logs/crashes" ] && [ -n "$(ls -A "$home/logs/crashes")" ]; then
+# Crash records are `<time>-<kind>.txt`; the folder also holds the start markers.
+if compgen -G "$home/logs/crashes/*.txt" > /dev/null; then
   echo "::error::Raygun wrote a crash log"
-  cat "$home"/logs/crashes/*
+  cat "$home"/logs/crashes/*.txt
+  exit 1
+fi
+if ! grep -q "the start went well" "$home"/logs/raygun.*; then
+  echo "::error::Raygun's log doesn't say its start went well"
   exit 1
 fi
 exit "$status"

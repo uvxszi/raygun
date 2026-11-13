@@ -207,7 +207,9 @@ jobs:
           if (Test-Path $logs) { Get-ChildItem -Recurse $logs | Where-Object { -not $_.PSIsContainer } | ForEach-Object { Get-Content $_.FullName -Tail 40 } }
           if ($app.HasExited) { Write-Error "Raygun stopped by itself (exit $($app.ExitCode))"; exit 1 }
           Stop-Process -Id $app.Id -Force
-          if (Test-Path (Join-Path $logs crashes)) { Write-Error "Raygun wrote a crash log"; exit 1 }
+          # Crash records are `<time>-<kind>.txt`; the folder also holds the start markers.
+          if (Get-ChildItem (Join-Path $logs crashes) -Filter *.txt -ErrorAction SilentlyContinue) { Write-Error "Raygun wrote a crash log"; exit 1 }
+          if (-not (Select-String -Path (Join-Path $logs 'raygun.*') -Pattern 'the start went well' -Quiet)) { Write-Error "Raygun's log doesn't say its start went well"; exit 1 }
 
       - uses: actions/upload-artifact@v7
         with:
@@ -491,7 +493,9 @@ jobs:
             wait "$pid"; echo "::error::Raygun stopped by itself (exit $?)"; exit 1
           fi
           kill "$pid"
-          if [ -d "$RAYGUN_HOME/logs/crashes" ] && [ -n "$(ls -A "$RAYGUN_HOME/logs/crashes")" ]; then echo "::error::Raygun wrote a crash log"; exit 1; fi
+          # Crash records are `<time>-<kind>.txt`; the folder also holds the start markers.
+          if compgen -G "$RAYGUN_HOME/logs/crashes/*.txt" > /dev/null; then echo "::error::Raygun wrote a crash log"; exit 1; fi
+          grep -q "the start went well" "$RAYGUN_HOME"/logs/raygun.* || { echo "::error::Raygun's log doesn't say its start went well"; exit 1; }
 
       - uses: actions/upload-artifact@v7
         with:
