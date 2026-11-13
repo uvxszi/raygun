@@ -2,7 +2,7 @@
 # deb. The release workflow builds it for every release (.github/workflows/release.yml, job `arch`)
 # and attaches the packages. For another version by hand: set _ver, run `updpkgsums`, `makepkg -si`.
 pkgname=raygun-bin
-_ver=1.9.6
+_ver=1.9.7
 pkgver=${_ver//-/_}
 pkgrel=1
 pkgdesc='Music, videos, comics and books in one app'
