@@ -2,6 +2,7 @@ package app.raygun.audio
 
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.os.SystemClock
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -293,11 +294,20 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
      */
     private fun checkFrames() {
         val player = host.player
-        // Smooth motion found it can't keep up (or its passes failed here): it goes, with a note.
+        // No frame went on for a while as the video plays: the picture would stay frozen.
+        val smoothOn = pipeline && applied.smoothMotion && !motionStatus.gaveUp
+        val stalled = motionStatus.watchdog.stalled(SystemClock.elapsedRealtime(), player.isPlaying, smoothOn)
+        if (stalled) {
+            Log.w(EFFECTS_TAG, "smooth motion stalled: no frame for ${MotionWatchdog.STALL_MS} ms; off")
+            motionStatus.gaveUp = true
+        }
+        // Smooth motion found it can't keep up (or its passes failed or stalled): it goes, with a note.
         if (motionStatus.gaveUp && applied.smoothMotion) {
             dropped += PictureEffects.SMOOTH_MOTION
             followMotion()
             watchFrames()
+            // Frames held in the effects go: the picture goes on from where the video is.
+            if (stalled) player.seekTo(player.currentPosition)
             host.showHint(label("effectsSmoothSlow", "Smooth motion turned off: this phone can't keep up"), 3_000)
             return
         }

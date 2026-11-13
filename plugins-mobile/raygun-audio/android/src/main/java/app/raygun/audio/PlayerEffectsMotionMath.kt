@@ -91,24 +91,18 @@ internal object MotionMath {
     fun intervalUs(fps: Double, speed: Float): Double = 1_000_000.0 / fps * max(speed, 0.1f)
 
     /**
-     * The frames to send between the frame before (`p0`) and the next (`p1`): one at each multiple
-     * of `interval` (so they come evenly), after `lastSent`, up to the next frame (which belongs to
-     * the gap after it). `t` 0 is the frame before as it is.
+     * The frames to send from the frame before (`p0`) to the next (`p1`): the gap cut into as many
+     * equal steps as fit at `interval` (never more frames than the screen's share), the last being
+     * the next frame itself (`t` 1). Ending on a decoded frame keeps Media3's replay cache going: it
+     * lets the frame after in only once one at or past this one has been shown.
      */
-    fun slots(p0: Long, p1: Long, lastSent: Long, interval: Double): List<MotionSlot> {
+    fun steps(p0: Long, p1: Long, interval: Double): List<MotionSlot> {
         if (p1 <= p0 || interval <= 0.0) return emptyList()
-        val from = max(p0, if (lastSent == Long.MIN_VALUE) p0 else lastSent + 1)
         val gap = (p1 - p0).toDouble()
-        val slots = mutableListOf<MotionSlot>()
-        var k = ceil(from / interval - 1e-9).toLong()
-        while (true) {
-            val time = k * interval
-            val pts = time.roundToLong()
-            if (pts >= p1) break
-            if (pts >= from) slots += MotionSlot(pts, ((time - p0) / gap).coerceIn(0.0, 1.0).toFloat())
-            k += 1
+        val count = max(1, floor(gap / interval + 0.01).toInt())
+        return (1..count).map { step ->
+            MotionSlot(if (step == count) p1 else p0 + (gap * step / count).roundToLong(), step.toFloat() / count)
         }
-        return slots
     }
 
     /** Whether frames this far apart are made smoother, or already come often enough. */
@@ -214,5 +208,38 @@ internal object MotionMath {
         costMs <= gapMs * BUDGET_SHARE -> quality
         quality + 1 < LEVEL_WIDTHS.size -> quality + 1
         else -> GIVE_UP
+    }
+}
+
+/**
+ * Turns smooth motion off when frames stop going on while the video plays: the GL thread stamps
+ * each frame sent ([sent]); the player's frame check asks [stalled] about once a second.
+ */
+internal class MotionWatchdog(private val limitMs: Long = STALL_MS) {
+    @Volatile
+    private var lastSentMs = 0L
+
+    /** When watching began (playing with smooth motion on); 0 while not watching. */
+    private var sinceMs = 0L
+
+    fun sent(nowMs: Long) {
+        lastSentMs = nowMs
+    }
+
+    /** No frame for longer than the limit while playing with smooth motion on. */
+    fun stalled(nowMs: Long, playing: Boolean, on: Boolean): Boolean {
+        if (!playing || !on) {
+            sinceMs = 0L
+            return false
+        }
+        if (sinceMs == 0L) {
+            sinceMs = nowMs
+            return false
+        }
+        return nowMs - max(lastSentMs, sinceMs) > limitMs
+    }
+
+    companion object {
+        const val STALL_MS = 500L
     }
 }

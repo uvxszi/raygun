@@ -51,6 +51,9 @@ internal class MotionStatus {
     @Volatile
     var madeMs = 0.0
 
+    /** When frames last went on (stamped on the GL thread, checked on the main thread). */
+    val watchdog = MotionWatchdog()
+
     fun again() {
         retry = true
         gaveUp = false
@@ -59,9 +62,11 @@ internal class MotionStatus {
 
 /**
  * Smooth motion as a Media3 effect, after the picture's ([PlayerEffects] adds both): between two
- * decoded frames it makes the frames for the screen's even beat (60 a second, or 45 on a 90 Hz
- * screen; [MotionMath.targetFps]), each at its own presentation time, so Media3's video sink shows
- * them in turn like decoded ones. The motion is found by block matching on luma pyramids
+ * decoded frames it makes as many evenly spaced frames as the screen's rate allows (at most 60 a
+ * second, or 45 on a 90 Hz screen; [MotionMath.steps]), each at its own presentation time, then
+ * sends the decoded frame itself, so Media3's video sink shows them in turn like decoded ones (and
+ * its replay cache, which lets a frame in once the one before has been shown, keeps going). If no
+ * frame goes on for a while as the video plays, [MotionWatchdog] turns it off. The motion is found by block matching on luma pyramids
  * (`fx_motion_*.glsl`): a coarse search, two finer ones and a half-pixel refinement, a vector
  * median, then each in-between frame follows it back and forth and blends; after a scene cut the
  * nearer frame repeats. It times itself now and then, steps down the flow's size when it takes too
@@ -257,8 +262,11 @@ private class SmoothMotionProgram(
             flowNs = finishedAt() - started
             measureMade = true
         }
-        for (each in MotionMath.slots(keptPts[previous], pts, lastSentPts, interval)) {
-            sends.addLast(MotionSend(each.pts, previous, each.t))
+        // The frames between, then this one as it is: Media3's replay cache lets the next frame in
+        // only once one at or after this one has been shown.
+        for (each in MotionMath.steps(keptPts[previous], pts, interval)) {
+            if (each.pts <= lastSentPts) continue
+            sends.addLast(if (each.t >= 1f) MotionSend(each.pts, slot, 0f) else MotionSend(each.pts, previous, each.t))
         }
     }
 
@@ -294,6 +302,7 @@ private class SmoothMotionProgram(
         }
         output.busy = true
         lastSentPts = next.pts
+        status.watchdog.sent(SystemClock.elapsedRealtime())
         outputListener.onOutputFrameAvailable(output.info, next.pts)
     }
 
@@ -301,7 +310,7 @@ private class SmoothMotionProgram(
     private fun judge(madeNs: Long) {
         val interval = MotionMath.intervalUs(MotionMath.targetFps(params.motion.displayHz), params.motion.speed)
         val gapUs = keptPts[latest] - keptPts[1 - latest]
-        val made = (gapUs / interval - 1).coerceAtLeast(1.0)
+        val made = (MotionMath.steps(0, gapUs, interval).size - 1).coerceAtLeast(1).toDouble()
         val flowMs = flowNs / 1e6
         val madeMs = madeNs / 1e6
         status.flowMs = flowMs

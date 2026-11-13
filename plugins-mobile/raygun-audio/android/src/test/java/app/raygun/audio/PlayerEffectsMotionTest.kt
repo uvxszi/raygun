@@ -31,23 +31,46 @@ class PlayerEffectsMotionTest {
     }
 
     @Test
-    fun framesComeOnAnEvenBeat() {
+    fun framesComeEvenlyAndEndOnTheDecodedOne() {
         val interval = MotionMath.intervalUs(60.0, 1f)
-        // 24 fps: the first frame went as it is; two in-between frames before the next.
-        val first = MotionMath.slots(0, 41_667, 0, interval)
-        assertEquals(listOf(16_667L, 33_333L), first.map { it.pts })
-        assertEquals(0.4f, first[0].t, 0.001f)
-        assertEquals(0.8f, first[1].t, 0.001f)
-        val second = MotionMath.slots(41_667, 83_333, 33_333, interval)
-        assertEquals(listOf(50_000L, 66_667L), second.map { it.pts })
-        assertEquals(0.2f, second[0].t, 0.001f)
-        // A frame on the beat goes as it is (t 0), the next gap's.
-        val third = MotionMath.slots(83_333, 125_000, 66_667, interval)
-        assertEquals(83_333L, third[0].pts)
-        assertEquals(0f, third[0].t, 0.001f)
-        // Nothing twice.
-        assertTrue(MotionMath.slots(0, 41_667, 41_000, interval).isEmpty())
-        assertTrue(MotionMath.slots(10, 10, Long.MIN_VALUE, interval).isEmpty())
+        // 30 fps on 60: one in-between frame half way, then the next frame itself.
+        val thirty = MotionMath.steps(0, 33_333, interval)
+        assertEquals(listOf(16_667L, 33_333L), thirty.map { it.pts })
+        assertEquals(listOf(0.5f, 1f), thirty.map { it.t })
+        // 24 fps: never more than the screen's share (48 a second, not 72).
+        val film = MotionMath.steps(41_667, 83_333, interval)
+        assertEquals(listOf(62_500L, 83_333L), film.map { it.pts })
+        // 12 fps: five steps.
+        assertEquals(listOf(0.2f, 0.4f, 0.6f, 0.8f, 1f), MotionMath.steps(0, 83_333, interval).map { it.t })
+        // 90 Hz (45 a second) at 24 fps: the decoded frame alone.
+        assertEquals(listOf(1f), MotionMath.steps(0, 41_667, MotionMath.intervalUs(45.0, 1f)).map { it.t })
+        // The last is always the decoded frame's own time.
+        assertEquals(41_667L, MotionMath.steps(0, 41_667, interval).last().pts)
+        assertTrue(MotionMath.steps(10, 10, interval).isEmpty())
+    }
+
+    @Test
+    fun theWatchdogTurnsAStalledPictureOff() {
+        val watchdog = MotionWatchdog(limitMs = 500)
+        // Watching starts with the first check while playing: no stall before any frame was due.
+        assertFalse(watchdog.stalled(1_000, playing = true, on = true))
+        watchdog.sent(1_200)
+        assertFalse(watchdog.stalled(1_600, playing = true, on = true))
+        // Frames keep coming: fine.
+        watchdog.sent(2_000)
+        assertFalse(watchdog.stalled(2_400, playing = true, on = true))
+        // No frame for more than half a second while playing: stalled.
+        assertTrue(watchdog.stalled(2_600, playing = true, on = true))
+        // Paused, or smooth motion off: never, and watching starts again after.
+        assertFalse(watchdog.stalled(5_000, playing = false, on = true))
+        assertFalse(watchdog.stalled(5_100, playing = true, on = true))
+        assertFalse(watchdog.stalled(5_500, playing = true, on = true))
+        assertTrue(watchdog.stalled(5_700, playing = true, on = true))
+        assertFalse(watchdog.stalled(9_000, playing = true, on = false))
+        // Without any frame since watching began: stalled after the limit.
+        val fresh = MotionWatchdog(limitMs = 500)
+        assertFalse(fresh.stalled(100, playing = true, on = true))
+        assertTrue(fresh.stalled(700, playing = true, on = true))
     }
 
     @Test
