@@ -5,8 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { DictionarySettings } from '../../dictionary/DictionarySettings';
 import { ReadingFontRow } from '../../fonts/ReadingFont';
 import { ReaderDisplaySettings } from '../../manga/ReaderDisplaySettings';
+import { SpeedSlider } from '../../novel/readAloud/SpeedSlider';
 import { DEFAULT_PREFS, INDENT, LINE_SPACING, TEXT_SIZE } from '../../novel/useNovel';
-import { PrefChoice, PrefGroup, PrefSize, PrefSlider, PrefSwitch } from '../prefs';
+import { PrefChoice, PrefGroup, PrefSize, PrefSwitch } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
 /** Settings → Reader: how comics' pages and books' text show, and reading aloud. */
@@ -80,14 +81,10 @@ export const ReaderSettings: FC = () => {
           checked={prefs.keepScreenOn ?? true}
           onChange={(keepScreenOn) => set({ keepScreenOn })}
         />
-        <PrefSlider
+        <SpeedSlider
           title={t('settings.speechRate')}
-          value={prefs.ttsRate ?? 10}
-          min={5}
-          max={20}
-          step={1}
-          format={(value) => `${(value / 10).toFixed(1)}×`}
-          onChange={(ttsRate) => set({ ttsRate })}
+          value={prefs.ttsSpeed}
+          onChange={(ttsSpeed) => set({ ttsSpeed })}
         />
       </PrefGroup>
       <DictionarySettings />

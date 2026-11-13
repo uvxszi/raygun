@@ -5306,8 +5306,11 @@ export type NovelReaderPrefs = {
 	width: NovelWidth,
 	/**  Pages turned sideways instead of one scrolling column. */
 	paged: boolean,
-	/**  Reading-aloud speed in tenths, 5–20 (0.5×–2×). */
-	ttsRate?: number,
+	/**
+	 *  Reading-aloud speed in hundredths, within [`TTS_SPEEDS`] (0.5×–3×). Older versions stored
+	 *  `ttsRate` in tenths, which loading settings reads as this.
+	 */
+	ttsSpeed?: number,
 	/**
 	 *  How far the first line of each paragraph starts in, as in printed books (M46.10), in
 	 *  tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
@@ -6034,7 +6037,7 @@ export type ReadAloudEngine =
 "kokoro";
 
 /**
- *  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). Set in
+ *  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_speed`). Set in
  *  Settings → AI → Reading aloud and in the reader's options.
  */
 export type ReadAloudPrefs = {
@@ -6056,6 +6059,12 @@ export type ReadAloudPrefs = {
 	romanEverywhere?: boolean,
 	/**  Numbered titles as ordinals ("Chapter the fourth"). */
 	romanOrdinals?: boolean,
+	/**
+	 *  Downloaded voices make long sentences in pieces cut at commas too: they start sooner on
+	 *  slow devices, but each cut sounds like a sentence's end. Off, pieces end at semicolons,
+	 *  colons and dashes, and at a comma only while nothing waits to be heard (reading starts).
+	 */
+	splitAtCommas?: boolean,
 };
 
 /**  What an AI layer in a reader does. */
@@ -8310,13 +8319,13 @@ export type TtsParagraph_Serialize = {
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest = TtsRequest_Serialize | TtsRequest_Deserialize;
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest_Deserialize = {
 	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
@@ -8344,7 +8353,7 @@ export type TtsRequest_Deserialize = {
 
 /**
  *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
- *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ *  settings' (`NovelReaderPrefs::tts_speed`, `ReadAloudPrefs`), applied as they change.
  */
 export type TtsRequest_Serialize = {
 	/**  The chapter read: reports name it, and where reading stopped is kept for it. */

@@ -13,6 +13,7 @@ import { PrefChoice, PrefLink, PrefSlider, PrefSwitch } from '../../settings/pre
 import { Problem } from '../../settings/Problem';
 import { useSettings, useUpdateSetting } from '../../settings/useSettings';
 import { DEFAULT_PREFS } from '../useNovel';
+import { SpeedSlider } from './SpeedSlider';
 import { primaryLanguage, useChooseVoice, voiceState, voiceStateText } from './voiceChoice';
 
 /** A language's name in the app's language (`de` → German). */
@@ -56,6 +57,26 @@ const VoiceDownload: FC<{
         <DownloadBar model={model} />
       </div>
     </li>
+  );
+};
+
+/**
+ * Whether downloaded voices cut long sentences at commas (`ReadAloudPrefs::split_at_commas`), off
+ * unless turned on: its line says what each way costs. Settings → AI → Reading aloud has it too.
+ */
+export const SplitAtCommasSwitch: FC<{
+  prefs: ReadAloudPrefs | undefined;
+  onChange: (splitAtCommas: boolean) => void;
+}> = ({ prefs, onChange }) => {
+  const { t } = useTranslation();
+  return (
+    <PrefSwitch
+      title={t('novel.readAloudOptions.splitAtCommas')}
+      summary={t('novel.readAloudOptions.splitAtCommasHint')}
+      checked={prefs?.splitAtCommas ?? false}
+      disabled={!prefs}
+      onChange={onChange}
+    />
   );
 };
 
@@ -187,6 +208,7 @@ export const ReadAloudOptions: FC<{
 
   const romanTitles = prefs?.romanTitles ?? true;
   const percent = (value: number) => `${value}%`;
+  // Pitch is in tenths.
   const times = (value: number) => `${(value / 10).toFixed(1)}×`;
 
   return (
@@ -223,14 +245,12 @@ export const ReadAloudOptions: FC<{
           />
         </li>
       )}
-      <PrefSlider
+      <SpeedSlider
         title={t('novel.speed')}
-        value={reader.ttsRate ?? 10}
-        min={5}
-        max={20}
-        step={1}
-        format={times}
-        onChange={(ttsRate) => update.mutate({ key: 'novelReader', value: { ...reader, ttsRate } })}
+        value={reader.ttsSpeed}
+        onChange={(ttsSpeed) =>
+          update.mutate({ key: 'novelReader', value: { ...reader, ttsSpeed } })
+        }
       />
       <PrefSlider
         title={t('ai.readAloud.pitch')}
@@ -266,6 +286,7 @@ export const ReadAloudOptions: FC<{
         disabled={!prefs}
         onChange={(detectLanguages) => save({ detectLanguages })}
       />
+      <SplitAtCommasSwitch prefs={prefs} onChange={(splitAtCommas) => save({ splitAtCommas })} />
       <PrefSwitch
         title={t('novel.readAloudOptions.romanTitles')}
         summary={t('novel.readAloudOptions.romanTitlesHint')}

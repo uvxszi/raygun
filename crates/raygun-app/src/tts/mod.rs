@@ -94,8 +94,8 @@ enum Reader {
 #[derive(Debug, Clone, PartialEq)]
 struct Made {
     prefs: ReadAloudPrefs,
-    /// Speed in tenths.
-    rate: u32,
+    /// Speed in hundredths.
+    speed: u32,
     /// The language chosen for the book.
     chosen: Option<String>,
 }
@@ -104,7 +104,7 @@ impl Made {
     fn of(settings: &raygun_model::Settings, chosen: Option<String>) -> Self {
         Self {
             prefs: settings.read_aloud.clone(),
-            rate: settings.novel_reader.tts_rate,
+            speed: settings.novel_reader.tts_speed,
             chosen,
         }
     }
@@ -117,7 +117,8 @@ impl Made {
     }
 
     fn rate(&self) -> f64 {
-        f64::from(self.rate.clamp(5, 20)) / 10.0
+        let speeds = raygun_model::TTS_SPEEDS;
+        f64::from(self.speed.clamp(*speeds.start(), *speeds.end())) / 100.0
     }
 
     fn pitch(&self) -> f64 {
@@ -900,6 +901,7 @@ impl ReadAloud {
             rate: session.made.rate(),
             pitch: session.made.pitch(),
             volume: session.made.volume(),
+            commas: session.made.prefs.split_at_commas,
             language: session.language.clone(),
             title: session.title.clone(),
             chapter: session.chapter.clone(),
@@ -1234,6 +1236,8 @@ struct Plan {
     rate: f64,
     pitch: f64,
     volume: f64,
+    /// Long sentences are cut at commas too ([`ReadAloudPrefs::split_at_commas`]).
+    commas: bool,
     language: Option<String>,
     title: String,
     chapter: String,

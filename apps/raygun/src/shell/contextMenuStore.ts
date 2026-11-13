@@ -41,6 +41,10 @@ export const openContextMenu = (event: ReactMouseEvent | MouseEvent, items: Menu
   useContextMenuStore.getState().show(event.clientX, event.clientY, items);
 };
 
+/** Opens an item's menu where a hold or a right click was (Library → All's items). */
+export const openMenuAtPoint = (at: { x: number; y: number }, items: MenuItem[]) =>
+  useContextMenuStore.getState().show(at.x, at.y, items);
+
 /** Opens an item's menu from its ⋮ button: under it (a phone shows a sheet). */
 export const openMenuAt = (anchor: HTMLElement, items: MenuItem[]) => {
   const box = anchor.getBoundingClientRect();

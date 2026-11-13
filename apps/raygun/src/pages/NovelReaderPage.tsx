@@ -55,6 +55,8 @@ import type { ContentsPlace } from '../novel/pdfContents';
 import { PdfContentsSheet } from '../novel/PdfContentsSheet';
 import { PdfPagesView } from '../novel/PdfPagesView';
 import { ReadAloudOptions } from '../novel/readAloud/ReadAloudOptions';
+import { NORMAL_SPEED } from '../novel/readAloud/speed';
+import { SpeedButton } from '../novel/readAloud/SpeedButton';
 import { textOffsetAt } from '../novel/readAloud/textOffset';
 import { useFollowReading } from '../novel/readAloud/useFollowReading';
 import { TableBlock } from '../novel/TableBlock';
@@ -94,8 +96,6 @@ const SWIPE_PX = 50;
 const LONG_PRESS_MS = 500;
 /** A press that moves farther than this is a scroll, not a long press. */
 const PRESS_SLOP_PX = 10;
-/** Reading-aloud speeds the toolbar steps through, in tenths. */
-const SPEEDS = [8, 10, 12, 15, 20] as const;
 /** Side margin of a page in paged mode. */
 const PAGE_PADDING = 20;
 /** A page's widest, by the Width setting (M46.38): the scrolled column's width and a little more. */
@@ -1225,7 +1225,7 @@ export const NovelReaderPage: FC = () => {
   const readingRef = useRef(false);
   const dataRef = useRef(data);
   // Speed, pitch, volume and voice are settings Rust applies to the reading as they change.
-  const rate = prefs.ttsRate ?? 10;
+  const speed = prefs.ttsSpeed ?? NORMAL_SPEED;
   /** The language being read, as reading aloud reports it. */
   const [readingLanguage, setReadingLanguage] = useState<string | null>(null);
   /** Set when a chapter ended aloud: the next one starts reading once it loads. */
@@ -1667,22 +1667,12 @@ export const NovelReaderPage: FC = () => {
                     >
                       <RotateCcw aria-hidden size={18} />
                     </button>
-                    <button
-                      type="button"
-                      aria-label={`${t('novel.speed')}: ${(rate / 10).toFixed(1)}×`}
-                      onClick={() =>
-                        updateSetting.mutate({
-                          key: 'novelReader',
-                          value: {
-                            ...prefs,
-                            ttsRate: SPEEDS.find((speed) => speed > rate) ?? SPEEDS[0],
-                          },
-                        })
+                    <SpeedButton
+                      speed={speed}
+                      onChange={(ttsSpeed) =>
+                        updateSetting.mutate({ key: 'novelReader', value: { ...prefs, ttsSpeed } })
                       }
-                      className="min-w-11 rounded-full px-1.5 text-sm font-semibold tabular-nums"
-                    >
-                      {(rate / 10).toFixed(1)}×
-                    </button>
+                    />
                     <button
                       type="button"
                       aria-label={t('novel.readAloudOptions.open')}

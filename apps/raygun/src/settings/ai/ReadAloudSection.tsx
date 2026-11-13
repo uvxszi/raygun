@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { useAiModels, useDeleteAiModel, useDownloadAiModel } from '../../ai/useAi';
 import { unwrapResult } from '../../lib/commandResult';
 import { formatBytes } from '../../lib/formatBytes';
+import { SplitAtCommasSwitch } from '../../novel/readAloud/ReadAloudOptions';
+import { SpeedSlider } from '../../novel/readAloud/SpeedSlider';
 import {
   primaryLanguage,
   useChooseVoice,
@@ -275,14 +277,12 @@ export const ReadAloudSection: FC = () => {
           </PrefBlock>
         </>
       )}
-      <PrefSlider
+      <SpeedSlider
         title={t('settings.speechRate')}
-        value={reader.ttsRate ?? 10}
-        min={5}
-        max={20}
-        step={1}
-        format={(value) => `${(value / 10).toFixed(1)}×`}
-        onChange={(ttsRate) => update.mutate({ key: 'novelReader', value: { ...reader, ttsRate } })}
+        value={reader.ttsSpeed}
+        onChange={(ttsSpeed) =>
+          update.mutate({ key: 'novelReader', value: { ...reader, ttsSpeed } })
+        }
       />
       <PrefSlider
         title={t('ai.readAloud.pitch')}
@@ -311,6 +311,7 @@ export const ReadAloudSection: FC = () => {
         disabled={!prefs}
         onChange={(detectLanguages) => save({ detectLanguages })}
       />
+      <SplitAtCommasSwitch prefs={prefs} onChange={(splitAtCommas) => save({ splitAtCommas })} />
       <PrefSwitch
         title={t('novel.readAloudOptions.romanTitles')}
         summary={t('novel.readAloudOptions.romanTitlesHint')}
