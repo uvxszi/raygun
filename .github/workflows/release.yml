@@ -18,6 +18,11 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # A build-only run on main every week keeps each platform's Rust cache warm: a tag's run can
+  # restore caches the default branch saved but never another tag's, so without this every release
+  # compiled all its dependencies from scratch.
+  schedule:
+    - cron: '0 6 * * 1'
   workflow_dispatch:
     inputs:
       tag:
