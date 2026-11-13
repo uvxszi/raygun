@@ -394,7 +394,10 @@ pub async fn download_episodes(
             continue;
         }
         // One title that can't be read doesn't stop the others.
-        match downloads.enqueue_episodes(&video_group(&row), &next).await {
+        match downloads
+            .enqueue_episodes(&video_group(&row), &next, None)
+            .await
+        {
             Ok(count) => queued += count,
             Err(message) => failed.push(BulkFailure {
                 title: row.fields.title.clone(),

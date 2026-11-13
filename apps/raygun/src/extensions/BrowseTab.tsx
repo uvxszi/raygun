@@ -1,5 +1,5 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
-import { Check, Info, LoaderCircle, X } from 'lucide-react';
+import { Check, Info, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,7 +20,7 @@ import { EntryInfo } from './EntryInfo';
 import { MihonApkAction } from './MihonApkAction';
 import { entryKey, useInstallQueue } from './installQueue';
 import type { InstallStatus } from './installQueue';
-import { useCatalog } from './useExtensions';
+import { useCatalog, useRefreshRepo } from './useExtensions';
 import { SourceIssue } from '../shell/SourceIssue';
 
 const SELECT = 'bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none';
@@ -289,17 +289,46 @@ const CatalogRow = memo<{
   );
 }, rowsEqual);
 
-/** A repository's name, and why it couldn't be read or that it lists nothing that fits. */
-const RepoHeading: FC<{ listing: RepoCatalog; first: boolean; row: RowProps }> = ({
-  listing,
-  first,
-  row,
-}) => {
+/**
+ * A repository's name with its Reload (its index fetched again), and why it couldn't be read or
+ * that it lists nothing that fits.
+ */
+const RepoHeading: FC<{
+  listing: RepoCatalog;
+  first: boolean;
+  reloading: boolean;
+  /** Why its last Reload failed. */
+  failed: string | null;
+  onReload: (repoId: string) => void;
+  row: RowProps;
+}> = ({ listing, first, reloading, failed, onReload, row }) => {
   const { t } = useTranslation();
+  const name = listing.repo.name;
   return (
     <li {...row} className={`flex flex-col gap-2 ${first ? '' : 'pt-4'} pb-1`}>
-      <h2 className="text-primary px-1 text-sm font-semibold">{listing.repo.name}</h2>
-      {listing.error && <SourceIssue source={listing.repo.name}>{listing.error}</SourceIssue>}
+      <div className="flex items-center gap-2">
+        <h2 className="text-primary min-w-0 flex-1 truncate px-1 text-sm font-semibold">{name}</h2>
+        <button
+          type="button"
+          aria-label={t('extensions.reloadRepo', { name })}
+          disabled={reloading}
+          onClick={() => onReload(listing.repo.id)}
+          className="text-muted hover:text-foreground grid size-8 shrink-0 place-items-center rounded-full disabled:opacity-60"
+        >
+          <RefreshCw aria-hidden size={16} className={reloading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+      {reloading && (
+        <p role="status" className="text-muted px-1 text-xs">
+          {t('extensions.reloadingRepo', { name })}
+        </p>
+      )}
+      {failed && (
+        <SourceIssue source={name} title={t('extensions.reloadRepoFailed', { name })}>
+          {failed}
+        </SourceIssue>
+      )}
+      {listing.error && <SourceIssue source={name}>{listing.error}</SourceIssue>}
       {!listing.error && listing.entries.length === 0 && (
         <p className="text-muted text-sm">{t('extensions.repoEmpty')}</p>
       )}
@@ -323,6 +352,7 @@ const lineKey = (line: CatalogLine) =>
 export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
   const { t } = useTranslation();
   const catalog = useCatalog();
+  const reloadRepo = useRefreshRepo();
   const queue = useInstallQueue();
   const runSourceCode = useSettings().data?.runSourceCode ?? false;
   const [info, setInfo] = useState<{ entry: CatalogEntry; anchor: HTMLElement } | null>(null);
@@ -471,7 +501,18 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
           className="flex flex-col"
           renderRow={(line, _index, row) =>
             line.kind === 'repo' ? (
-              <RepoHeading listing={line.listing} first={line.first} row={row} />
+              <RepoHeading
+                listing={line.listing}
+                first={line.first}
+                reloading={reloadRepo.isPending && reloadRepo.variables === line.listing.repo.id}
+                failed={
+                  reloadRepo.isError && reloadRepo.variables === line.listing.repo.id
+                    ? reloadRepo.error.message
+                    : null
+                }
+                onReload={reloadRepo.mutate}
+                row={row}
+              />
             ) : (
               <CatalogRow
                 entry={line.entry}

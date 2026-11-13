@@ -283,6 +283,11 @@ export const commands = {
 	 *  few minutes unless `refresh` is set.
 	 */
 	extensionCatalog: (refresh: boolean) => typedError<RepoCatalog[], string>(__TAURI_INVOKE("extension_catalog", { refresh })),
+	/**
+	 *  The catalogue with one repository's index fetched again (its Reload): every repository's
+	 *  listing, as `extension_catalog` answers.
+	 */
+	extensionCatalogRefreshRepo: (repoId: string) => typedError<RepoCatalog[], string>(__TAURI_INVOKE("extension_catalog_refresh_repo", { repoId })),
 	/**  Installs, or updates to, the version a repository lists. */
 	extensionInstall: (repoId: string, extensionId: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_install", { repoId, extensionId })),
 	/**  Adds installs to the queue (one, a selection, every update); they run in the background. */
@@ -1554,6 +1559,11 @@ export const commands = {
 	saveFolderState: (uri: string) => typedError<SaveFolderState, string>(__TAURI_INVOKE("save_folder_state", { uri })),
 	/**  What an export would do: chapters, those to download first, files, or why it can't run. */
 	exportPlan: (request: ExportRequest) => typedError<ExportPlan, string>(__TAURI_INVOKE("export_plan", { request })),
+	/**
+	 *  The sources a stored video title's episodes can download from in an export (`unit_id`'s
+	 *  servers, else its first episode's; a Stremio title's addons), with the one to preselect.
+	 */
+	exportVideoSources: (titleId: string, unitId: string | null) => typedError<ExportVideoSources, string>(__TAURI_INVOKE("export_video_sources", { titleId, unitId })),
 	/**  Starts an export in the background; progress comes as `ExportEvent`s. */
 	exportStart: (request: ExportRequest) => typedError<ExportJob, string>(__TAURI_INVOKE("export_start", { request })),
 	/**
@@ -3725,6 +3735,11 @@ export type ExportRequest = {
 	 *  of the one set in Settings → Downloads.
 	 */
 	folder: ExportFolder | null,
+	/**
+	 *  Videos: the source (a server's or an addon's name, as `export_video_sources` lists them)
+	 *  the episodes still to download take their links from.
+	 */
+	source?: string | null,
 };
 
 /**  Which chapters or episodes of each title an export takes. */
@@ -3739,6 +3754,22 @@ export type ExportScope = { kind: "all" } |
 export type ExportState = 
 /**  Waiting for chapters to download. */
 "downloading" | "writing" | "done" | "failed" | "cancelled";
+
+export type ExportVideoSource = {
+	name: string,
+	/**  It played the title last. */
+	lastPlayed: boolean,
+	/**  It failed lately ("didn't work lately"). */
+	failing: boolean,
+};
+
+/**  The sources a video title's episodes can download from, for the export sheet's one choice. */
+export type ExportVideoSources = {
+	/**  Best first: the one played last, then by how well each worked lately. */
+	sources: ExportVideoSource[],
+	/**  The one to preselect: the one played last for the title, else the best ranked. */
+	chosen: string | null,
+};
 
 export type ExtensionInfo = ExtensionInfo_Serialize | ExtensionInfo_Deserialize;
 

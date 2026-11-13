@@ -574,6 +574,7 @@ export const bindingsMock = {
     extensionSuggestedRepos: vi.fn(),
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
+    extensionCatalogRefreshRepo: vi.fn(),
     extensionMihonApk: vi.fn(),
     mihonRuntimeState: vi.fn(),
     mihonRuntimeSetup: vi.fn(),
@@ -797,6 +798,7 @@ export const bindingsMock = {
     songsPickFolder: vi.fn(),
     saveFolderState: vi.fn(),
     exportPlan: vi.fn(),
+    exportVideoSources: vi.fn(),
     exportStart: vi.fn(),
     exportPickFolder: vi.fn(),
     exportLastFolder: vi.fn(),
@@ -1418,6 +1420,7 @@ export const seedBindings = () => {
   commands.extensionSuggestedRepos.mockResolvedValue(ok([]));
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
+  commands.extensionCatalogRefreshRepo.mockResolvedValue(ok([]));
   commands.extensionInstall.mockResolvedValue(ok([]));
   for (const name of [
     'extensionInstallsEnqueue',
@@ -1737,6 +1740,7 @@ export const seedBindings = () => {
     ok({ chapters: 0, missing: 0, files: 0, problem: null, conversions: [] }),
   );
   commands.exportStart.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.exportVideoSources.mockResolvedValue(ok({ sources: [], chosen: null }));
   commands.exportPickFolder.mockResolvedValue(ok(null));
   commands.exportLastFolder.mockResolvedValue(ok(null));
   commands.exportLastFormat.mockResolvedValue(ok(null));

@@ -507,6 +507,72 @@ describe('Extensions', () => {
     expect(issue).toHaveTextContent('could not reach example.org');
   });
 
+  it('reloads every repository, or one from its heading, saying what failed', async () => {
+    const user = userEvent.setup();
+    commands.extensionCatalog.mockImplementation(async (refresh) =>
+      refresh
+        ? ok(catalog([], 'could not reach example.org'))
+        : ok(catalog([entry({ state: 'installed' })])),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+    await screen.findAllByTestId('catalog-entry');
+
+    await user.click(screen.getByRole('button', { name: 'Reload all' }));
+    expect(commands.extensionCatalog).toHaveBeenCalledWith(true);
+    expect(await screen.findByText("1 repository couldn't be read")).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not reach example.org');
+
+    // One repository: its index alone is fetched again.
+    commands.extensionCatalogRefreshRepo.mockResolvedValueOnce(
+      ok(
+        catalog([entry({ state: 'updateAvailable', version: '1.1.0', installedVersion: '1.0.0' })]),
+      ),
+    );
+    await user.click(screen.getByRole('button', { name: 'Reload Raygun Extensions' }));
+    expect(commands.extensionCatalogRefreshRepo).toHaveBeenCalledWith('repo-1');
+    expect(await screen.findByText('1.0.0 → 1.1.0')).toBeInTheDocument();
+
+    commands.extensionCatalogRefreshRepo.mockResolvedValueOnce({
+      status: 'error',
+      error: 'This repository is no longer added',
+    });
+    await user.click(screen.getByRole('button', { name: 'Reload Raygun Extensions' }));
+    expect(await screen.findByText('This repository is no longer added')).toBeInTheDocument();
+  });
+
+  it("checks one extension for an update from its info, updating it when there's one", async () => {
+    const user = userEvent.setup();
+    commands.extensionCatalog.mockResolvedValue(ok(catalog([entry({ state: 'installed' })])));
+    await AppShellWrapper.mount('/extensions?tab=browse');
+    const [row] = await screen.findAllByTestId('catalog-entry');
+    await user.click(within(row!).getByRole('button', { name: 'About Radio Stations' }));
+    const info = screen.getByRole('dialog', { name: 'About this extension' });
+
+    commands.extensionCatalogRefreshRepo.mockResolvedValueOnce(
+      ok(catalog([entry({ state: 'installed' })])),
+    );
+    await user.click(within(info).getByRole('button', { name: 'Check for an update' }));
+    expect(await within(info).findByText('Up to date')).toBeInTheDocument();
+    expect(commands.extensionInstallsEnqueue).not.toHaveBeenCalled();
+
+    commands.extensionCatalogRefreshRepo.mockResolvedValueOnce(
+      ok(
+        catalog([entry({ state: 'updateAvailable', version: '2.0.0', installedVersion: '1.0.0' })]),
+      ),
+    );
+    await user.click(within(info).getByRole('button', { name: 'Check for an update' }));
+    expect(await within(info).findByText('Updating to 2.0.0')).toBeInTheDocument();
+    expect(commands.extensionInstallsEnqueue).toHaveBeenCalledWith([
+      { repoId: 'repo-1', extensionId: 'dev.example.radio', name: 'Radio Stations' },
+    ]);
+
+    commands.extensionCatalogRefreshRepo.mockResolvedValueOnce(
+      ok(catalog([], 'could not reach example.org')),
+    );
+    await user.click(within(info).getByRole('button', { name: 'Check for an update' }));
+    expect(await within(info).findByRole('alert')).toHaveTextContent('could not reach example.org');
+  });
+
   it('adds and removes repositories', async () => {
     commands.extensionRepos.mockResolvedValue(ok([REPO]));
     commands.sourcesDetect.mockResolvedValue({

@@ -271,7 +271,8 @@ impl VideoDownloadService {
                 }
             }
         }
-        let (links, source) = auto::candidates(&self.app, episode)
+        let preferred = auto::preferred_source(&row.download.url);
+        let (links, source) = auto::candidates(&self.app, episode, preferred.as_deref())
             .await
             .map_err(Failure::Error)?;
         let memory = self.subtitle_memory(&source).await;
@@ -421,11 +422,13 @@ impl VideoDownloadService {
 
     /// Queues episodes of a title (`group` is `Origin::group_key`; `episode_ids` their ids at the
     /// source) without a link: each finds one when its turn comes. Episodes not out yet, and those
-    /// queued or downloaded already, are skipped. Returns how many were queued.
+    /// queued or downloaded already, are skipped. Returns how many were queued. `source` (a
+    /// server's or an addon's name) is where their links come from first.
     pub async fn enqueue_episodes(
         &self,
         group: &str,
         episode_ids: &[String],
+        source: Option<&str>,
     ) -> Result<u32, String> {
         let origin = Origin::from_group(group).ok_or("This title can't be downloaded")?;
         let db = self.db();
@@ -482,7 +485,7 @@ impl VideoDownloadService {
                 title: title.clone(),
                 subtitle: (!single).then(|| episode.label.clone()),
                 poster: poster.clone(),
-                url: auto::pending_url(&reference),
+                url: auto::pending_url_from(&reference, source),
                 headers: "{}".into(),
                 format: None,
                 subtitles: "[]".into(),

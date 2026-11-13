@@ -773,6 +773,17 @@ pub async fn extension_catalog(
     extensions.catalog(refresh).await
 }
 
+/// The catalogue with one repository's index fetched again (its Reload): every repository's
+/// listing, as `extension_catalog` answers.
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_catalog_refresh_repo(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    repo_id: String,
+) -> Result<Vec<RepoCatalog>, String> {
+    extensions.refresh_repo(&repo_id).await
+}
+
 /// Installs, or updates to, the version a repository lists.
 #[tauri::command]
 #[specta::specta]
@@ -5211,6 +5222,18 @@ pub async fn export_plan(
     exports.plan(&request).await
 }
 
+/// The sources a stored video title's episodes can download from in an export (`unit_id`'s
+/// servers, else its first episode's; a Stremio title's addons), with the one to preselect.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_video_sources(
+    app: tauri::AppHandle,
+    title_id: String,
+    unit_id: Option<String>,
+) -> Result<raygun_model::ExportVideoSources, String> {
+    crate::export::video::sources(&app, &title_id, unit_id.as_deref()).await
+}
+
 /// Starts an export in the background; progress comes as `ExportEvent`s.
 #[tauri::command]
 #[specta::specta]
@@ -6216,7 +6239,7 @@ pub async fn video_download_episodes(
     group: String,
     episode_ids: Vec<String>,
 ) -> Result<u32, String> {
-    downloads.enqueue_episodes(&group, &episode_ids).await
+    downloads.enqueue_episodes(&group, &episode_ids, None).await
 }
 
 /// The subtitle tracks ticked at first when downloading from `source` (a video source's id, or

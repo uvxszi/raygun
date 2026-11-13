@@ -1244,6 +1244,19 @@ impl StremioService {
         Ok(groups)
     }
 
+    /// The names of the addons that are on and serve streams for the title `id` of `kind`, as
+    /// its play sessions name their groups. Nothing is fetched.
+    pub async fn stream_addon_names(&self, kind: &str, id: &str) -> Result<Vec<String>, String> {
+        Ok(self
+            .active()
+            .await?
+            .iter()
+            .filter_map(|addon| addon.manifest())
+            .filter(|manifest| manifest.serves("stream", kind, id))
+            .map(|manifest| manifest.name.clone())
+            .collect())
+    }
+
     /// The addons' streams for a movie or episode of the title `meta_id`: the details' own (a
     /// channel's videos, YouTube's) first, then every addon that serves streams, each asked by
     /// an id it knows, a few at a time; addons that didn't answer lately come last.

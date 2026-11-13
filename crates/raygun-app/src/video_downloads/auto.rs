@@ -1,6 +1,6 @@
 //! Episodes queued without a link: several at once from a title page or the library, and the
 //! episodes an export downloads first. Such a row's `url` names the episode
-//! ([`pending_url`]); when its turn comes, the worker looks up the episode's links as a playback
+//! ([`pending_url_from`]); when its turn comes, the worker looks up the episode's links as a playback
 //! session would (every server or addon, ordered by what played and worked before and the
 //! preferred picture size) and downloads the best one that can be saved, trying the next ones
 //! when it fails.
@@ -28,16 +28,32 @@ const LINKS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// every stream).
 pub const STREMIO_SUBTITLES: &str = "stremio";
 
-pub fn pending_url(episode: &EpisodeRef) -> String {
-    format!(
-        "{PENDING}{}",
-        serde_json::to_string(episode).unwrap_or_default()
-    )
+/// A pending row's `url`, naming the source (a session group's name: a server, an addon) its
+/// links come from first, as chosen in the export sheet.
+pub fn pending_url_from(episode: &EpisodeRef, source: Option<&str>) -> String {
+    let mut value = serde_json::to_value(episode).unwrap_or_default();
+    if let (Some(source), Some(fields)) = (source, value.as_object_mut()) {
+        fields.insert(SOURCE_FIELD.to_owned(), source.into());
+    }
+    format!("{PENDING}{value}")
 }
+
+/// Where a pending row's chosen source is kept in its `url`.
+const SOURCE_FIELD: &str = "preferSource";
 
 /// The episode a pending row names.
 pub fn parse_pending(url: &str) -> Option<EpisodeRef> {
     serde_json::from_str(url.strip_prefix(PENDING)?).ok()
+}
+
+/// The source a pending row's links come from first, when one was chosen.
+pub fn preferred_source(url: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(url.strip_prefix(PENDING)?).ok()?;
+    value
+        .get(SOURCE_FIELD)?
+        .as_str()
+        .filter(|source| !source.is_empty())
+        .map(str::to_owned)
 }
 
 /// A link a download can save: a web address that isn't DASH, a YouTube video, a live stream or a
@@ -61,7 +77,11 @@ pub fn downloadable(request: &VideoRequest) -> bool {
 
 /// The links to try, best first: as a session would order them, leaving out ones that can't be
 /// saved or have failed, and those naming another episode when others are there.
-pub fn best_links(mut groups: Vec<Group>, ranking: &Ranking) -> Vec<VideoRequest> {
+pub fn best_links(
+    mut groups: Vec<Group>,
+    ranking: &Ranking,
+    preferred: Option<&str>,
+) -> Vec<VideoRequest> {
     order_groups(&mut groups, ranking);
     let mut links: Vec<(&Group, &Link)> = groups
         .iter()
@@ -70,6 +90,12 @@ pub fn best_links(mut groups: Vec<Group>, ranking: &Ranking) -> Vec<VideoRequest
         .filter(|(_, link)| link.failed.is_none() && downloadable(&link.request))
         .collect();
     links.sort_by_cached_key(|(group, link)| ranking.link_key(&group.name, link));
+    // A source chosen for the download: only its links, unless it has none to save.
+    if let Some(preferred) = preferred
+        && links.iter().any(|(group, _)| group.name == preferred)
+    {
+        links.retain(|(group, _)| group.name == preferred);
+    }
     if links.iter().any(|(_, link)| !link.mismatch) {
         links.retain(|(_, link)| !link.mismatch);
     }
@@ -85,6 +111,7 @@ pub fn best_links(mut groups: Vec<Group>, ranking: &Ranking) -> Vec<VideoRequest
 pub async fn candidates(
     app: &AppHandle,
     episode: &EpisodeRef,
+    preferred: Option<&str>,
 ) -> Result<(Vec<VideoRequest>, String), String> {
     let sessions = app.state::<VideoSessions>();
     let (groups, subtitles_source) = match &episode.origin {
@@ -120,7 +147,7 @@ pub async fn candidates(
     let (memory, health, resolution) = sessions.ranking_inputs(&episode.origin).await;
     let ranking = Ranking::new(&memory, &health, resolution, now_ms());
     let group_key = episode.origin.group_key();
-    let mut links = best_links(groups, &ranking);
+    let mut links = best_links(groups, &ranking, preferred);
     for link in &mut links {
         link.group.get_or_insert_with(|| group_key.clone());
     }
@@ -247,7 +274,7 @@ mod tests {
             },
             episode: "tt1:1:2".into(),
         };
-        let url = pending_url(&episode);
+        let url = pending_url_from(&episode, None);
         assert!(url.starts_with(PENDING));
         assert_eq!(parse_pending(&url), Some(episode));
         assert_eq!(parse_pending("https://cdn/film.mp4"), None);
@@ -293,10 +320,36 @@ mod tests {
         let memory = Remembered::default();
         let health = SourceHealth::default();
         let ranking = Ranking::new(&memory, &health, VideoResolution::default(), 1);
-        let urls: Vec<String> = best_links(groups, &ranking)
-            .into_iter()
-            .map(|request| request.url)
-            .collect();
-        assert_eq!(urls, vec!["https://b/1080.mp4", "https://a/480.mp4"]);
+        let urls = |preferred: Option<&str>| -> Vec<String> {
+            best_links(groups.clone(), &ranking, preferred)
+                .into_iter()
+                .map(|request| request.url)
+                .collect()
+        };
+        assert_eq!(urls(None), vec!["https://b/1080.mp4", "https://a/480.mp4"]);
+        assert_eq!(
+            urls(Some("Alpha")),
+            vec!["https://a/480.mp4"],
+            "a chosen source's links alone"
+        );
+        assert_eq!(
+            urls(Some("Gamma")),
+            vec!["https://b/1080.mp4", "https://a/480.mp4"],
+            "a chosen source with nothing to save leaves the others"
+        );
+    }
+
+    #[test]
+    fn pending_rows_keep_a_chosen_source() {
+        let episode = EpisodeRef {
+            origin: Origin::Source {
+                title_id: "t".into(),
+            },
+            episode: "e1".into(),
+        };
+        let url = pending_url_from(&episode, Some("Fast host"));
+        assert_eq!(parse_pending(&url), Some(episode.clone()));
+        assert_eq!(preferred_source(&url).as_deref(), Some("Fast host"));
+        assert_eq!(preferred_source(&pending_url_from(&episode, None)), None);
     }
 }

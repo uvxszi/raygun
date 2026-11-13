@@ -7354,6 +7354,30 @@ pub struct ExportRequest {
     /// A folder chosen in the export sheet: with `destination` `folder`, files go there instead
     /// of the one set in Settings → Downloads.
     pub folder: Option<ExportFolder>,
+    /// Videos: the source (a server's or an addon's name, as `export_video_sources` lists them)
+    /// the episodes still to download take their links from.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// The sources a video title's episodes can download from, for the export sheet's one choice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportVideoSources {
+    /// Best first: the one played last, then by how well each worked lately.
+    pub sources: Vec<ExportVideoSource>,
+    /// The one to preselect: the one played last for the title, else the best ranked.
+    pub chosen: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportVideoSource {
+    pub name: String,
+    /// It played the title last.
+    pub last_played: bool,
+    /// It failed lately ("didn't work lately").
+    pub failing: bool,
 }
 
 /// A folder exports can be written to: its tree URI on Android or its path on desktop.

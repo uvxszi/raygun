@@ -504,7 +504,6 @@
   const LOAD_WAIT_MS = 250;
   const DETAIL_REUSE_MS = 60_000;
   const FILTER_REUSE_MS = 600_000;
-  const SEASON = /season|staffel|saison|temporada|stagione|сезон|第.+季|シーズン|^s\d+$/i;
   const IMAGE = /^https?:\/\/\S+\.(?:jpe?g|png|webp|gif|avif)(?:\?\S*)?$/i;
   /** A select's value standing for an option whose key is empty, or a default it doesn't list. */
   const DEFAULT_VALUE = '__miru_default__';
@@ -788,53 +787,18 @@
       };
 
       if (kind === 'video.source') {
-        // An episode's servers: the episode list's groups that have it (lines, qualities).
-        const servers = new Map();
-        provider.episodes = async ({ id }) => {
-          const groups = groupsOf(await detailOf(str(id)));
-          const seasons = groups.length > 1 && groups.every((group) => SEASON.test(group.title));
-          const episodes = [];
-          const byName = new Map();
-          const ids = new Set();
-          groups.forEach((group, season) => {
-            for (const unit of group.urls) {
-              const known = !seasons && unit.name ? byName.get(unit.name) : undefined;
-              if (known && !known.groups.has(season)) {
-                known.groups.add(season);
-                known.servers.push({ id: unit.url, name: group.title });
-                continue;
-              }
-              if (ids.has(unit.url)) continue;
-              ids.add(unit.url);
-              const episode = {
-                id: unit.url,
-                name: unit.name,
-                season: seasons ? season + 1 : undefined,
-                servers: [{ id: unit.url, name: group.title }],
-                groups: new Set([season]),
-              };
-              episodes.push(episode);
-              if (unit.name && !known) byName.set(unit.name, episode);
-            }
-          });
-          for (const episode of episodes) {
-            servers.delete(episode.id);
-            servers.set(episode.id, episode.servers);
-          }
-          trim(servers, 5000);
-          return {
-            episodes: numbered(episodes).map((episode) => ({
-              id: episode.id,
-              name: episode.name || null,
-              number: episode.number,
-              season: episode.season,
-            })),
-          };
-        };
+        // The detail's groups go to Raygun as lines (`video_units`), which reads them into
+        // episodes and their servers (lines that list the same episodes, seasons, groups that
+        // are episodes with qualities or mirrors inside) and answers servers for them. An
+        // episode it hasn't read lately plays its own address.
+        provider.episodes = async ({ id }) => ({
+          lines: groupsOf(await detailOf(str(id))).map((group) => ({
+            name: group.title,
+            units: group.urls.map((unit) => ({ name: unit.name || null, id: unit.url })),
+          })),
+        });
         provider.servers = async ({ episodeId }) => ({
-          servers: (servers.get(str(episodeId)) ?? [{ id: str(episodeId), name: info.name }]).map(
-            (server) => ({ id: server.id, name: server.name }),
-          ),
+          servers: [{ id: str(episodeId), name: info.name }],
         });
         provider.videos = async ({ serverId }) => {
           const watch = await call(() => instance.watch(str(serverId)));

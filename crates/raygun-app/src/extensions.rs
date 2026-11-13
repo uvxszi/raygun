@@ -1445,6 +1445,23 @@ impl ExtensionService {
     /// or something it shows changed on this device (`catalog::Listings`): a store of thousands
     /// of entries took long to build on each look.
     pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
+        self.catalog_fetching(|_| refresh).await
+    }
+
+    /// Every repository's listing with `repo_id`'s index fetched again (its Reload in the
+    /// catalogue), the others as kept.
+    pub async fn refresh_repo(&self, repo_id: &str) -> Result<Vec<RepoCatalog>, String> {
+        if !self.repos().await?.iter().any(|repo| repo.id == repo_id) {
+            return Err("This repository is no longer added".into());
+        }
+        self.catalog_fetching(|id| id == repo_id).await
+    }
+
+    /// Every repository's listing, the indexes `refresh` names fetched again.
+    async fn catalog_fetching(
+        &self,
+        refresh: impl Fn(&str) -> bool,
+    ) -> Result<Vec<RepoCatalog>, String> {
         let repos = self.repos().await?;
         let local = self.installed_versions().await;
         let verdicts = self.mihon_verdicts().await;
@@ -1453,6 +1470,7 @@ impl ExtensionService {
         self.listings.lock().unwrap().keep_only(&repos);
         let listings = repos.into_iter().map(|repo| {
             let (local, verdicts, addons) = (&local, &verdicts, &addons);
+            let refresh = refresh(&repo.id);
             async move {
                 match self.fetch_index(&repo.url, refresh).await {
                     Ok(index) => {

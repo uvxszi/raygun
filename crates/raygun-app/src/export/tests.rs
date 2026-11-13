@@ -2,6 +2,50 @@ use std::io::{Cursor, Read};
 
 use raygun_model::TextBlock;
 
+#[test]
+fn video_sources_offer_one_choice_the_one_played_last_first() {
+    use crate::video_session::{Ranking, Remembered, SourceHealth};
+    let names = || {
+        vec![
+            "Slow".to_owned(),
+            "Fast".to_owned(),
+            "Broken".to_owned(),
+            "Fast".to_owned(),
+        ]
+    };
+    let mut health = SourceHealth::default();
+    health.worked("Fast", 1);
+    health.failed("Broken", 1);
+    let nothing = Remembered::default();
+    let ranking = Ranking::new(&nothing, &health, Default::default(), 2);
+    let ranked = super::video::ranked_sources(names(), "", &ranking);
+    let order: Vec<(&str, bool)> = ranked
+        .sources
+        .iter()
+        .map(|source| (source.name.as_str(), source.failing))
+        .collect();
+    assert_eq!(
+        order,
+        [("Fast", false), ("Slow", false), ("Broken", true)],
+        "each once, what worked first, what failed lately last"
+    );
+    assert_eq!(ranked.chosen.as_deref(), Some("Fast"), "else the best");
+
+    let played = Remembered {
+        group: "Slow".into(),
+        at: 1,
+        ..Remembered::default()
+    };
+    let ranking = Ranking::new(&played, &health, Default::default(), 2);
+    let ranked = super::video::ranked_sources(names(), &played.group, &ranking);
+    assert_eq!(
+        ranked.chosen.as_deref(),
+        Some("Slow"),
+        "the one played last"
+    );
+    assert!(ranked.sources[0].last_played);
+}
+
 use super::book::{Book, BookChapter, text, write_epub};
 use super::cbz::{self, ComicInfo};
 use super::pdf::PdfWriter;
@@ -341,6 +385,7 @@ fn a_folder_chosen_for_the_export_wins_over_the_settings_one() {
         format: ExportFormat::Cbz,
         destination: ExportDestination::Folder,
         folder: Some(picked.clone()),
+        source: None,
     };
     assert!(matches!(
         place_for_request(&prefs, &request),
