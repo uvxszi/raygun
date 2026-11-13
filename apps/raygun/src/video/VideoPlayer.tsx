@@ -64,7 +64,7 @@ import { VIGNETTE } from './vignette';
 import { CueEditor } from './CueEditor';
 import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
 import { EffectsPanel, SmartAudioOptions } from './effects/EffectsPanel';
-import { ADJUSTMENT_LABEL } from './effects/effectLabels';
+import { HEAVY_LABEL } from './effects/effectLabels';
 import { isNeutral } from './effects/effectParams';
 import { useVideoAudio } from './effects/useVideoAudio';
 import { useVideoEffects } from './effects/useVideoEffects';
@@ -1406,7 +1406,7 @@ const VideoStage: FC<StageProps> = ({
         effects={effects.applied}
         onTooSlow={(kind) => {
           effects.drop(kind);
-          showHint(t('videoPlayer.effectsDropped', { n: t(ADJUSTMENT_LABEL[kind]) }));
+          showHint(t('videoPlayer.effectsDropped', { n: t(HEAVY_LABEL[kind]) }));
         }}
         onUnavailable={effects.markUnavailable}
       />

@@ -5,7 +5,7 @@ import type { FC } from 'react';
 
 import { bindingsMock } from '../../test/bindingsMock';
 import { sendRequest } from '../protocol';
-import { EffectsPanel, SmartAudioOptions } from './EffectsPanel';
+import { EffectsPanel } from './EffectsPanel';
 import { NO_EFFECTS } from './effectParams';
 import { useVideoEffects } from './useVideoEffects';
 
@@ -34,7 +34,6 @@ const Harness: FC<{
   return (
     <>
       <EffectsPanel effects={effects} onClose={() => undefined} />
-      <SmartAudioOptions effects={effects} />
       <output data-testid="applied">{JSON.stringify(effects.applied)}</output>
     </>
   );
@@ -112,7 +111,8 @@ describe('the Effects panel', () => {
     expect(applied()).toMatchObject({ brightness: 5, gamma: 30 });
   });
 
-  it('turns smart audio on for the title, and makes it the default', async () => {
+  it('turns smart audio on for the title from Sound, and makes it the default', async () => {
+    // The Effects panel has smart audio under Sound (the Audio panel has it too).
     const user = userEvent.setup();
     render(<Harness />);
     const night = screen.getByRole('menuitemcheckbox', { name: /Night mode/ });

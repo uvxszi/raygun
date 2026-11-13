@@ -35,6 +35,10 @@ private const val HDR_LIMIT = 10_000f
 internal class EffectParams {
     @Volatile
     var shader: ShaderParams = EffectMath.shader(PictureEffects.NONE)
+
+    /** Smooth motion's switch and what it follows ([SmoothMotionGl]). */
+    @Volatile
+    var motion: MotionParams = MotionParams()
 }
 
 /**
@@ -94,7 +98,7 @@ internal class EffectStatus {
 }
 
 /** One full-frame quad drawn with a program of the shared shaders. */
-private class GlPass(vertex: String, fragment: String) {
+internal class GlPass(vertex: String, fragment: String) {
     private val program: Int = link(vertex, fragment)
     private val position = GLES20.glGetAttribLocation(program, "aFramePosition")
     private val locations = HashMap<String, Int>()
@@ -177,7 +181,7 @@ private class GlPass(vertex: String, fragment: String) {
 }
 
 /** A texture the passes draw into, and its framebuffer. */
-private class Target(val width: Int, val height: Int, highPrecision: Boolean = false) {
+internal class GlTarget(val width: Int, val height: Int, highPrecision: Boolean = false) {
     val texture: Int = GlUtil.createTexture(width, height, highPrecision)
     val framebuffer: Int = GlUtil.createFboForTexture(texture)
 
@@ -220,13 +224,13 @@ private class PictureEffectsProgram(
     private var height = 0
 
     // The deflicker's light: two 1 × 1 targets used in turn (the last frame's read, this one's drawn).
-    private var blockTarget: Target? = null
-    private val stats = arrayOfNulls<Target>(2)
+    private var blockTarget: GlTarget? = null
+    private val stats = arrayOfNulls<GlTarget>(2)
     private var statsIndex = 0
     private var statsKnown = false
 
     // Denoising's frames, used in turn: the one drawn is the next frame's history.
-    private val cleaned = arrayOfNulls<Target>(2)
+    private val cleaned = arrayOfNulls<GlTarget>(2)
     private var cleanIndex = 0
     private var historyKnown = false
 
@@ -309,10 +313,10 @@ private class PictureEffectsProgram(
 
     /** The deflicker's light: this frame's mean luma and the steady light it's held to. */
     private fun drawLight(frame: Int, shader: ShaderParams, again: Boolean) {
-        val grid = blockTarget ?: Target(BLOCKS_X, BLOCKS_Y).also { blockTarget = it }
+        val grid = blockTarget ?: GlTarget(BLOCKS_X, BLOCKS_Y).also { blockTarget = it }
         if (stats[0] == null) {
-            stats[0] = Target(1, 1)
-            stats[1] = Target(1, 1)
+            stats[0] = GlTarget(1, 1)
+            stats[1] = GlTarget(1, 1)
             statsKnown = false
         }
         // The same frame again goes from the same light before, not from its own.
@@ -338,8 +342,8 @@ private class PictureEffectsProgram(
     /** Denoising into this frame's target, which the final pass then reads. */
     private fun drawClean(frame: Int, shader: ShaderParams, again: Boolean): Int {
         if (cleaned[0] == null) {
-            cleaned[0] = Target(width, height, hdr)
-            cleaned[1] = Target(width, height, hdr)
+            cleaned[0] = GlTarget(width, height, hdr)
+            cleaned[1] = GlTarget(width, height, hdr)
             historyKnown = false
         }
         if (!again) cleanIndex = 1 - cleanIndex

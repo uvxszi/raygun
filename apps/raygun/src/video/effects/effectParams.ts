@@ -20,6 +20,7 @@ export const NO_EFFECTS: Effects = {
   look: 'none',
   deflicker: 0,
   denoise: 0,
+  smoothMotion: false,
 };
 
 export const NO_SMART_AUDIO: Audio = {
@@ -40,7 +41,7 @@ export const withAudioDefaults = (audio?: SmartAudio | null): Audio => ({
 });
 
 /** The signed and strength settings, in the order the panels list them. */
-export type AdjustKey = Exclude<keyof Effects, 'look'>;
+export type AdjustKey = Exclude<keyof Effects, 'look' | 'smoothMotion'>;
 
 export type Adjustment = { key: AdjustKey; min: number; max: number };
 
@@ -63,19 +64,31 @@ export const isNeutral = (effects: Effects) =>
 export const sameEffects = (left: Effects, right: Effects) =>
   (Object.keys(NO_EFFECTS) as (keyof Effects)[]).every((key) => left[key] === right[key]);
 
+/** The picture's own adjustments, smooth motion left out (presets set only these). */
+export const adjustmentsOf = (effects: Effects): Effects => ({ ...effects, smoothMotion: false });
+
 export const isAudioOff = (audio: Audio) =>
   !audio.dialogue && !audio.night && !audio.normalize && !audio.leveling;
 
 /** The parts that take passes of their own or a frame's history, heaviest first: what a slow
  * computer drops first. */
-export type HeavyKind = 'denoise' | 'deflicker' | 'sharpen';
+export type HeavyKind = 'smoothMotion' | 'denoise' | 'deflicker' | 'sharpen';
+
+/** Whether `kind` is on in `effects`. */
+export const isOn = (effects: Effects, kind: HeavyKind) =>
+  kind === 'smoothMotion' ? effects.smoothMotion : effects[kind] > 0;
 
 export const heavyKinds = (effects: Effects): HeavyKind[] =>
-  (['denoise', 'deflicker', 'sharpen'] as const).filter((kind) => effects[kind] > 0);
+  (['smoothMotion', 'denoise', 'deflicker', 'sharpen'] as const).filter((kind) =>
+    isOn(effects, kind),
+  );
 
 export const without = (effects: Effects, kinds: Iterable<HeavyKind>): Effects => {
   const result = { ...effects };
-  for (const kind of kinds) result[kind] = 0;
+  for (const kind of kinds) {
+    if (kind === 'smoothMotion') result.smoothMotion = false;
+    else result[kind] = 0;
+  }
   return result;
 };
 

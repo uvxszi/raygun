@@ -22,12 +22,18 @@ internal data class PictureEffects(
     val look: String = LOOK_NONE,
     val deflicker: Int = 0,
     val denoise: Int = 0,
+    /** In-between frames made from the motion ([SmoothMotionGl]). */
+    val smoothMotion: Boolean = false,
 ) {
     val neutral: Boolean get() = this == NONE
+
+    /** The picture's own adjustments, smooth motion left out (presets set only these). */
+    val adjustments: PictureEffects get() = copy(smoothMotion = false)
 
     /** The parts that take passes of their own or a frame's history: what a slow phone drops first. */
     val heavy: List<String>
         get() = listOfNotNull(
+            SMOOTH_MOTION.takeIf { smoothMotion },
             "denoise".takeIf { denoise > 0 },
             "deflicker".takeIf { deflicker > 0 },
             "sharpen".takeIf { sharpen > 0 },
@@ -44,6 +50,7 @@ internal data class PictureEffects(
         look = look.takeIf { it in LOOKS } ?: LOOK_NONE,
         deflicker = deflicker.coerceIn(0, 100),
         denoise = denoise.coerceIn(0, 100),
+        smoothMotion = smoothMotion,
     )
 
     /** These effects without `kind` (one of [heavy]). */
@@ -51,6 +58,7 @@ internal data class PictureEffects(
         "denoise" -> copy(denoise = 0)
         "deflicker" -> copy(deflicker = 0)
         "sharpen" -> copy(sharpen = 0)
+        SMOOTH_MOTION -> copy(smoothMotion = false)
         else -> this
     }
 
@@ -64,9 +72,11 @@ internal data class PictureEffects(
         .put("look", look)
         .put("deflicker", deflicker)
         .put("denoise", denoise)
+        .put("smoothMotion", smoothMotion)
 
     companion object {
         const val LOOK_NONE = "none"
+        const val SMOOTH_MOTION = "smoothMotion"
         val NONE = PictureEffects()
         val LOOKS = listOf(LOOK_NONE, "warm", "cool", "vivid", "grayscale", "sepia")
 
@@ -83,6 +93,7 @@ internal data class PictureEffects(
                 look = json.optString("look", LOOK_NONE),
                 deflicker = json.optInt("deflicker", 0),
                 denoise = json.optInt("denoise", 0),
+                smoothMotion = json.optBoolean("smoothMotion", false),
             ).clamped()
         }
     }

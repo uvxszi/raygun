@@ -1,6 +1,6 @@
 import type { PictureLook } from '@raygun/bindings';
 
-import type { AdjustKey, Audio } from './effectParams';
+import type { AdjustKey, Audio, HeavyKind } from './effectParams';
 
 /** The words of each adjustment (`videoPlayer.*`, shared with Android's player). */
 export const ADJUSTMENT_LABEL: Record<AdjustKey, string> = {
@@ -12,6 +12,14 @@ export const ADJUSTMENT_LABEL: Record<AdjustKey, string> = {
   sharpen: 'videoPlayer.effectSharpen',
   deflicker: 'videoPlayer.effectDeflicker',
   denoise: 'videoPlayer.effectDenoise',
+};
+
+/** The words of what drops when frames go missing. */
+export const HEAVY_LABEL: Record<HeavyKind, string> = {
+  smoothMotion: 'videoPlayer.effectSmoothMotion',
+  denoise: ADJUSTMENT_LABEL.denoise,
+  deflicker: ADJUSTMENT_LABEL.deflicker,
+  sharpen: ADJUSTMENT_LABEL.sharpen,
 };
 
 export const LOOK_LABEL: Record<PictureLook, string> = {

@@ -4,14 +4,24 @@ import finalSource from './glsl/fx_final.glsl?raw';
 import meanSource from './glsl/fx_stats_mean.glsl?raw';
 import blocksSource from './glsl/fx_stats_blocks.glsl?raw';
 import vertexSource from './glsl/fx_vertex.glsl?raw';
+import motionCommonSource from './glsl/fx_motion_common.glsl?raw';
+import motionCopySource from './glsl/fx_motion_copy.glsl?raw';
+import motionErrorSource from './glsl/fx_motion_error.glsl?raw';
+import motionLumaSource from './glsl/fx_motion_luma.glsl?raw';
+import motionSearchSource from './glsl/fx_motion_search.glsl?raw';
+import motionSmoothSource from './glsl/fx_motion_smooth.glsl?raw';
+import motionWarpSource from './glsl/fx_motion_warp.glsl?raw';
 import { columns } from './effectParams';
 import type { ShaderParams } from './effectParams';
+import { flowSize, LEVELS, RADII } from './motionMath';
 
 /**
  * The picture's effects on desktop: the `<video>`'s frames drawn through the same GLSL passes as
  * Android's (`PlayerEffectsGl.kt`) with WebGL 2. Each new frame is copied into a texture, then the
  * deflicker's light (16 × 9 blocks, then 1 × 1), denoising into a history kept for the next frame,
- * and the final look onto the canvas.
+ * and the final look onto the canvas. With smooth motion, the finished frames are kept instead and
+ * the motion between the last two found (`fx_motion_*.glsl`, as Android's `PlayerEffectsMotion.kt`),
+ * and each screen refresh draws the picture between them (`present`).
  */
 
 /** A pass's fragment shader: the shared part first, then its own. */
@@ -26,7 +36,20 @@ export const PASSES = {
 
 export const VERTEX_SOURCE = vertexSource;
 
+/** A smooth motion pass's fragment shader: the shared parts first, then its own. */
+export const motionSource = (pass: string) => `${commonSource}\n${motionCommonSource}\n${pass}`;
+
+export const MOTION_PASSES = {
+  copy: motionSource(motionCopySource),
+  luma: motionSource(motionLumaSource),
+  search: motionSource(motionSearchSource),
+  smooth: motionSource(motionSmoothSource),
+  error: motionSource(motionErrorSource),
+  warp: motionSource(motionWarpSource),
+} as const;
+
 type PassName = keyof typeof PASSES;
+type MotionPassName = keyof typeof MOTION_PASSES;
 
 type Pass = {
   program: WebGLProgram;
@@ -39,6 +62,17 @@ type Target = {
   framebuffer: WebGLFramebuffer;
   width: number;
   height: number;
+};
+
+/** Smooth motion's targets: the kept frames, their luma pyramids (finest first) and the flow. */
+type Motion = {
+  kept: [Target, Target];
+  pyramids: [Target[], Target[]];
+  /** The search's result per level, finest first. */
+  search: Target[];
+  refined: Target;
+  smoothed: Target;
+  error: Target;
 };
 
 const BLOCKS_X = 16;
@@ -96,6 +130,13 @@ export class EffectsRenderer {
   /** The last frame's media time: the same again is the same frame drawn again. */
   private lastTime = Number.NaN;
 
+  // Smooth motion: its passes (made when first used), the two finished frames kept, their luma
+  // pyramids, and the flow between them.
+  private motionPasses: Record<MotionPassName, Pass> | null = null;
+  private motion: Motion | null = null;
+  private latest = 0;
+  private keptCount = 0;
+
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
       alpha: false,
@@ -129,20 +170,89 @@ export class EffectsRenderer {
    * same frame again (paused, a slider moved) starts from the same history, not from its own.
    */
   draw(video: HTMLVideoElement, params: ShaderParams, time: number) {
+    const again = this.upload(video, time);
+    if (again === null) return;
+    this.keptCount = 0;
+    this.drawLook(params, again, null);
+  }
+
+  /**
+   * Smooth motion: draws `video`'s frame with `params` into the kept frames (the same frame again
+   * replaces the latest) and finds the motion from the one before. Nothing shows until `present`.
+   */
+  keep(video: HTMLVideoElement, params: ShaderParams, time: number) {
+    const again = this.upload(video, time);
+    if (again === null) return;
+    const motion = this.motion ?? (this.motion = this.makeMotion());
+    const replace = again && this.keptCount > 0;
+    const slot = replace || this.keptCount === 0 ? this.latest : 1 - this.latest;
+    const previous = 1 - slot;
+    this.drawLook(params, again, motion.kept[slot as 0 | 1]);
+    this.latest = slot;
+    if (!replace) this.keptCount = Math.min(this.keptCount + 1, 2);
+    this.drawPyramid(motion, slot);
+    if (this.keptCount === 2) this.drawFlow(motion, previous, slot);
+  }
+
+  /** Two frames kept: `present` can draw between them. */
+  get hasPair() {
+    return this.keptCount === 2;
+  }
+
+  /**
+   * Draws onto the canvas the picture `t` of the way from the frame before to the latest (the
+   * latest alone without a pair).
+   */
+  present(t: number) {
+    const { gl, motion } = this;
+    if (!motion || this.keptCount === 0) return;
+    const passes = this.motionPassesOf();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.frameWidth, this.frameHeight);
+    const latest = motion.kept[this.latest as 0 | 1];
+    const before = motion.kept[(1 - this.latest) as 0 | 1];
+    if (this.keptCount < 2 || t >= 0.995 || t <= 0.005) {
+      const shown = this.keptCount < 2 || t >= 0.5 ? latest : before;
+      this.use(passes.copy);
+      this.texture(passes.copy, 'uCopyFrom', 0, shown.texture, false);
+      this.drawQuad();
+      return;
+    }
+    const { warp } = passes;
+    this.use(warp);
+    this.texture(warp, 'uPrev', 0, before.texture, true);
+    this.texture(warp, 'uCur', 1, latest.texture, true);
+    this.texture(warp, 'uFlow', 2, motion.smoothed.texture, true);
+    this.texture(warp, 'uError', 3, motion.error.texture, false);
+    gl.uniform1f(this.at(warp, 'uT'), t);
+    gl.uniform2f(
+      this.at(warp, 'uFlowTexel'),
+      1 / motion.smoothed.width,
+      1 / motion.smoothed.height,
+    );
+    this.drawQuad();
+  }
+
+  /** The video's frame into the texture; whether it's the same frame again (null: no frame yet). */
+  private upload(video: HTMLVideoElement, time: number) {
     const { gl } = this;
     const width = video.videoWidth;
     const height = video.videoHeight;
-    if (!width || !height) return;
+    if (!width || !height) return null;
     if (width !== this.frameWidth || height !== this.frameHeight) this.resize(width, height);
     const again = time === this.lastTime;
     this.lastTime = time;
-
     // OpenGL's way up (origin at the bottom left), as Android's frames come to the passes.
     gl.bindTexture(gl.TEXTURE_2D, this.frame);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, video);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    return again;
+  }
 
+  /** The picture's passes, the final look onto the canvas or into `into`. */
+  private drawLook(params: ShaderParams, again: boolean, into: Target | null) {
+    const { gl } = this;
     let source = this.frame;
     let gainLeft = params.deflicker;
     if (params.deflicker) this.drawLight(params, again);
@@ -153,8 +263,12 @@ export class EffectsRenderer {
     } else {
       this.historyKnown = false;
     }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, width, height);
+    if (into) {
+      this.focus(into);
+    } else {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, this.frameWidth, this.frameHeight);
+    }
     this.drawFinal(source, params, gainLeft);
   }
 
@@ -163,11 +277,144 @@ export class EffectsRenderer {
     this.statsKnown = false;
     this.historyKnown = false;
     this.lastTime = Number.NaN;
+    this.keptCount = 0;
+  }
+
+  private motionPassesOf() {
+    if (!this.motionPasses) {
+      const { gl } = this;
+      this.motionPasses = {
+        copy: link(gl, MOTION_PASSES.copy),
+        luma: link(gl, MOTION_PASSES.luma),
+        search: link(gl, MOTION_PASSES.search),
+        smooth: link(gl, MOTION_PASSES.smooth),
+        error: link(gl, MOTION_PASSES.error),
+        warp: link(gl, MOTION_PASSES.warp),
+      };
+    }
+    return this.motionPasses;
+  }
+
+  private makeMotion(): Motion {
+    this.motionPassesOf();
+    const { width, height } = flowSize(this.frameWidth, this.frameHeight);
+    const level = (index: number) => ({
+      width: Math.max(4, width >> index),
+      height: Math.max(4, height >> index),
+    });
+    const levels = Array.from({ length: LEVELS }, (_, index) => level(index));
+    const pyramid = () => levels.map((size) => this.target(size.width, size.height));
+    return {
+      kept: [
+        this.target(this.frameWidth, this.frameHeight),
+        this.target(this.frameWidth, this.frameHeight),
+      ],
+      pyramids: [pyramid(), pyramid()],
+      search: pyramid(),
+      refined: this.target(width, height),
+      smoothed: this.target(width, height),
+      error: this.target(1, 1),
+    };
+  }
+
+  private deleteMotion() {
+    const { motion } = this;
+    if (!motion) return;
+    for (const target of [
+      ...motion.kept,
+      ...motion.pyramids.flat(),
+      ...motion.search,
+      motion.refined,
+      motion.smoothed,
+      motion.error,
+    ]) {
+      this.deleteTarget(target);
+    }
+    this.motion = null;
+    this.keptCount = 0;
+  }
+
+  private drawPyramid(motion: Motion, slot: number) {
+    const { gl } = this;
+    const { luma } = this.motionPassesOf();
+    let from = motion.kept[slot as 0 | 1];
+    const pyramid = motion.pyramids[slot as 0 | 1];
+    pyramid.forEach((into, level) => {
+      this.focus(into);
+      this.use(luma);
+      this.texture(luma, 'uLumaFrom', 0, from.texture, true);
+      gl.uniform2f(this.at(luma, 'uSpread'), 0.25 / into.width, 0.25 / into.height);
+      gl.uniform1f(this.at(luma, 'uPicture'), level === 0 ? 1 : 0);
+      this.drawQuad();
+      from = into;
+    });
+  }
+
+  private drawFlow(motion: Motion, previous: number, latest: number) {
+    const { gl } = this;
+    const passes = this.motionPassesOf();
+    let init: Target | null = null;
+    for (let level = LEVELS - 1; level >= 0; level -= 1) {
+      const into = motion.search[level] as Target;
+      this.searchStep(
+        motion,
+        into,
+        previous,
+        latest,
+        level,
+        init,
+        RADII[LEVELS - 1 - level] ?? 1,
+        1,
+      );
+      init = into;
+    }
+    this.searchStep(motion, motion.refined, previous, latest, 0, init, 1, 0.5);
+
+    const { smooth, error } = passes;
+    this.focus(motion.smoothed);
+    this.use(smooth);
+    this.texture(smooth, 'uFlowIn', 0, motion.refined.texture, false);
+    gl.uniform2f(this.at(smooth, 'uTexel'), 1 / motion.smoothed.width, 1 / motion.smoothed.height);
+    this.drawQuad();
+
+    this.focus(motion.error);
+    this.use(error);
+    this.texture(error, 'uCosts', 0, motion.smoothed.texture, false);
+    this.drawQuad();
+  }
+
+  private searchStep(
+    motion: Motion,
+    into: Target,
+    previous: number,
+    latest: number,
+    level: number,
+    init: Target | null,
+    radius: number,
+    step: number,
+  ) {
+    const { gl } = this;
+    const { search } = this.motionPassesOf();
+    const before = motion.pyramids[previous as 0 | 1][level] as Target;
+    const after = motion.pyramids[latest as 0 | 1][level] as Target;
+    this.focus(into);
+    this.use(search);
+    this.texture(search, 'uPrev', 0, before.texture, true);
+    this.texture(search, 'uCur', 1, after.texture, true);
+    this.texture(search, 'uInit', 2, (init ?? after).texture, true);
+    gl.uniform1f(this.at(search, 'uHasInit'), init ? 1 : 0);
+    gl.uniform2f(this.at(search, 'uTexel'), 1 / into.width, 1 / into.height);
+    gl.uniform1f(this.at(search, 'uScale'), 2 ** level);
+    gl.uniform1f(this.at(search, 'uStep'), step);
+    gl.uniform1f(this.at(search, 'uRadius'), radius);
+    this.drawQuad();
   }
 
   dispose() {
     const { gl } = this;
     this.deleteFrames();
+    this.deleteMotion();
+    for (const pass of Object.values(this.motionPasses ?? {})) gl.deleteProgram(pass.program);
     for (const target of [this.blockTarget, ...(this.stats ?? [])]) {
       if (target) this.deleteTarget(target);
     }
@@ -186,6 +433,7 @@ export class EffectsRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.frame);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     this.deleteFrames();
+    this.deleteMotion();
     this.restart();
   }
 
