@@ -17,7 +17,7 @@ add their files when they built (a failed one shows in the run and leaves its fi
 | Android | `Raygun_<v>_android_universal.apk`, `_arm64.apk`, `_x86_64.apk` (signed) | ubuntu-24.04 | – |
 | Linux x64 | `Raygun_<v>_amd64.AppImage`, `Raygun_<v>_amd64.deb`, `Raygun_<v>_x86_64.rpm` | ubuntu-22.04 | AppImage and installed deb |
 | Linux ARM64 | `Raygun_<v>_aarch64.AppImage`, `Raygun_<v>_arm64.deb`, `Raygun_<v>_aarch64.rpm` | ubuntu-22.04-arm | AppImage and installed deb |
-| Linux riscv64 | `Raygun_<v>_riscv64.deb`, `Raygun_<v>_riscv64.rpm` | ubuntu-22.04 (cross) | – |
+| Linux riscv64 | `Raygun_<v>_riscv64.deb`, `Raygun_<v>_riscv64.rpm` | Ubuntu 24.04 container (cross) | – |
 | Flatpak | `Raygun_<v>_x86_64.flatpak`, `Raygun_<v>_aarch64.flatpak` | GNOME 50 runtime | – |
 | Arch Linux, CachyOS | `raygun-bin-<v>-1-x86_64.pkg.tar.zst`, `raygun-bin-<v>-1-aarch64.pkg.tar.zst` | archlinux container | x86_64, installed with pacman |
 | macOS | `Raygun_<v>_aarch64.dmg` (Apple silicon), `Raygun_<v>_x64.dmg` (Intel) | macos-15 | yes |
@@ -48,7 +48,9 @@ builds with thin LTO.
 ## Linux
 
 Built on Ubuntu 22.04, so the binary needs glibc 2.35 or newer and WebKitGTK 4.1 (Ubuntu 22.04+,
-Debian 12+, Fedora 37+, Arch, openSUSE Tumbleweed).
+Debian 12+, Fedora 37+, Arch, openSUSE Tumbleweed). The riscv64 build is cross-compiled against
+Ubuntu 24.04's riscv64 libraries (glibc 2.39: Ubuntu 24.04+, Debian 13+, Fedora 40+): 22.04's
+riscv64 archive lags its amd64 updates, and the two must agree on shared libraries' versions.
 
 WebKitGTK plays sound and video with GStreamer: Raygun needs its base and good plugins, `libav`
 for AAC and H.264 (most songs and videos), and bad for some streaming formats. HLS and DASH play
