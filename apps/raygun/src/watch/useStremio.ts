@@ -1,4 +1,4 @@
-import { commands } from '@raygun/bindings';
+import { commands, events } from '@raygun/bindings';
 import type {
   StremioAddon,
   StremioCatalogInfo,
@@ -6,6 +6,7 @@ import type {
   StremioConfigValue,
   StremioExtraValue,
   StremioPlayRequest,
+  StremioStreamGroup,
 } from '@raygun/bindings';
 import {
   useInfiniteQuery,
@@ -18,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { useSettings } from '../settings/useSettings';
+import { useArrivingAnswers } from '../shell/useArrivingAnswers';
 
 const STREMIO = ['stremio'];
 
@@ -118,14 +120,31 @@ export const useStremioMeta = (kind: string, id: string) =>
     enabled: kind !== '' && id !== '',
   });
 
-/** Streams for a movie or episode of the title `metaId`; `videoId` is null until one is picked. */
-export const useStremioStreams = (kind: string, metaId: string, videoId: string | null) =>
-  useQuery({
+/**
+ * Streams for a movie or episode of the title `metaId`; `videoId` is null until one is picked.
+ * While addons and stream providers still answer, `data` holds the groups found so far
+ * (`StremioStreamsEvent`) and `isPending` stays true.
+ */
+export const useStremioStreams = (kind: string, metaId: string, videoId: string | null) => {
+  const request = JSON.stringify([kind, metaId, videoId]);
+  const streams = useQuery({
     queryKey: [...STREMIO, 'streams', kind, metaId, videoId],
-    queryFn: () => unwrapResult(commands.stremioStreams(kind, metaId || null, videoId ?? '')),
+    queryFn: () =>
+      unwrapResult(commands.stremioStreams(kind, metaId || null, videoId ?? '', request)),
     enabled: videoId !== null,
     staleTime: 5 * 60 * 1000,
   });
+  const arriving = useArrivingAnswers<StremioStreamGroup>(
+    events.stremioStreamsEvent,
+    request,
+    streams.isPending && videoId !== null,
+  );
+  return {
+    data: streams.data ?? arriving,
+    isPending: streams.isPending,
+    error: streams.error,
+  };
+};
 
 /** Plays a stream, with subtitles in the subtitle language (Settings → Player) first. */
 export const useStremioPlay = () => {

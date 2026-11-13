@@ -1,9 +1,9 @@
 import type { MangaCard, MangaChapterInfo, MangaTitleView } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock } from '../test/bindingsMock';
+import { bindingsMock, emitEvent } from '../test/bindingsMock';
 import { sourceExtension } from '../test/sourceExtension';
 import { createLimiter, videoSize } from './matchSize';
 import { authorAgrees, languageFits, sourceFits } from './otherSourcesMatch';
@@ -339,6 +339,42 @@ describe('Find in other sources for audiobooks', () => {
     commands.audiobookOpen.mockResolvedValue(ok('b2'));
   });
 
+  it('lists each source’s copies as it answers, before the slowest one', async () => {
+    const user = userEvent.setup();
+    let finish: () => void = () => {};
+    const librivox = {
+      title: 'Frankenstein',
+      author: 'Mary Shelley',
+      edition: null,
+      feedUrl: 'https://librivox.org/rss/2817',
+      artworkUrl: null,
+      runtime: null,
+      language: 'English',
+      description: null,
+      source: 'LibriVox',
+    };
+    const loyal = { ...librivox, feedUrl: 'https://loyalbooks.example/f', source: 'Loyal Books' };
+    commands.audiobooksElsewhere.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(ok([librivox, loyal]));
+        }),
+    );
+    await AppShellWrapper.mount('/audiobook?id=b1');
+    const page = await screen.findByTestId('audiobook-page');
+    await user.click(await within(page).findByRole('button', { name: 'Find in other sources' }));
+    const section = await screen.findByTestId('other-sources');
+    await vi.waitFor(() => expect(commands.audiobooksElsewhere).toHaveBeenCalled());
+    const request = commands.audiobooksElsewhere.mock.lastCall?.[3] ?? '';
+    emitEvent('audiobooksElsewhereEvent', ['another search', [loyal]]);
+    expect(within(section).queryByText('Loyal Books')).not.toBeInTheDocument();
+    emitEvent('audiobooksElsewhereEvent', [request, [librivox]]);
+    expect(await within(section).findByText('LibriVox')).toBeInTheDocument();
+    expect(within(section).queryByText('Loyal Books')).not.toBeInTheDocument();
+    await act(async () => finish());
+    expect(await within(section).findByText('Loyal Books')).toBeInTheDocument();
+  });
+
   it('lists the book at the other sources, in the language picked, to add or open', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/audiobook?id=b1');
@@ -350,6 +386,7 @@ describe('Find in other sources for audiobooks', () => {
       'Frankenstein; or, The Modern Prometheus',
       'Mary Shelley',
       'https://librivox.org/rss/42',
+      expect.any(String),
     );
     // The whole title, and the recording, length and language under it.
     const row = within(section).getByText('LibriVox').closest('li') as HTMLElement;

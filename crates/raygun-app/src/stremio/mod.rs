@@ -82,6 +82,31 @@ struct StreamAsks<'a> {
     asks: FuturesUnordered<StreamAsk<'a>>,
 }
 
+/// The stream groups a title page's sources answered so far ([`StremioService::streams_each`]).
+#[derive(Debug, Default)]
+struct Arrived {
+    /// The details' own streams.
+    own: Option<StremioStreamGroup>,
+    /// The addons', with their place in the addon order.
+    addons: Vec<(usize, StremioStreamGroup)>,
+    /// The stream providers', as they came.
+    provided: Vec<StremioStreamGroup>,
+}
+
+impl Arrived {
+    /// As listed: the details' own, the addons' in the addon order, then the providers'.
+    fn shown(&self) -> Vec<StremioStreamGroup> {
+        let mut addons = self.addons.clone();
+        addons.sort_by_key(|(index, _)| *index);
+        self.own
+            .iter()
+            .cloned()
+            .chain(addons.into_iter().map(|(_, group)| group))
+            .chain(self.provided.iter().cloned())
+            .collect()
+    }
+}
+
 /// What a play session hears from [`StremioService::playable_each`], as it comes.
 #[derive(Debug)]
 pub enum Arrival {
@@ -1249,13 +1274,15 @@ impl StremioService {
     }
 
     /// Streams for a movie or episode of the title `meta_id` (a title page's sources): the
-    /// addons' ([`Self::addon_streams`]), then the stream providers' (`video.streams`), asked at
-    /// the same time.
-    pub async fn streams(
+    /// addons' ([`Self::addon_streams`]) and the stream providers' (`video.streams`), asked at the
+    /// same time; the groups found so far go to `report` each time one answers (the addons' in
+    /// the addon order, then the providers' as they came).
+    pub async fn streams_each(
         &self,
         kind: &str,
         meta_id: Option<&str>,
         video_id: &str,
+        report: impl Fn(&[StremioStreamGroup]),
     ) -> Result<Vec<StremioStreamGroup>, String> {
         let meta = match meta_id {
             Some(meta_id) => self
@@ -1265,14 +1292,48 @@ impl StremioService {
                 .map(|found| found.meta),
             None => self.meta_of_video(kind, video_id),
         };
-        let (groups, provided) = futures_util::future::join(
-            self.addon_streams(kind, meta_id, video_id),
-            self.provided_streams(kind, meta.as_ref(), video_id),
-        )
-        .await;
-        let mut groups = groups?;
-        groups.extend(provided);
-        Ok(groups)
+        let found = Mutex::new(Arrived::default());
+        let arrived = |change: &dyn Fn(&mut Arrived)| {
+            let shown = {
+                let mut found = found.lock().expect("streams poisoned");
+                change(&mut found);
+                found.shown()
+            };
+            report(&shown);
+        };
+        let addons = async {
+            let StreamAsks { own, mut asks, .. } =
+                self.stream_asks(kind, meta_id, video_id).await?;
+            if let Some(own) = own {
+                arrived(&|found| found.own = Some(own.clone()));
+            }
+            while let Some((index, group)) = asks.next().await {
+                arrived(&|found| found.addons.push((index, group.clone())));
+            }
+            Ok::<(), String>(())
+        };
+        let provided = async {
+            if raygun_net::network_mode::offline() {
+                return;
+            }
+            let Some(query) = providers::stream_query(kind, meta.as_ref(), video_id) else {
+                return;
+            };
+            let extensions = self.app.state::<Arc<ExtensionService>>();
+            let (_ready, host) = extensions.ready().await;
+            let providers = host.providers(VIDEO_STREAMS).await;
+            let mut answers =
+                std::pin::pin!(host.video_streams_each(providers, &query, PROVIDER_TIMEOUT));
+            while let Some(answer) = answers.next().await {
+                // Those that found nothing are left out.
+                if let Some(group) = providers::group_of(answer) {
+                    arrived(&|found| found.provided.push(group.clone()));
+                }
+            }
+        };
+        let (asked, ()) = futures_util::future::join(addons, provided).await;
+        asked?;
+        Ok(found.into_inner().expect("streams poisoned").shown())
     }
 
     /// The names of the addons that are on and serve streams for the title `id` of `kind`, as
@@ -1895,29 +1956,6 @@ impl StremioService {
     ) -> video_session::Group {
         let extra = self.kept_extra_subtitles(target, language);
         self.session_group(group, target, &extra, false).await
-    }
-
-    /// Every stream provider's streams for a movie or an episode, as stream groups (the title
-    /// page's sources); those that found nothing are left out.
-    async fn provided_streams(
-        &self,
-        kind: &str,
-        meta: Option<&protocol::Meta>,
-        video_id: &str,
-    ) -> Vec<StremioStreamGroup> {
-        if raygun_net::network_mode::offline() {
-            return Vec::new();
-        }
-        let Some(query) = providers::stream_query(kind, meta, video_id) else {
-            return Vec::new();
-        };
-        let extensions = self.app.state::<Arc<ExtensionService>>();
-        let (_ready, host) = extensions.ready().await;
-        host.video_streams(&query, PROVIDER_TIMEOUT)
-            .await
-            .into_iter()
-            .filter_map(providers::group_of)
-            .collect()
     }
 
     fn keep_extra_subtitles(
@@ -2757,6 +2795,54 @@ mod live_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Addons answering at 2 s and 0.5 s and a stream provider at 1 s: the title page lists each
+    /// as it comes, the addons in the addon order, the providers after them.
+    #[tokio::test(start_paused = true)]
+    async fn a_title_pages_sources_show_as_each_answers() {
+        let group = |id: &str| StremioStreamGroup {
+            addon_id: id.into(),
+            addon_name: id.into(),
+            streams: Vec::new(),
+            error: None,
+            failing: false,
+        };
+        let started = tokio::time::Instant::now();
+        let mut answers: FuturesUnordered<_> = [
+            (2_000, Some(0), "first"),
+            (500, Some(1), "second"),
+            (1_000, None, "nuvio"),
+        ]
+        .into_iter()
+        .map(|(after, index, id)| async move {
+            tokio::time::sleep(Duration::from_millis(after)).await;
+            (index, group(id))
+        })
+        .collect();
+        let mut found = Arrived::default();
+        let mut shown = Vec::new();
+        while let Some((index, group)) = answers.next().await {
+            match index {
+                Some(index) => found.addons.push((index, group)),
+                None => found.provided.push(group),
+            }
+            let ids: Vec<String> = found
+                .shown()
+                .into_iter()
+                .map(|group| group.addon_id)
+                .collect();
+            shown.push((started.elapsed().as_millis(), ids));
+        }
+        let ids = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            shown,
+            [
+                (500, ids(&["second"])),
+                (1_000, ids(&["second", "nuvio"])),
+                (2_000, ids(&["first", "second", "nuvio"])),
+            ]
+        );
+    }
 
     #[tokio::test]
     async fn saved_titles_open_from_storage() {

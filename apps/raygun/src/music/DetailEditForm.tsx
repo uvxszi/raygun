@@ -2,7 +2,7 @@ import { commands, events } from '@raygun/bindings';
 import type { CoverOption, DetailEdit, DetailTarget } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImagePlus, LoaderCircle, RotateCcw, Search } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FC, KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -11,6 +11,7 @@ import { Artwork } from '../library/Artwork';
 import { uploadFile } from '../manga/useImportComics';
 import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { TextField } from '../shell/TextField';
+import { useArrivingAnswers } from '../shell/useArrivingAnswers';
 import { detailKey, useDetailEdit } from './useDetailEdit';
 
 type Field = 'title' | 'artist' | 'album';
@@ -207,27 +208,6 @@ const searchedAs = (target: DetailTarget, names: CoverNames): DetailTarget => {
 };
 
 /**
- * The covers a cover search (`request`) has found so far, as Rust sends them while its sources
- * still answer (`CoverOptionsEvent`); followed while `searching`.
- */
-const useArrivingCovers = (request: string, searching: boolean): CoverOption[] => {
-  const [arriving, setArriving] = useState<{ request: string; covers: CoverOption[] }>({
-    request: '',
-    covers: [],
-  });
-  useEffect(() => {
-    if (!searching) return;
-    const unlisten = events.coverOptionsEvent.listen(({ payload: [asked, covers] }) => {
-      if (asked === request) setArriving({ request, covers });
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [request, searching]);
-  return arriving.request === request ? arriving.covers : [];
-};
-
-/**
  * Covers from the music sources (M46.36): when one doesn't load, or the user prefers another
  * source's picture. Asked only on request, since it searches every source; the names it searches
  * by show above the covers, to change and search again (a misspelt title finds nothing).
@@ -247,7 +227,12 @@ const SourceCovers: FC<{
     enabled: asked !== null,
     staleTime: 10 * 60_000,
   });
-  const arriving = useArrivingCovers(request, options.isPending && asked !== null);
+  // While sources still answer (`CoverOptionsEvent`), the covers found so far.
+  const arriving = useArrivingAnswers<CoverOption>(
+    events.coverOptionsEvent,
+    request,
+    options.isPending && asked !== null,
+  );
   const search = () => setAsked(names ? searchedAs(target, names) : target);
   if (!asked) {
     return (
@@ -268,7 +253,7 @@ const SourceCovers: FC<{
     if (names?.title.trim()) search();
   };
   // While sources still answer, the covers found so far.
-  const list = options.data ?? arriving;
+  const list = options.data ?? arriving ?? [];
   return (
     <div className="flex flex-col gap-2">
       <span className="text-muted text-xs font-semibold uppercase">

@@ -478,12 +478,14 @@ impl PodcastService {
     /// The same book at the audiobook sources (Find in other sources): each source searched for
     /// `title`, and the books whose title answers it by the same author (when both say), closest
     /// first. Every source's copy shows, even of a recording two sources share; `own_feed` (the
-    /// book itself) doesn't. A source that fails is left out unless all do.
+    /// book itself) doesn't. A source that fails is left out unless all do. The books found so
+    /// far go to `report` each time a source answers with some.
     pub async fn audiobooks_elsewhere(
         &self,
         title: &str,
         author: Option<&str>,
         own_feed: &str,
+        report: impl Fn(&[AudiobookResult]),
     ) -> Result<Vec<AudiobookResult>, String> {
         let title = title.trim();
         if title.is_empty() {
@@ -495,51 +497,72 @@ impl PodcastService {
         if providers.is_empty() {
             return Err("No audiobook source is installed".into());
         }
-        let answers = futures_util::future::join_all(providers.iter().map(|provider| async move {
-            // A search shown in the directory moments ago is the same answer.
-            let ask = directory::Ask {
-                provider: provider.id.clone(),
-                list: "search".into(),
-                query: title.to_lowercase(),
-                page: 1,
-            };
-            if let Some(found) = self.pages.get(&ask) {
-                return Ok(found);
-            }
-            let answer = host.audiobooks(&provider.id, "search", title, 1).await;
-            if let Ok(found) = &answer {
-                self.pages.put(ask, found.clone());
-            }
-            answer
-        }))
-        .await;
-        let mut pages = Vec::new();
+        let mut answers: FuturesUnordered<_> = providers
+            .iter()
+            .enumerate()
+            .map(|(index, provider)| async move {
+                // A search shown in the directory moments ago is the same answer.
+                let ask = directory::Ask {
+                    provider: provider.id.clone(),
+                    list: "search".into(),
+                    query: title.to_lowercase(),
+                    page: 1,
+                };
+                if let Some(found) = self.pages.get(&ask) {
+                    return (index, Ok(found));
+                }
+                let answer = host.audiobooks(&provider.id, "search", title, 1).await;
+                if let Ok(found) = &answer {
+                    self.pages.put(ask, found.clone());
+                }
+                (index, answer)
+            })
+            .collect();
+        // Each source's page with its place in the sources' order (ties rank by it).
+        let mut pages: Vec<(usize, String, BookPage)> = Vec::new();
         let mut errors = Vec::new();
-        for (provider, answer) in providers.into_iter().zip(answers) {
+        let mut shown = 0;
+        let ranked = |pages: &[(usize, String, BookPage)]| {
+            let mut pages = pages.to_vec();
+            pages.sort_by_key(|(index, _, _)| *index);
+            let pages = pages
+                .into_iter()
+                .map(|(_, source, page)| (source, page))
+                .collect();
+            directory::elsewhere(pages, title, author, own_feed)
+                .into_iter()
+                .map(|found| AudiobookResult {
+                    artwork_url: self.artwork(found.book.artwork_url.as_deref()),
+                    title: found.name.title,
+                    author: found.name.author,
+                    edition: found.name.edition,
+                    feed_url: found.book.feed_url,
+                    runtime: found.book.runtime,
+                    language: found.book.language,
+                    description: found.book.description,
+                    source: found.source,
+                })
+                .collect::<Vec<_>>()
+        };
+        while let Some((index, answer)) = answers.next().await {
+            let provider = &providers[index];
             match answer {
-                Ok(found) => pages.push((provider.name, found)),
+                Ok(found) => {
+                    pages.push((index, provider.name.clone(), found));
+                    let books = ranked(&pages);
+                    if books.len() > shown {
+                        shown = books.len();
+                        report(&books);
+                    }
+                }
                 Err(error) => errors.push(raygun_net::issue::named(&provider.name, &error)),
             }
         }
         if pages.is_empty() && !errors.is_empty() {
             return Err(raygun_net::issue::joined(&errors));
         }
-        Ok(directory::elsewhere(pages, title, author, own_feed)
-            .into_iter()
-            .map(|found| AudiobookResult {
-                artwork_url: self.artwork(found.book.artwork_url.as_deref()),
-                title: found.name.title,
-                author: found.name.author,
-                edition: found.name.edition,
-                feed_url: found.book.feed_url,
-                runtime: found.book.runtime,
-                language: found.book.language,
-                description: found.book.description,
-                source: found.source,
-            })
-            .collect())
+        Ok(ranked(&pages))
     }
-
     /// Downloads every chapter of a book that isn't yet; returns how many were queued.
     pub async fn download_all(&self, id: &str) -> Result<u32, String> {
         let db = self.db();

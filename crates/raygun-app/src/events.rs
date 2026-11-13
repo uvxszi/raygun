@@ -166,6 +166,16 @@ pub struct SearchProgressEvent(pub raygun_model::SearchProgress);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct CoverOptionsEvent(pub String, pub Vec<raygun_model::CoverOption>);
 
+/// The streams found so far for a title page's sources (`stremio_streams`), as each addon or
+/// stream provider answers: `[request, groups]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct StremioStreamsEvent(pub String, pub Vec<raygun_model::StremioStreamGroup>);
+
+/// The books found so far by an audiobook Find in other sources (`audiobooks_elsewhere`), as
+/// each source answers: `[request, books]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct AudiobooksElsewhereEvent(pub String, pub Vec<raygun_model::AudiobookResult>);
+
 /// A model download's progress (M34).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct AiModelEvent(pub raygun_model::AiModelProgress);

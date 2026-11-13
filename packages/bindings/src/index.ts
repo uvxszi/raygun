@@ -607,7 +607,7 @@ export const commands = {
 	 *  The same book at the audiobook sources (Find in other sources): every source's copy whose
 	 *  title answers `title`, by the same author when both say, without the book's own feed.
 	 */
-	audiobooksElsewhere: (title: string, author: string | null, feedUrl: string) => typedError<AudiobookResult[], string>(__TAURI_INVOKE("audiobooks_elsewhere", { title, author, feedUrl })),
+	audiobooksElsewhere: (title: string, author: string | null, feedUrl: string, request: string) => typedError<AudiobookResult[], string>(__TAURI_INVOKE("audiobooks_elsewhere", { title, author, feedUrl, request })),
 	/**
 	 *  Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
 	 *  queued (M46.48).
@@ -1740,8 +1740,12 @@ export const commands = {
 	stremioSearchCatalog: (addonId: string, kind: string, catalogId: string, query: string) => typedError<StremioCatalogRow, string>(__TAURI_INVOKE("stremio_search_catalog", { addonId, kind, catalogId, query })),
 	/**  A title's details, seasons and episodes, with watching progress. */
 	stremioMeta: (kind: string, id: string) => typedError<StremioMeta, string>(__TAURI_INVOKE("stremio_meta", { kind, id })),
-	/**  Streams for a movie or an episode of the title `meta_id`, grouped by addon. */
-	stremioStreams: (kind: string, metaId: string | null, videoId: string) => typedError<StremioStreamGroup[], string>(__TAURI_INVOKE("stremio_streams", { kind, metaId, videoId })),
+	/**
+	 *  Streams for a movie or an episode of the title `meta_id`, grouped by addon; the groups found
+	 *  so far are also sent as a [`crate::events::StremioStreamsEvent`] under `request` as each
+	 *  source answers.
+	 */
+	stremioStreams: (kind: string, metaId: string | null, videoId: string, request: string) => typedError<StremioStreamGroup[], string>(__TAURI_INVOKE("stremio_streams", { kind, metaId, videoId, request })),
 	/**  Plays a stream; `language` puts its subtitles first. */
 	stremioPlay: (request: StremioPlayRequest, language: string) => typedError<null, string>(__TAURI_INVOKE("stremio_play", { request, language })),
 	/**  Marks a movie or episode watched (or not). */
@@ -1994,6 +1998,7 @@ export const events = {
 	appUpdateEvent: makeEvent<AppUpdateEvent>("app-update-event"),
 	artistProfileEvent: makeEvent<ArtistProfileEvent>("artist-profile-event"),
 	artistReleasesEvent: makeEvent<ArtistReleasesEvent>("artist-releases-event"),
+	audiobooksElsewhereEvent: makeEvent<AudiobooksElsewhereEvent>("audiobooks-elsewhere-event"),
 	audiobooksFoundEvent: makeEvent<AudiobooksFoundEvent>("audiobooks-found-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	castStatusEvent: makeEvent<CastStatusEvent>("cast-status-event"),
@@ -2033,6 +2038,7 @@ export const events = {
 	sourceQueueEvent: makeEvent<SourceQueueEvent>("source-queue-event"),
 	sourcesSetupEvent: makeEvent<SourcesSetupEvent>("sources-setup-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent_Deserialize>("speech-command-event"),
+	stremioStreamsEvent: makeEvent<StremioStreamsEvent>("stremio-streams-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	trackDurationsEvent: makeEvent<TrackDurationsEvent>("track-durations-event"),
 	ttsEvent: makeEvent<TtsEvent_Deserialize>("tts-event"),
@@ -2568,6 +2574,12 @@ export type AudiobookView = {
 	resume: BookResume | null,
 	speed: number | null,
 };
+
+/**
+ *  The books found so far by an audiobook Find in other sources (`audiobooks_elsewhere`), as
+ *  each source answers: `[request, books]`.
+ */
+export type AudiobooksElsewhereEvent = [string, AudiobookResult[]];
 
 /**
  *  An audiobook source answered after its list was shown (M46.48): `[list, query]`, so the list
@@ -7731,6 +7743,12 @@ export type StremioStreamKind =
 "title" | 
 /**  Archives, Usenet and other streams only Stremio's streaming server opens. */
 "server";
+
+/**
+ *  The streams found so far for a title page's sources (`stremio_streams`), as each addon or
+ *  stream provider answers: `[request, groups]`.
+ */
+export type StremioStreamsEvent = [string, StremioStreamGroup[]];
 
 /**  A well-known addon offered with one tap. */
 export type StremioSuggestion = {
