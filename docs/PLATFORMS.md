@@ -23,8 +23,9 @@ add their files when they built (a failed one shows in the run and leaves its fi
 | macOS | `Raygun_<v>_aarch64.dmg` (Apple silicon), `Raygun_<v>_x64.dmg` (Intel) | macos-15 | yes |
 | FreeBSD x86_64 | `Raygun_<v>_freebsd_x86_64.tar.gz` | FreeBSD 14.3 VM | – |
 
-"Starts in CI" means the build is started in a virtual display with its own data folder and must
-still be running 40 seconds later without a panic or crash log.
+"Starts in CI" means the build is started (on Linux in a virtual display) with a data folder of its
+own, must log that its start went well (20 healthy seconds) within 90 seconds, still be running then
+and have written no crash record. A screenshot of each is kept with the run (`screenshots-*`).
 
 The names are what the in-app updater looks for (`updates.rs` `pick_asset`); keep them. Copies of
 1.9.4 and earlier take the first `-setup.exe` and the first `.msi` in GitHub's order (by name), so

@@ -195,15 +195,21 @@ jobs:
         shell: pwsh
         run: |
           $env:RAYGUN_HOME = Join-Path $env:RUNNER_TEMP raygun-home
+          $logs = Join-Path $env:RAYGUN_HOME logs
           $app = Start-Process -FilePath "out/Raygun_${env:VERSION}_${{ matrix.arch }}_portable.exe" -PassThru
-          Start-Sleep -Seconds 40
+          # Raygun logs that its start went well after 20 healthy seconds.
+          foreach ($second in 1..45) {
+            Start-Sleep -Seconds 2
+            if ($app.HasExited) { break }
+            if (Select-String -Path (Join-Path $logs 'raygun.*') -Pattern 'the start went well' -Quiet -ErrorAction SilentlyContinue) { break }
+          }
+          Start-Sleep -Seconds 5
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
           [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
           New-Item -ItemType Directory -Force shots | Out-Null
           $shot.Save("shots/windows-${{ matrix.arch }}.png")
-          $logs = Join-Path $env:RAYGUN_HOME logs
           if (Test-Path $logs) { Get-ChildItem -Recurse $logs | Where-Object { -not $_.PSIsContainer } | ForEach-Object { Get-Content $_.FullName -Tail 40 } }
           if ($app.HasExited) { Write-Error "Raygun stopped by itself (exit $($app.ExitCode))"; exit 1 }
           Stop-Process -Id $app.Id -Force
@@ -485,7 +491,13 @@ jobs:
           export RAYGUN_HOME="$RUNNER_TEMP/raygun-home"
           "target/${{ matrix.target }}/release/bundle/macos/Raygun.app/Contents/MacOS/raygun" &
           pid=$!
-          sleep 40
+          # Raygun logs that its start went well after 20 healthy seconds.
+          for _ in $(seq 1 45); do
+            sleep 2
+            kill -0 "$pid" 2>/dev/null || break
+            grep -qs "the start went well" "$RAYGUN_HOME"/logs/raygun.* && break
+          done
+          sleep 5
           mkdir -p shots
           screencapture -x "shots/macos-${{ matrix.arch }}.png" || echo "No screenshot was taken"
           find "$RAYGUN_HOME/logs" -type f -exec tail -n 40 {} + || true
