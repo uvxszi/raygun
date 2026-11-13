@@ -265,6 +265,79 @@ pub(super) struct Missing {
     pub remote_id: String,
 }
 
+/// The sources a stored video title's episodes can download from, for the export sheet's one
+/// choice: a video source's servers (as `unit_id`'s episode lists them, else its first's) or
+/// the Stremio addons serving the title's streams. Nothing is resolved.
+pub async fn sources(
+    app: &AppHandle,
+    title_id: &str,
+    unit_id: Option<&str>,
+) -> Result<raygun_model::ExportVideoSources, String> {
+    let db = app.state::<AppDb>().inner().0.clone();
+    let title = titles::title(&db, title_id)
+        .await
+        .map_err(to_message)?
+        .ok_or("This title is no longer stored")?;
+    let names = match crate::video_library::stremio_id(&title) {
+        Some((kind, id)) => {
+            app.state::<std::sync::Arc<crate::stremio::StremioService>>()
+                .stream_addon_names(kind, id)
+                .await?
+        }
+        None => {
+            let units = titles::units(&db, title_id).await.map_err(to_message)?;
+            let ordered = crate::video_sources::watching_order(&units);
+            let unit = unit_id
+                .and_then(|wanted| ordered.iter().find(|unit| unit.id == wanted))
+                .or_else(|| ordered.first())
+                .ok_or("There are no episodes to export")?;
+            app.state::<crate::video_sources::VideoSourceService>()
+                .servers(&title.fields.source_id, &unit.fields.remote_id)
+                .await?
+                .into_iter()
+                .map(|server| server.name)
+                .collect()
+        }
+    };
+    let origin = crate::video_session::Origin::from_group(&group_of(&title))
+        .ok_or("This title can't be downloaded")?;
+    let (memory, health, resolution) = app
+        .state::<crate::video_session::VideoSessions>()
+        .ranking_inputs(&origin)
+        .await;
+    let ranking = crate::video_session::Ranking::new(&memory, &health, resolution, now_ms());
+    Ok(ranked_sources(names, &memory.group, &ranking))
+}
+
+/// `names` once each, best first by `ranking`, the one played last (`last`) chosen, else the
+/// first.
+pub(super) fn ranked_sources(
+    names: Vec<String>,
+    last: &str,
+    ranking: &crate::video_session::Ranking,
+) -> raygun_model::ExportVideoSources {
+    let mut seen = HashSet::new();
+    let mut names: Vec<String> = names
+        .into_iter()
+        .filter(|name| seen.insert(name.clone()))
+        .collect();
+    names.sort_by_cached_key(|name| ranking.group_key(name));
+    let sources: Vec<raygun_model::ExportVideoSource> = names
+        .into_iter()
+        .map(|name| raygun_model::ExportVideoSource {
+            last_played: !last.is_empty() && name == last,
+            failing: ranking.is_failing(&name),
+            name,
+        })
+        .collect();
+    let chosen = sources
+        .iter()
+        .find(|source| source.last_played)
+        .or_else(|| sources.first())
+        .map(|source| source.name.clone());
+    raygun_model::ExportVideoSources { sources, chosen }
+}
+
 /// A title's player group: `stremio:<type>:<id>` for Stremio titles, else `title:<id>`.
 fn group_of(title: &TitleRow) -> String {
     match crate::video_library::stremio_id(title) {
@@ -466,11 +539,13 @@ pub(super) async fn plan(
 }
 
 /// Queues `missing` (each finds its link on its own) and waits until each is downloaded or
-/// failed. Returns the stored ids of the failed ones.
+/// failed. Returns the stored ids of the failed ones. `source` is the one chosen in the sheet,
+/// where their links come from first.
 pub(super) async fn wait_for_downloads(
     service: &ExportService,
     job: &str,
     missing: &[Missing],
+    source: Option<&str>,
     cancel: &AtomicBool,
 ) -> Result<HashSet<String>, String> {
     if missing.is_empty() {
@@ -489,7 +564,7 @@ pub(super) async fn wait_for_downloads(
         }
     }
     for (group, ids) in &groups {
-        downloads.enqueue_episodes(group, ids).await?;
+        downloads.enqueue_episodes(group, ids, source).await?;
     }
     let db = app.state::<AppDb>().inner().0.clone();
     let keys: Vec<String> = missing.iter().map(|episode| episode.key.clone()).collect();

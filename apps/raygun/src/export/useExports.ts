@@ -41,6 +41,18 @@ export const useExportPlan = (request: ExportRequest | null) =>
     enabled: request !== null,
   });
 
+/**
+ * The sources a video title's episodes can download from (its servers or addons), best first,
+ * with the one to preselect: the one played last, else the best ranked. Asked only for one title.
+ */
+export const useExportVideoSources = (titleId: string | null, unitId: string | null) =>
+  useQuery({
+    queryKey: [...EXPORTS, 'sources', titleId, unitId],
+    queryFn: () => unwrapResult(commands.exportVideoSources(titleId as string, unitId)),
+    enabled: titleId !== null,
+    staleTime: 60_000,
+  });
+
 const FFMPEG_STATUS = ['ytdlp', 'status'] as const;
 
 /**

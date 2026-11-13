@@ -151,6 +151,15 @@ export const useRefreshCatalog = () => {
   });
 };
 
+/** Fetches one repository's index again (its Reload); answers with the whole catalogue. */
+export const useRefreshRepo = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (repoId: string) => unwrapResult(commands.extensionCatalogRefreshRepo(repoId)),
+    onSuccess: (catalog) => queryClient.setQueryData(CATALOG, catalog),
+  });
+};
+
 export const useInstallExtension = () => {
   const store = useStoreExtensions();
   return useMutation({

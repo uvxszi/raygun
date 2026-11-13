@@ -511,7 +511,8 @@ impl ExportService {
     ) -> Result<(), String> {
         let titles = planned.titles;
         let failed = if request.medium == "video" {
-            video::wait_for_downloads(self, id, &planned.videos, cancel).await?
+            video::wait_for_downloads(self, id, &planned.videos, request.source.as_deref(), cancel)
+                .await?
         } else {
             self.wait_for_downloads(id, &planned.missing, cancel)
                 .await?

@@ -119,6 +119,7 @@ describe('Exports', () => {
       format: 'cbz',
       destination: 'downloads',
       folder: null,
+      source: null,
     });
     // No folder is set in Settings: only Choose folder… offers one.
     expect(within(sheet).queryByRole('radio', { name: 'Your folder' })).not.toBeInTheDocument();
@@ -151,6 +152,7 @@ describe('Exports', () => {
       format: 'pdf',
       destination: 'share',
       folder: null,
+      source: null,
     });
     expect(await within(sheet).findByText('Exporting Frieren.')).toBeInTheDocument();
     await user.click(within(sheet).getByRole('link', { name: 'See progress' }));

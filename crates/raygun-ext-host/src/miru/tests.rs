@@ -430,6 +430,10 @@ const VIDEO: &str = r#"
     return [{ title: JSON.stringify({ kw, page, filter }), url: 'found' }];
   }
   async detail(url) {
+    if (url === 'parts') return { title: 'Parts', episodes: [
+      { title: '第1集', urls: [{ name: '1080P', url: 'p1hd' }, { name: '720P', url: 'p1sd' }] },
+      { title: '第2集', urls: [{ name: '1080P', url: 'p2hd' }] },
+    ] };
     return { title: `Show ${url}`, cover: 'http://img.example/c.jpg', desc: 'About it',
       studio: ['video test', 'Studio Ghibli'], cast: [{ name: 'Ann' }, 'Bob'], episodes: [
       { title: 'Line 1', urls: [{ name: 'Episode 1', url: 'l1e1' }, { name: 'Episode 2', url: 'l1e2' }] },
@@ -567,6 +571,28 @@ async fn video_sources_list_search_and_play() {
         .map(|server| (server.id.as_str(), server.name.as_str()))
         .collect();
     assert_eq!(servers, [("l1e1", "Line 1"), ("l2e1", "Line 2")]);
+
+    // Groups that are episodes, with qualities inside, are episodes with those servers.
+    let parts = host.video_episodes(provider, "parts").await.unwrap();
+    let parts: Vec<(&str, &str, Option<f64>)> = parts
+        .iter()
+        .map(|episode| (episode.id.as_str(), episode.name.as_str(), episode.number))
+        .collect();
+    assert_eq!(
+        parts,
+        [("p1hd", "第1集", Some(1.0)), ("p2hd", "第2集", Some(2.0))]
+    );
+    let first = host.video_servers(provider, "p1hd").await.unwrap();
+    let first: Vec<(&str, &str)> = first
+        .iter()
+        .map(|server| (server.id.as_str(), server.name.as_str()))
+        .collect();
+    assert_eq!(first, [("p1hd", "1080P"), ("p1sd", "720P")]);
+    let unknown = host.video_servers(provider, "never-listed").await.unwrap();
+    assert_eq!(
+        unknown[0].id, "never-listed",
+        "an episode not read lately plays itself"
+    );
 
     let hls = host.video_links(provider, "l1e1").await.unwrap();
     assert_eq!(hls[0].format.as_deref(), Some("hls"));

@@ -2814,6 +2814,90 @@ async fn video_sources_list_episodes_and_resolve_servers_one_by_one() {
     assert!(broken.unwrap_err().contains("host is down"));
 }
 
+/// A source answering one unit whose videos are its episodes: Raygun lists them as episodes,
+/// each playing its own videos, after a restart too (the ids say which).
+#[tokio::test]
+async fn a_lone_unit_whose_videos_are_episodes_is_split() {
+    let code = r#"
+        raygun.providers.register({
+          kind: 'video.source', id: 'v', name: 'Serial',
+          popular: async () => ({ items: [], hasNextPage: false }),
+          search: async () => ({ items: [], hasNextPage: false }),
+          details: async () => ({ title: 'Serial' }),
+          episodes: async ({ id }) => ({ episodes: [{ id, name: 'Play' }] }),
+          servers: async ({ episodeId }) => ({ servers: [{ id: `${episodeId}:main`, name: 'Main' }] }),
+          videos: async ({ serverId }) => {
+            if (serverId.startsWith('film')) return { videos: [
+              { url: 'https://cdn.example/f1080.mp4', label: '1080p', quality: 1080 },
+              { url: 'https://cdn.example/f720.mp4', label: '720p', quality: 720 },
+            ] };
+            return { videos: [
+              { url: 'https://cdn.example/1.m3u8', label: '第1集', format: 'hls' },
+              { url: 'https://cdn.example/2.m3u8', label: '第2集', format: 'hls' },
+              { url: 'https://cdn.example/3.m3u8', label: '第3集', format: 'hls' },
+            ] };
+          },
+        });
+    "#;
+    let source = || {
+        ExtensionSource::built_in(&[
+            (
+                "raygun-extension.json",
+                &manifest_json(json!({ "id": "dev.raygun.serial", "provides": ["video.source"] })),
+            ),
+            ("index.js", code),
+        ])
+    };
+    let provider = "dev.raygun.serial/v";
+    let host = test_host();
+    host.load(vec![source()]).await;
+
+    let episodes = host.video_episodes(provider, "show").await.unwrap();
+    let listed: Vec<(&str, &str, Option<f64>)> = episodes
+        .iter()
+        .map(|episode| (episode.id.as_str(), episode.name.as_str(), episode.number))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("show#raygun-episode=E1", "第1集", Some(1.0)),
+            ("show#raygun-episode=E2", "第2集", Some(2.0)),
+            ("show#raygun-episode=E3", "第3集", Some(3.0)),
+        ]
+    );
+    let servers = host.video_servers(provider, &episodes[1].id).await.unwrap();
+    assert_eq!(servers[0].id, "show:main#raygun-episode=E2");
+    let links = host.video_links(provider, &servers[0].id).await.unwrap();
+    assert_eq!(
+        links
+            .iter()
+            .map(|link| link.url.as_str())
+            .collect::<Vec<_>>(),
+        ["https://cdn.example/2.m3u8"]
+    );
+
+    // Resolutions stay one episode's qualities.
+    let film = host.video_episodes(provider, "film").await.unwrap();
+    assert_eq!(
+        (film.len(), film[0].id.as_str()),
+        (1, "film"),
+        "a movie in two qualities is one episode"
+    );
+    let servers = host.video_servers(provider, "film").await.unwrap();
+    let links = host.video_links(provider, &servers[0].id).await.unwrap();
+    assert_eq!(links.len(), 2);
+
+    // A new host (a restart) reads the same ids.
+    let again = test_host();
+    again.load(vec![source()]).await;
+    let servers = again
+        .video_servers(provider, "show#raygun-episode=E3")
+        .await
+        .unwrap();
+    let links = again.video_links(provider, &servers[0].id).await.unwrap();
+    assert_eq!(links[0].url, "https://cdn.example/3.m3u8");
+}
+
 #[test]
 fn settings_without_labels_read_as_words() {
     assert_eq!(crate::host::key_label("itemsPerSearch"), "Items per search");

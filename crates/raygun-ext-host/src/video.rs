@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use raygun_model::{ChapterKind, VideoChapter};
 use serde_json::Value;
 
-use crate::ExtensionHost;
 use crate::manga::{MangaChapter, headers, id, parse_units, text, url};
+use crate::{ExtensionHost, video_units};
 
 pub const VIDEO_SOURCE: &str = "video.source";
 
@@ -58,7 +58,8 @@ pub struct VideoTrack {
 const MAX_COMMENTS: usize = 100;
 
 impl ExtensionHost {
-    /// A title's episodes, in the source's order; a movie has one.
+    /// A title's episodes, in the source's order; a movie has one. Lines, and a lone unit whose
+    /// servers or videos are several episodes, are read as `crate::video_units` says.
     pub async fn video_episodes(
         &self,
         provider: &str,
@@ -68,9 +69,61 @@ impl ExtensionHost {
             .call(provider, "episodes", serde_json::json!({ "id": id }))
             .await
             .map_err(|error| error.to_string())?;
+        if let Some(lines) = video_units::parse_lines(&value) {
+            let units = video_units::from_lines(lines);
+            self.video_memory().keep_servers(provider, &units);
+            let mut episodes: Vec<MangaChapter> =
+                units.into_iter().map(|unit| unit.episode).collect();
+            fill_from_names(&mut episodes);
+            return Ok(episodes);
+        }
         let mut episodes = parse_units(&value, "episodes", "Episode");
         fill_from_names(&mut episodes);
+        if let [lone] = episodes.as_slice()
+            && video_units::split_id(&lone.id).1.is_none()
+            && let Ok(Some(split)) =
+                tokio::time::timeout(video_units::PROBE_LIMIT, self.split_lone(provider, lone))
+                    .await
+        {
+            return Ok(split);
+        }
         Ok(episodes)
+    }
+
+    /// A lone unit's episodes when its servers' names or its videos' are several episodes. Its
+    /// lone server is resolved to tell; what was read is kept for the calls that follow.
+    async fn split_lone(&self, provider: &str, unit: &MangaChapter) -> Option<Vec<MangaChapter>> {
+        let value = self
+            .call(
+                provider,
+                "servers",
+                serde_json::json!({ "episodeId": unit.id }),
+            )
+            .await
+            .ok()?;
+        self.video_memory()
+            .keep_answer(provider, "servers", &unit.id, &value);
+        let servers = parse_servers(&value);
+        if let Some(split) = video_units::split_unit(unit, &servers, None) {
+            return Some(split);
+        }
+        let [server] = servers.as_slice() else {
+            return None;
+        };
+        if server.videos.is_some() {
+            return None;
+        }
+        let value = self
+            .call(
+                provider,
+                "videos",
+                serde_json::json!({ "serverId": server.id }),
+            )
+            .await
+            .ok()?;
+        self.video_memory()
+            .keep_answer(provider, "videos", &server.id, &value);
+        video_units::split_unit(unit, &servers, Some(&parse_videos(&value)))
     }
 
     /// A title's comments, a page at a time (M46.45); a source without them has none.
@@ -103,15 +156,18 @@ impl ExtensionHost {
         provider: &str,
         episode_id: &str,
     ) -> Result<Vec<VideoServer>, String> {
+        if let Some(servers) = self.video_memory().servers(provider, episode_id) {
+            return Ok(servers);
+        }
+        let (unit, key) = video_units::split_id(episode_id);
         let value = self
-            .call(
-                provider,
-                "servers",
-                serde_json::json!({ "episodeId": episode_id }),
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        Ok(parse_servers(&value))
+            .video_answer(provider, "servers", "episodeId", unit)
+            .await?;
+        let servers = parse_servers(&value);
+        Ok(match key {
+            Some(key) => video_units::servers_of_episode(servers, key),
+            None => servers,
+        })
     }
 
     /// One server's videos.
@@ -120,15 +176,32 @@ impl ExtensionHost {
         provider: &str,
         server_id: &str,
     ) -> Result<Vec<VideoLink>, String> {
+        let (server, key) = video_units::split_id(server_id);
         let value = self
-            .call(
-                provider,
-                "videos",
-                serde_json::json!({ "serverId": server_id }),
-            )
+            .video_answer(provider, "videos", "serverId", server)
+            .await?;
+        let videos = parse_videos(&value);
+        Ok(match key {
+            Some(key) => video_units::videos_of_episode(videos, key),
+            None => videos,
+        })
+    }
+
+    /// A `servers` or `videos` answer: the one read a moment ago to tell episodes apart, else
+    /// the source's.
+    async fn video_answer(
+        &self,
+        provider: &str,
+        method: &'static str,
+        field: &str,
+        id: &str,
+    ) -> Result<Value, String> {
+        if let Some(value) = self.video_memory().take_answer(provider, method, id) {
+            return Ok(value);
+        }
+        self.call(provider, method, serde_json::json!({ field: id }))
             .await
-            .map_err(|error| error.to_string())?;
-        Ok(parse_videos(&value))
+            .map_err(|error| error.to_string())
     }
 }
 

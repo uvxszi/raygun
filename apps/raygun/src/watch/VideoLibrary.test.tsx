@@ -388,6 +388,54 @@ describe('Video library', () => {
     );
   });
 
+  it('downloads the missing episodes from one source, the one played last chosen first', async () => {
+    const user = userEvent.setup();
+    commands.stremioMeta.mockResolvedValue(ok(SERIES));
+    commands.exportPlan.mockResolvedValue(
+      ok({ chapters: 2, missing: 1, files: 2, problem: null, conversions: [] }),
+    );
+    commands.exportVideoSources.mockResolvedValue(
+      ok({
+        sources: [
+          { name: 'Torrentio', lastPlayed: true, failing: false },
+          { name: 'Comet', lastPlayed: false, failing: false },
+          { name: 'Broken addon', lastPlayed: false, failing: true },
+        ],
+        chosen: 'Torrentio',
+      }),
+    );
+    await AppShellWrapper.mount('/watch/title?type=series&id=tt0903747');
+    const page = await screen.findByTestId('watch-title-page');
+    await user.click(await within(page).findByRole('button', { name: 'Export' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Export' });
+
+    const group = await within(sheet).findByRole('radiogroup', { name: 'Download from' });
+    // One choice, not toggles: radios, the one played last ticked.
+    expect(within(group).getAllByRole('radio')).toHaveLength(3);
+    expect(within(group).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name: 'Torrentio' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(within(group).getByText('Played last')).toBeInTheDocument();
+    expect(within(group).getByText("Didn't work lately")).toBeInTheDocument();
+    expect(commands.exportVideoSources).toHaveBeenCalledWith('title-bb', null);
+
+    await user.click(within(group).getByRole('radio', { name: 'Comet' }));
+    expect(within(group).getByRole('radio', { name: 'Comet' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(within(group).getByRole('radio', { name: 'Torrentio' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Download, then export' }));
+    expect(commands.exportStart).toHaveBeenCalledWith(
+      expect.objectContaining({ medium: 'video', source: 'Comet' }),
+    );
+  });
+
   it('takes a Stremio series out of the library and downloads a stream', async () => {
     const user = userEvent.setup();
     commands.stremioMeta.mockResolvedValue(ok(SERIES));

@@ -557,6 +557,8 @@ struct HostShared {
     held_back: RwLock<HashMap<String, String>>,
     /// Loads go one extension at a time, so a crash names the one loading (a safe start).
     one_at_a_time: std::sync::atomic::AtomicBool,
+    /// Episodes' servers from lines answers and answers read to split units (`video_units`).
+    video_memory: crate::video_units::Memory,
 }
 
 /// Each loaded JavaScript extension's heap meter and memory limit, by extension id.
@@ -643,8 +645,13 @@ impl ExtensionHost {
                 setup_changes: tokio::sync::watch::Sender::new(0),
                 held_back: RwLock::new(HashMap::new()),
                 one_at_a_time: std::sync::atomic::AtomicBool::new(false),
+                video_memory: crate::video_units::Memory::default(),
             }),
         })
+    }
+
+    pub(crate) fn video_memory(&self) -> &crate::video_units::Memory {
+        &self.shared.video_memory
     }
 
     /// Extensions not to load from the next load on, by id, with what their row says instead

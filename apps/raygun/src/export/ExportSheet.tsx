@@ -14,6 +14,7 @@ import { SourceIssue } from '../shell/SourceIssue';
 import {
   useExportFfmpeg,
   useExportPlan,
+  useExportVideoSources,
   useLastExportFolder,
   useLastExportFormat,
   usePickExportFolder,
@@ -156,7 +157,8 @@ const unitsIn = (
  * their sound; every format takes every video, and each says whether it re-encodes the downloaded
  * episodes (and about how long that takes) or copies them. Re-encoding on a computer needs FFmpeg,
  * fetched here. The last format used is offered first. It says first how many must download,
- * which then go through the normal queue (episodes find their own links).
+ * which then go through the normal queue (episodes find their own links), from the one source
+ * picked here for a single title (its servers or addons; the one played last is preselected).
  */
 export const ExportSheet: FC<{
   medium: Medium;
@@ -211,6 +213,15 @@ export const ExportSheet: FC<{
       },
     });
 
+  // Videos of one title download what's missing from one source, the one played last unless
+  // another is picked.
+  const sources = useExportVideoSources(
+    video && titleIds.length === 1 ? (titleIds[0] ?? null) : null,
+    initialEpisodes?.[0] ?? null,
+  );
+  const [pickedSource, setSource] = useState<string | null>(null);
+  const source = video ? (pickedSource ?? sources.data?.chosen ?? null) : null;
+
   const ticked = unitsIn(units, scope, season, from, to, chosen);
   const listed = units.filter((item) => ticked.has(item.id)).map((item) => item.id);
   const scopeValue: ExportScope =
@@ -226,8 +237,10 @@ export const ExportSheet: FC<{
     format: format ?? 'cbz',
     destination: place === 'settings' || place === 'picked' ? 'folder' : place,
     folder: place === 'picked' ? picked : null,
+    source,
   };
-  const plan = useExportPlan(request);
+  // The plan doesn't depend on the source.
+  const plan = useExportPlan({ ...request, source: null });
   const problem = plan.data?.problem ?? (plan.isError ? plan.error.message : null);
   // Videos: what each format does with the downloaded episodes.
   const conversionOf = (value: ExportFormat) =>
@@ -474,6 +487,35 @@ export const ExportSheet: FC<{
               </SourceIssue>
             )}
           </div>
+        )}
+        {video && missing > 0 && sources.isPending && titleIds.length === 1 && (
+          <p role="status" className="text-muted px-1 text-xs">
+            {t('export.source.finding')}
+          </p>
+        )}
+        {video && missing > 0 && sources.isError && (
+          <SourceIssue compact title={t('export.source.failed')}>
+            {sources.error.message}
+          </SourceIssue>
+        )}
+        {video && missing > 0 && sources.data && sources.data.sources.length > 1 && (
+          <Group label={t('export.source.title')}>
+            {sources.data.sources.map((option) => (
+              <Radio
+                key={option.name}
+                name={option.name}
+                checked={source === option.name}
+                onPick={() => setSource(option.name)}
+              >
+                {option.name}
+                {(option.lastPlayed || option.failing) && (
+                  <span className="text-muted text-xs">
+                    {t(option.lastPlayed ? 'export.source.lastPlayed' : 'export.source.failing')}
+                  </span>
+                )}
+              </Radio>
+            ))}
+          </Group>
         )}
         <Group label={t('export.destination')}>
           <Radio
