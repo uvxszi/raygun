@@ -9,7 +9,13 @@
 //! - Android: the APK is downloaded to the cache and handed to Android's installer, after asking
 //!   for "Install unknown apps" when Raygun doesn't have it; the release is signed with the same
 //!   key, so it installs as an update;
-//! - the portable exe and everything else: the release page opens, nothing is replaced.
+//! - a Linux AppImage: the new AppImage for this processor takes the place of the running one's
+//!   file and Raygun starts again from it;
+//! - the portable exe and everything else (Linux packages, Flatpak, macOS): the release page
+//!   opens, nothing is replaced.
+//!
+//! Each copy takes the file built for its own processor (x64, x86, ARM64) by the names the release
+//! workflow gives them.
 //!
 //! A newer release an automatic check finds is offered in the app (`AppUpdate::prompt`) with
 //! Later (asked again a day later) and Skip this version (not offered again on this device; a
@@ -220,7 +226,7 @@ impl UpdateService {
             Ok(Some(release)) => {
                 self.remember_check().await;
                 let latest = release.tag_name.trim_start_matches('v').to_owned();
-                let asset = pick_asset(self.kind, &release.assets);
+                let asset = pick_asset(self.kind, std::env::consts::ARCH, &release.assets);
                 let (skipped, later) = self.offer_marks().await;
                 let now = crate::catalog::now_ms();
                 self.change_with_asset(asset.clone(), |update| {
@@ -535,6 +541,15 @@ impl UpdateService {
                 }
                 Ok(())
             }
+            #[cfg(target_os = "linux")]
+            InstallKind::AppImage => {
+                let target = appimage_path().ok_or("Raygun isn't running from its AppImage")?;
+                replace_file(file, &target)
+                    .map_err(|error| format!("The AppImage couldn't be replaced: {error}"))?;
+                // Tauri starts the AppImage again from its path (`APPIMAGE`), now the new one.
+                self.app.request_restart();
+                Ok(())
+            }
             _ => {
                 let _ = file;
                 self.open_page(RELEASES_URL)
@@ -615,10 +630,14 @@ impl UpdateService {
 }
 
 /// How this copy was installed: Android; on Windows, the NSIS uninstaller beside the exe, or the
-/// exe under Program Files (the MSI's place); otherwise portable.
+/// exe under Program Files (the MSI's place), otherwise portable; on Linux, an AppImage (the
+/// AppImage runtime names its file in `APPIMAGE`); anything else updates from the release page.
 fn install_kind() -> InstallKind {
     if cfg!(target_os = "android") {
         return InstallKind::Android;
+    }
+    if cfg!(target_os = "linux") && !cfg!(debug_assertions) && appimage_path().is_some() {
+        return InstallKind::AppImage;
     }
     if !cfg!(windows) || cfg!(debug_assertions) {
         return if cfg!(windows) {
@@ -646,6 +665,36 @@ fn install_kind() -> InstallKind {
         }
     }
     InstallKind::Portable
+}
+
+/// The AppImage this copy runs from, as its runtime names it.
+fn appimage_path() -> Option<PathBuf> {
+    std::env::var_os("APPIMAGE")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+}
+
+/// Puts the downloaded `new` file in place of `target`, runnable. The copy goes beside `target`
+/// first so the swap is one rename (a running AppImage keeps its old file until it exits).
+#[cfg(any(target_os = "linux", test))]
+fn replace_file(new: &Path, target: &Path) -> std::io::Result<()> {
+    let name = target
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("the file has no name"))?;
+    let staged = target.with_file_name(format!(".{}.update", name.to_string_lossy()));
+    std::fs::copy(new, &staged)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
+    }
+    if let Err(error) = std::fs::rename(&staged, target) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(error);
+    }
+    let _ = std::fs::remove_file(new);
+    Ok(())
 }
 
 /// Whether `url` is the repository or one of its pages (not another repository whose name starts
@@ -720,14 +769,31 @@ fn offers(
     available && !is_skipped(latest, skipped) && !put_off
 }
 
-/// The release file this kind of copy updates from (named by the release workflow).
-fn pick_asset(kind: InstallKind, assets: &[Asset]) -> Option<Asset> {
+/// The release file this kind of copy updates from, for its processor `arch` (as in
+/// `std::env::consts::ARCH`), by the names the release workflow gives them: Windows
+/// `Raygun_<v>_<x64|x86|arm64>-setup.exe` (ARM64's `_arm64_setup.exe`, which copies of 1.9.4 and
+/// earlier don't take for theirs) and `_<x64|x86>_en-US.msi`, AppImages `_<amd64|aarch64>.AppImage`.
+fn pick_asset(kind: InstallKind, arch: &str, assets: &[Asset]) -> Option<Asset> {
     let lower = |asset: &&Asset| asset.name.to_ascii_lowercase();
     let find =
         |test: &dyn Fn(&str) -> bool| assets.iter().find(|asset| test(&lower(asset))).cloned();
+    let windows = match arch {
+        "x86" => "x86",
+        "aarch64" => "arm64",
+        _ => "x64",
+    };
     match kind {
-        InstallKind::Setup => find(&|name| name.ends_with("-setup.exe")),
-        InstallKind::Msi => find(&|name| name.ends_with(".msi")),
+        InstallKind::Setup => find(&|name| {
+            name.ends_with(&format!("_{windows}-setup.exe"))
+                || name.ends_with(&format!("_{windows}_setup.exe"))
+        }),
+        InstallKind::Msi => {
+            find(&|name| name.ends_with(".msi") && name.contains(&format!("_{windows}_")))
+        }
+        InstallKind::AppImage => {
+            let appimage = if arch == "aarch64" { "aarch64" } else { "amd64" };
+            find(&|name| name.ends_with(&format!("_{appimage}.appimage")))
+        }
         InstallKind::Android => find(&|name| name.ends_with(".apk") && name.contains("universal"))
             .or_else(|| find(&|name| name.ends_with(".apk"))),
         InstallKind::Portable | InstallKind::Other => None,
@@ -854,35 +920,111 @@ mod tests {
         assert!(!newer("1.0.0-rc2", "1.0.0"));
     }
 
-    #[test]
-    fn each_install_picks_its_own_file() {
-        let assets: Vec<Asset> = [
+    /// Every file a release has (`.github/workflows/release.yml`), in GitHub's order (by name).
+    fn release_files() -> Vec<Asset> {
+        let mut names = [
             "Raygun_1.0.0_x64-setup.exe",
             "Raygun_1.0.0_x64_en-US.msi",
             "Raygun_1.0.0_x64_portable.exe",
+            "Raygun_1.0.0_x86-setup.exe",
+            "Raygun_1.0.0_x86_en-US.msi",
+            "Raygun_1.0.0_x86_portable.exe",
+            "Raygun_1.0.0_arm64_setup.exe",
+            "Raygun_1.0.0_arm64_portable.exe",
             "Raygun_1.0.0_android_arm64.apk",
             "Raygun_1.0.0_android_universal.apk",
-        ]
-        .into_iter()
-        .map(|name| Asset {
-            name: name.into(),
-            browser_download_url: format!("{REPO_URL}/releases/download/v1.0.0/{name}"),
-            size: 1,
-        })
-        .collect();
-        let name = |kind| pick_asset(kind, &assets).map(|asset| asset.name);
-        assert_eq!(
-            name(InstallKind::Setup).as_deref(),
-            Some("Raygun_1.0.0_x64-setup.exe")
-        );
-        assert_eq!(
-            name(InstallKind::Msi).as_deref(),
-            Some("Raygun_1.0.0_x64_en-US.msi")
-        );
-        assert_eq!(
-            name(InstallKind::Android).as_deref(),
-            Some("Raygun_1.0.0_android_universal.apk")
-        );
-        assert_eq!(name(InstallKind::Portable), None);
+            "Raygun_1.0.0_android_x86_64.apk",
+            "Raygun_1.0.0_amd64.AppImage",
+            "Raygun_1.0.0_aarch64.AppImage",
+            "Raygun_1.0.0_amd64.deb",
+            "Raygun_1.0.0_arm64.deb",
+            "Raygun_1.0.0_riscv64.deb",
+            "Raygun_1.0.0_x86_64.rpm",
+            "Raygun_1.0.0_aarch64.rpm",
+            "Raygun_1.0.0_riscv64.rpm",
+            "Raygun_1.0.0_x86_64.flatpak",
+            "Raygun_1.0.0_aarch64.flatpak",
+            "Raygun_1.0.0_aarch64.dmg",
+            "Raygun_1.0.0_x64.dmg",
+            "Raygun_1.0.0_freebsd_x86_64.tar.gz",
+            "raygun-bin-1.0.0-1-x86_64.pkg.tar.zst",
+            "raygun-bin-1.0.0-1-aarch64.pkg.tar.zst",
+        ];
+        names.sort_unstable();
+        names
+            .into_iter()
+            .map(|name| Asset {
+                name: name.into(),
+                browser_download_url: format!("{REPO_URL}/releases/download/v1.0.0/{name}"),
+                size: 1,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn each_install_picks_its_own_file() {
+        let assets = release_files();
+        let name = |kind, arch| pick_asset(kind, arch, &assets).map(|asset| asset.name);
+        for (kind, arch, expected) in [
+            (InstallKind::Setup, "x86_64", "Raygun_1.0.0_x64-setup.exe"),
+            (InstallKind::Setup, "x86", "Raygun_1.0.0_x86-setup.exe"),
+            (InstallKind::Setup, "aarch64", "Raygun_1.0.0_arm64_setup.exe"),
+            (InstallKind::Msi, "x86_64", "Raygun_1.0.0_x64_en-US.msi"),
+            (InstallKind::Msi, "x86", "Raygun_1.0.0_x86_en-US.msi"),
+            (InstallKind::AppImage, "x86_64", "Raygun_1.0.0_amd64.AppImage"),
+            (InstallKind::AppImage, "aarch64", "Raygun_1.0.0_aarch64.AppImage"),
+            (
+                InstallKind::Android,
+                "aarch64",
+                "Raygun_1.0.0_android_universal.apk",
+            ),
+        ] {
+            assert_eq!(
+                name(kind, arch).as_deref(),
+                Some(expected),
+                "{kind:?} {arch}"
+            );
+        }
+        // ARM64 has no MSI: such a copy (installed by hand from a build) opens the page.
+        assert_eq!(name(InstallKind::Msi, "aarch64"), None);
+        assert_eq!(name(InstallKind::Portable, "x86_64"), None);
+        assert_eq!(name(InstallKind::Other, "x86_64"), None);
+    }
+
+    /// Copies of 1.9.4 and earlier took the first `-setup.exe` and the first `.msi` in GitHub's
+    /// order: with the files of every platform, that's still the x64 one.
+    #[test]
+    fn copies_from_before_processor_names_still_take_the_x64_files() {
+        let assets = release_files();
+        let first = |ending: &str| {
+            assets
+                .iter()
+                .find(|asset| asset.name.to_ascii_lowercase().ends_with(ending))
+                .map(|asset| asset.name.as_str())
+        };
+        assert_eq!(first("-setup.exe"), Some("Raygun_1.0.0_x64-setup.exe"));
+        assert_eq!(first(".msi"), Some("Raygun_1.0.0_x64_en-US.msi"));
+    }
+
+    #[test]
+    fn a_new_appimage_takes_the_place_of_the_old_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let running = dir.path().join("Raygun_1.0.0_amd64.AppImage");
+        std::fs::write(&running, "old").unwrap();
+        let downloaded = dir.path().join("download.AppImage");
+        std::fs::write(&downloaded, "new").unwrap();
+
+        replace_file(&downloaded, &running).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&running).unwrap(), "new");
+        assert!(!downloaded.exists(), "the download is used up");
+        let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(names.len(), 1, "nothing staged is left");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&running).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
     }
 }

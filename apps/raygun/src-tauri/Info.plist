@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the macOS app's Info.plist by Tauri. macOS asks before an app reaches devices on
+     the local network: linked devices, Connect, the remote and casting all do. -->
+<plist version="1.0">
+<dict>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Raygun finds your other devices, TVs and speakers on this network to play on them and keep your library in sync.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_raygun-connect._tcp</string>
+    <string>_raygun-sync._tcp</string>
+    <string>_googlecast._tcp</string>
+  </array>
+</dict>
+</plist>

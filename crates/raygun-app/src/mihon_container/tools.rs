@@ -107,10 +107,13 @@ impl Tools {
         }
     }
 
-    /// The `java` of the fetched JRE, when it's there.
+    /// The `java` of the fetched JRE, when it's there (macOS's JRE is a bundle: `Contents/Home`).
     pub fn java_path(&self) -> Option<PathBuf> {
-        let path = self.dir.join("jre").join("bin").join(exe("java"));
-        path.is_file().then_some(path)
+        let jre = self.dir.join("jre");
+        [jre.clone(), jre.join("Contents").join("Home")]
+            .into_iter()
+            .map(|home| home.join("bin").join(exe("java")))
+            .find(|path| path.is_file())
     }
 
     /// The folder holding dex2jar's jars, when they're there.

@@ -731,12 +731,14 @@ pub use app_window::on_event;
 
 /// Returns a Tauri builder with all Raygun commands registered.
 pub fn builder() -> tauri::Builder<tauri::Wry> {
+    #[cfg(target_os = "linux")]
+    webkit_environment();
     let specta = specta_builder();
     let builder = tauri::Builder::default();
     // One running copy on desktop (M46.11): opening Raygun again brings its window forward, since
     // two copies would write to one database. The plugin must come first. Files the second copy
     // was started with ("Open with", a file dropped on Raygun.exe) play in this one.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
@@ -754,6 +756,19 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             specta.mount_events(app);
             startup::init(app)
         })
+}
+
+/// WebKitGTK's DMA-BUF renderer leaves the window blank with NVIDIA's own driver: it's turned off
+/// there, unless the environment already says what it wants.
+#[cfg(target_os = "linux")]
+fn webkit_environment() {
+    const DMABUF: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+    if std::env::var_os(DMABUF).is_none()
+        && Path::new("/proc/driver/nvidia/version").exists()
+    {
+        // SAFETY: `builder()` runs first in `main`, before Tauri or anything else starts a thread.
+        unsafe { std::env::set_var(DMABUF, "1") };
+    }
 }
 
 /// Absolute path of the bindings file in this checkout.

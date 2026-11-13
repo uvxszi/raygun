@@ -38,7 +38,9 @@ pub enum InstallKind {
     Msi,
     /// Android: the new APK, through Android's installer.
     Android,
-    /// Anything else (Linux, macOS, a development build): the release page.
+    /// A Linux AppImage: the new AppImage takes the place of this one's file, then starts.
+    AppImage,
+    /// Anything else (Linux packages, macOS, a development build): the release page.
     Other,
 }
 

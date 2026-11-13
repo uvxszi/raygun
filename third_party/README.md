@@ -14,6 +14,13 @@ Vendored unchanged, except for **four added binding files** so the crate builds 
 
 This is safe because the generated bindings only describe QuickJS's own C API: they contain no libc types, and the upstream glibc and musl bindings for the same architecture are byte-for-byte identical. Android uses the same data model as Linux on each architecture.
 
+Two more for the release builds of other platforms (`docs/PLATFORMS.md`):
+
+| Added file | Made how |
+|---|---|
+| `src/bindings/i686-pc-windows-msvc.rs` | Generated with the crate's `update-bindings` feature (bindgen 0.72.1, libclang 18) for `--target i686-pc-windows-msvc`. Not a copy: MSVC aligns 64-bit fields to 8 bytes on x86 where Linux aligns them to 4, and its enums are signed. |
+| `src/bindings/x86_64-unknown-freebsd.rs` | Copied from `x86_64-unknown-linux-gnu.rs` (same LP64 data model and compiler, as for Android). |
+
 Wired in through `[patch.crates-io]` in the workspace `Cargo.toml`. Drop this copy once upstream ships Android bindings.
 
 ## mp3lame-sys 0.1.11

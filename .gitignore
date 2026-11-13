@@ -12,3 +12,10 @@ raygun-data/
 # First-party extension bundles are compiled into the app, so cargo builds need them without Node.
 !extensions/*/dist/
 dist-desktop/
+# Package builds (packaging/): the deb a Flatpak or Arch package is made from, and their output.
+packaging/flatpak/raygun.deb
+.flatpak-builder/
+packaging/arch/*.deb
+packaging/arch/*.pkg.tar.*
+packaging/arch/pkg/
+packaging/arch/src/

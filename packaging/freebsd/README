@@ -1,0 +1,14 @@
+Raygun for FreeBSD (x86_64), built from source by the release workflow.
+
+It needs WebKitGTK 4.1 and GStreamer's plugins for sound and video:
+
+    pkg install webkit2-gtk_41 gstreamer1-plugins-good gstreamer1-plugins-bad gstreamer1-libav
+
+Then run ./raygun from this folder. Raygun keeps its data in a raygun-data folder beside it (or
+in the folder RAYGUN_HOME names). To have it in the desktop's menus:
+
+    install -m 755 raygun /usr/local/bin/raygun
+    install -m 644 raygun.desktop /usr/local/share/applications/raygun.desktop
+    install -m 644 raygun.png /usr/local/share/icons/hicolor/128x128/apps/raygun.png
+
+Installed under /usr/local, Raygun keeps its data in ~/.local/share/app.raygun.player.

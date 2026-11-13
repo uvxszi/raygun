@@ -2,10 +2,12 @@
 //! audio file couldn't be downloaded (M46.51) saved as files.
 //!
 //! yt-dlp is looked for in `<data root>/tools/`, then on the PATH. When it's missing it is fetched
-//! from its GitHub releases the first time it's needed and checked against the release's
+//! from its GitHub releases the first time it's needed (the build for this system and processor,
+//! else the zipapp that runs on the system's Python) and checked against the release's
 //! `SHA2-256SUMS`. FFmpeg (which joins YouTube's separate picture and sound above 360p) is used
-//! when found the same way, and on Windows it can be fetched from yt-dlp's FFmpeg builds. Phones
-//! have neither: everything here says it isn't supported there.
+//! when found the same way, and on Windows and Linux (x64, ARM64; Windows x86 too) it can be
+//! fetched from yt-dlp's FFmpeg builds. Phones have neither: everything here says it isn't
+//! supported there.
 //!
 //! Videos and sound go to the user's `Downloads/Raygun/YouTube/`, one at a time, listed in
 //! Downloads → Exports. yt-dlp runs without a console window and is stopped with the job.
@@ -30,15 +32,41 @@ use crate::events::YtDlpEvent;
 
 const RELEASES: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
 const FFMPEG_RELEASES: &str = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest";
-const FFMPEG_ZIP: &str = "ffmpeg-master-latest-win64-gpl.zip";
-/// yt-dlp's own file for this system.
+/// yt-dlp's own file for this system and processor; elsewhere (riscv64, the BSDs) the zipapp,
+/// which runs on the system's Python 3.
 const ASSET: &str = if cfg!(windows) {
-    "yt-dlp.exe"
+    if cfg!(target_arch = "aarch64") {
+        "yt-dlp_arm64.exe"
+    } else if cfg!(target_arch = "x86") {
+        "yt-dlp_x86.exe"
+    } else {
+        "yt-dlp.exe"
+    }
 } else if cfg!(target_os = "macos") {
     "yt-dlp_macos"
-} else {
+} else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
     "yt-dlp_linux"
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    "yt-dlp_linux_aarch64"
+} else {
+    "yt-dlp"
 };
+/// yt-dlp's FFmpeg build for this system and processor, when there's one.
+const FFMPEG_ARCHIVE: Option<&str> = if cfg!(all(windows, target_arch = "x86_64")) {
+    Some(FFMPEG_WIN64)
+} else if cfg!(all(windows, target_arch = "x86")) {
+    Some("ffmpeg-master-latest-win32-gpl.zip")
+} else if cfg!(all(windows, target_arch = "aarch64")) {
+    Some("ffmpeg-master-latest-winarm64-gpl.zip")
+} else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+    Some(FFMPEG_LINUX64)
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    Some("ffmpeg-master-latest-linuxarm64-gpl.tar.xz")
+} else {
+    None
+};
+const FFMPEG_WIN64: &str = "ffmpeg-master-latest-win64-gpl.zip";
+const FFMPEG_LINUX64: &str = "ffmpeg-master-latest-linux64-gpl.tar.xz";
 /// The biggest yt-dlp or FFmpeg download accepted.
 const MAX_TOOL_BYTES: u64 = 400 << 20;
 /// A song that takes longer than this has failed.
@@ -270,7 +298,7 @@ impl YtDlpService {
         Ok(())
     }
 
-    /// Fetches FFmpeg (Windows: yt-dlp's builds) for videos above 360p. A fetch cancelled
+    /// Fetches FFmpeg (yt-dlp's builds) for videos above 360p. A fetch cancelled
     /// ([`Self::cancel_install`]) answers with the status as it was.
     pub async fn install_ffmpeg(&self) -> Result<YtDlpStatus, String> {
         match self.fetch_ffmpeg().await {
@@ -279,9 +307,10 @@ impl YtDlpService {
         }
     }
 
-    /// Fetches FFmpeg into Raygun's tools (Windows; elsewhere the system's package manager has it).
+    /// Fetches FFmpeg into Raygun's tools where yt-dlp builds it for this computer; elsewhere
+    /// (macOS, the BSDs) the system's package manager has it.
     pub async fn fetch_ffmpeg(&self) -> Result<(), ToolError> {
-        if !cfg!(windows) {
+        if FFMPEG_ARCHIVE.is_none() {
             return Err(ToolError::Failed(
                 "Install FFmpeg with your system's package manager".into(),
             ));
@@ -821,22 +850,26 @@ async fn write_tool(target: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-/// Fetches yt-dlp's Windows build of FFmpeg into `tools` (`ffmpeg.exe` and `ffprobe.exe`), checked
-/// against the release's checksums; `progress` hears the share of the archive fetched, and
-/// `cancel` stops it with nothing written.
+/// Fetches yt-dlp's build of FFmpeg for this computer into `tools` (`ffmpeg` and `ffprobe`),
+/// checked against the release's checksums; `progress` hears the share of the archive fetched,
+/// and `cancel` stops it with nothing written.
 pub(crate) async fn fetch_ffmpeg_into(
     client: &reqwest::Client,
     tools: &Path,
     cancel: &CancellationToken,
     progress: impl Fn(f64),
 ) -> Result<(), ToolError> {
-    fetch_ffmpeg_from(client, FFMPEG_RELEASES, tools, cancel, progress).await
+    let archive = FFMPEG_ARCHIVE
+        .ok_or_else(|| "yt-dlp builds no FFmpeg for this kind of computer".to_owned())?;
+    fetch_ffmpeg_from(client, FFMPEG_RELEASES, archive, tools, cancel, progress).await
 }
 
-/// [`fetch_ffmpeg_into`] from the release at `releases`.
+/// [`fetch_ffmpeg_into`] from the release at `releases`, its build `archive` (a Windows `.zip` or
+/// a Linux `.tar.xz`).
 async fn fetch_ffmpeg_from(
     client: &reqwest::Client,
     releases: &str,
+    archive: &str,
     tools: &Path,
     cancel: &CancellationToken,
     progress: impl Fn(f64),
@@ -849,15 +882,9 @@ async fn fetch_ffmpeg_from(
     )
     .await?;
     let sums = String::from_utf8(sums).map_err(|error| error.to_string())?;
-    let expected = checksum_for(&sums, FFMPEG_ZIP)
-        .ok_or_else(|| "FFmpeg's checksums don't list the Windows build".to_owned())?;
-    let bytes = download(
-        client,
-        &format!("{releases}/{FFMPEG_ZIP}"),
-        cancel,
-        progress,
-    )
-    .await?;
+    let expected = checksum_for(&sums, archive)
+        .ok_or_else(|| format!("FFmpeg's checksums don't list {archive}"))?;
+    let bytes = download(client, &format!("{releases}/{archive}"), cancel, progress).await?;
     if sha256_hex(&bytes) != expected {
         return Err(ToolError::Failed(
             "FFmpeg's download doesn't match its checksum".into(),
@@ -868,7 +895,8 @@ async fn fetch_ffmpeg_from(
         return Err(ToolError::Cancelled);
     }
     let tools = tools.to_owned();
-    tokio::task::spawn_blocking(move || unpack_ffmpeg(&bytes, &tools))
+    let zip = archive.ends_with(".zip");
+    tokio::task::spawn_blocking(move || unpack_ffmpeg(zip, &bytes, &tools))
         .await
         .map_err(|error| error.to_string())??;
     tracing::info!("FFmpeg installed");
@@ -917,35 +945,80 @@ async fn download(
     Ok(bytes)
 }
 
-/// `ffmpeg.exe` and `ffprobe.exe` from the build's `bin/` folder into `tools`.
-fn unpack_ffmpeg(bytes: &[u8], tools: &Path) -> Result<(), String> {
+/// `ffmpeg` and `ffprobe` from the build's `bin/` folder into `tools`: a Windows build's `.exe`s
+/// from its zip (`zip`), else a Linux build's programs from its `.tar.xz`, made runnable.
+fn unpack_ffmpeg(zip: bool, bytes: &[u8], tools: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(tools).map_err(|error| error.to_string())?;
+    let found = if zip {
+        unpack_ffmpeg_zip(bytes, tools)?
+    } else {
+        unpack_ffmpeg_tar_xz(bytes, tools)?
+    };
+    if found == 0 {
+        return Err("The FFmpeg build has no ffmpeg".into());
+    }
+    Ok(())
+}
+
+/// The program `name` (a path in the archive) is, when it's one of the build's `bin/` programs.
+fn ffmpeg_program(name: &str, files: [&'static str; 2]) -> Option<&'static str> {
+    let name = name.replace('\\', "/");
+    files
+        .into_iter()
+        .find(|file| name.ends_with(&format!("/bin/{file}")))
+}
+
+fn unpack_ffmpeg_zip(bytes: &[u8], tools: &Path) -> Result<usize, String> {
     let mut archive =
         zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(tools).map_err(|error| error.to_string())?;
     let mut found = 0;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
-        let name = entry
-            .name()
-            .map_err(|error| error.to_string())?
-            .replace('\\', "/");
-        let Some(file) = ["ffmpeg.exe", "ffprobe.exe"]
-            .into_iter()
-            .find(|file| name.ends_with(&format!("/bin/{file}")))
-        else {
+        let name = entry.name().map_err(|error| error.to_string())?.into_owned();
+        let Some(file) = ffmpeg_program(&name, ["ffmpeg.exe", "ffprobe.exe"]) else {
             continue;
         };
-        let partial = tools.join(format!("{file}.part"));
-        let mut out = std::fs::File::create(&partial).map_err(|error| error.to_string())?;
-        std::io::copy(&mut entry, &mut out).map_err(|error| error.to_string())?;
-        drop(out);
-        std::fs::rename(&partial, tools.join(file)).map_err(|error| error.to_string())?;
+        write_program(&mut entry, &tools.join(file))?;
         found += 1;
     }
-    if found == 0 {
-        return Err("The FFmpeg build has no ffmpeg.exe".into());
+    Ok(found)
+}
+
+fn unpack_ffmpeg_tar_xz(bytes: &[u8], tools: &Path) -> Result<usize, String> {
+    let mut archive = tar::Archive::new(xz::read::XzDecoder::new(std::io::Cursor::new(bytes)));
+    let mut found = 0;
+    for entry in archive.entries().map_err(|error| error.to_string())? {
+        let mut entry = entry.map_err(|error| error.to_string())?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let name = entry
+            .path()
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let Some(file) = ffmpeg_program(&name, ["ffmpeg", "ffprobe"]) else {
+            continue;
+        };
+        write_program(&mut entry, &tools.join(file))?;
+        found += 1;
     }
-    Ok(())
+    Ok(found)
+}
+
+/// Writes a program beside `target` and moves it there, runnable.
+fn write_program(content: &mut impl std::io::Read, target: &Path) -> Result<(), String> {
+    let partial = target.with_extension("part");
+    let mut out = std::fs::File::create(&partial).map_err(|error| error.to_string())?;
+    std::io::copy(content, &mut out).map_err(|error| error.to_string())?;
+    drop(out);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))
+            .map_err(|error| error.to_string())?;
+    }
+    std::fs::rename(&partial, target).map_err(|error| error.to_string())
 }
 
 /// The checksum a `SHA2-256SUMS`-style file gives `name` (`<hash>  <name>` lines).
@@ -1241,6 +1314,28 @@ mod tests {
         buffer
     }
 
+    /// A `.tar.xz` laid out as yt-dlp's Linux FFmpeg builds are.
+    fn ffmpeg_tar_xz() -> Vec<u8> {
+        let mut tar = tar::Builder::new(Vec::new());
+        for name in [
+            "ffmpeg-x/bin/ffmpeg",
+            "ffmpeg-x/bin/ffprobe",
+            "ffmpeg-x/bin/ffplay",
+            "ffmpeg-x/doc/ffmpeg.html",
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(name.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            tar.append_data(&mut header, name, name.as_bytes())
+                .unwrap();
+        }
+        let tar = tar.into_inner().unwrap();
+        let mut xz = xz::write::XzEncoder::new(Vec::new(), 6);
+        std::io::Write::write_all(&mut xz, &tar).unwrap();
+        xz.finish().unwrap()
+    }
+
     /// Releases at `/ok` (whole), `/slow` (the archive stops after a piece) and `/hang` (no
     /// answer at all).
     async fn serve_releases() -> String {
@@ -1250,7 +1345,12 @@ mod tests {
         use futures_util::StreamExt as _;
 
         let zip = ffmpeg_zip();
-        let sums = format!("{}  {FFMPEG_ZIP}\n", sha256_hex(&zip));
+        let tar_xz = ffmpeg_tar_xz();
+        let sums = format!(
+            "{}  {FFMPEG_WIN64}\n{}  {FFMPEG_LINUX64}\n",
+            sha256_hex(&zip),
+            sha256_hex(&tar_xz)
+        );
         let app = Router::new()
             .route(
                 "/ok/checksums.sha256",
@@ -1260,12 +1360,16 @@ mod tests {
                 }),
             )
             .route(
-                &format!("/ok/{FFMPEG_ZIP}"),
+                &format!("/ok/{FFMPEG_WIN64}"),
                 get(move || async move { zip }),
+            )
+            .route(
+                &format!("/ok/{FFMPEG_LINUX64}"),
+                get(move || async move { tar_xz }),
             )
             .route("/slow/checksums.sha256", get(move || async move { sums }))
             .route(
-                &format!("/slow/{FFMPEG_ZIP}"),
+                &format!("/slow/{FFMPEG_WIN64}"),
                 get(|| async {
                     let piece = futures_util::stream::once(async {
                         Ok::<_, std::io::Error>(Bytes::from(vec![1u8; 100]))
@@ -1300,22 +1404,38 @@ mod tests {
         let base = serve_releases().await;
         let client = raygun_net::http_client().unwrap();
 
-        let tools = tempfile::tempdir().unwrap();
-        let fetched = fetch_ffmpeg_from(
-            &client,
-            &format!("{base}/ok"),
-            tools.path(),
-            &CancellationToken::new(),
-            |_| {},
-        )
-        .await;
-        assert_eq!(fetched, Ok(()));
-        let mut names: Vec<String> = std::fs::read_dir(tools.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        names.sort();
-        assert_eq!(names, ["ffmpeg.exe", "ffprobe.exe"]);
+        // Windows builds come as zips, Linux builds as `.tar.xz`.
+        for (archive, programs) in [
+            (FFMPEG_WIN64, ["ffmpeg.exe", "ffprobe.exe"]),
+            (FFMPEG_LINUX64, ["ffmpeg", "ffprobe"]),
+        ] {
+            let tools = tempfile::tempdir().unwrap();
+            let fetched = fetch_ffmpeg_from(
+                &client,
+                &format!("{base}/ok"),
+                archive,
+                tools.path(),
+                &CancellationToken::new(),
+                |_| {},
+            )
+            .await;
+            assert_eq!(fetched, Ok(()), "{archive}");
+            let mut names: Vec<String> = std::fs::read_dir(tools.path())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            assert_eq!(names, programs, "{archive}");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(tools.path().join(programs[0]))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(mode & 0o111, 0o111, "{archive}: runnable");
+            }
+        }
 
         // Stopped halfway through the archive, and before the checksums even answered.
         for release in ["slow", "hang"] {
@@ -1327,6 +1447,7 @@ mod tests {
                 fetch_ffmpeg_from(
                     &client,
                     &format!("{base}/{release}"),
+                    FFMPEG_WIN64,
                     tools.path(),
                     &cancel,
                     |_| {},
@@ -1345,7 +1466,7 @@ mod tests {
         // A cancel before the start fetches nothing.
         let cancel = CancellationToken::new();
         cancel.cancel();
-        let stopped = download(&client, &format!("{base}/ok/{FFMPEG_ZIP}"), &cancel, |_| {
+        let stopped = download(&client, &format!("{base}/ok/{FFMPEG_WIN64}"), &cancel, |_| {
             panic!("nothing arrives")
         })
         .await;

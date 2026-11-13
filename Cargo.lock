@@ -7044,6 +7044,7 @@ dependencies = [
  "uuid",
  "webview2-com",
  "windows",
+ "xz",
  "zip",
  "zune-core",
  "zune-jpegxl",

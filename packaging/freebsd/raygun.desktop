@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Raygun
+Comment=Music, videos, comics and books in one app
+Exec=raygun %F
+Icon=raygun
+Terminal=false
+Categories=AudioVideo;Audio;Video;Player;
+StartupWMClass=raygun
