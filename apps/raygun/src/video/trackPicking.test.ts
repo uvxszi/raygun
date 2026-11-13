@@ -1,5 +1,7 @@
 import {
   byLanguages,
+  carriedMatch,
+  choiceOf,
   languageCode,
   languagePrefs,
   listedLanguages,
@@ -153,6 +155,63 @@ describe('choosing subtitles', () => {
   it('finds a remembered track by name, then by language', () => {
     const choice = { language: 'English', label: 'Other name' };
     expect(matchChoice(subtitles, choice)?.key).toBe('full');
+  });
+});
+
+describe('the last subtitle choice, in another title', () => {
+  const other = [
+    option('signs', 'Signs & Songs', 'eng', { forced: true }),
+    option('cc', 'English CC', 'eng'),
+    option('full', 'English', 'eng'),
+    option('fr', 'Français', 'fr'),
+  ];
+
+  it('picks the same language and kind, whatever the tracks are named', () => {
+    const sdh = { language: 'en', label: 'English (SDH)', kind: 'sdh' as const };
+    expect(pickSubtitles(other, undefined, english, 'en', '', '', sdh)?.key).toBe('cc');
+    const forced = { language: 'en', label: 'Forced', kind: 'forced' as const };
+    expect(pickSubtitles(other, undefined, english, 'ja', '', '', forced)?.key).toBe('signs');
+    const plain = { language: 'fr', label: 'French', kind: 'plain' as const };
+    // Even where the setting alone would show none.
+    expect(
+      pickSubtitles(other, undefined, { ...english, subtitleMode: 'never' }, 'en', '', '', plain)
+        ?.key,
+    ).toBe('fr');
+  });
+
+  it('lets full and SDH subtitles stand in for each other, never forced ones', () => {
+    const plain = { language: 'en', label: 'English', kind: 'plain' as const };
+    expect(carriedMatch(other.slice(0, 2), plain)?.key).toBe('cc');
+    expect(carriedMatch(other.slice(0, 1), plain)).toBeNull();
+    const forced = { language: 'en', label: 'Forced', kind: 'forced' as const };
+    expect(carriedMatch(other.slice(1), forced)).toBeNull();
+    // A choice saved before kinds were kept reads as full subtitles.
+    expect(carriedMatch(other, { language: 'English', label: 'x' })?.key).toBe('full');
+  });
+
+  it('turns subtitles off when they were turned off last', () => {
+    expect(pickSubtitles(other, undefined, english, 'ja', '', '', { off: true })).toBeNull();
+  });
+
+  it('falls back to the usual rules without a match', () => {
+    const german = { language: 'de', label: 'Deutsch', kind: 'plain' as const };
+    expect(pickSubtitles(other, undefined, english, 'ja', '', '', german)?.key).toBe('cc');
+  });
+
+  it('gives way to the title’s own choice', () => {
+    const french = { language: 'fr', label: 'Français', kind: 'plain' as const };
+    expect(pickSubtitles(other, { off: true }, english, 'ja', '', '', french)).toBeNull();
+    expect(
+      pickSubtitles(other, { language: 'en', label: 'English' }, english, 'ja', '', '', french)
+        ?.key,
+    ).toBe('full');
+  });
+
+  it('remembers what kind a picked track is', () => {
+    expect(choiceOf(other[0]!).kind).toBe('forced');
+    expect(choiceOf(other[1]!).kind).toBe('sdh');
+    expect(choiceOf(option('s', 'English', 'en', { sdh: true })).kind).toBe('sdh');
+    expect(choiceOf(other[2]!).kind).toBe('plain');
   });
 });
 

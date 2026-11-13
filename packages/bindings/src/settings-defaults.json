@@ -35,8 +35,9 @@
   "autoplayNext": true,
   "nextPromptSeconds": 10,
   "videoPlayer": {
+    "version": 1,
     "preferredResolution": "1080p",
-    "orientation": "sensorLandscape",
+    "orientation": "free",
     "aspect": "fit",
     "controlsSeconds": 4,
     "showRemaining": false,

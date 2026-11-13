@@ -17,8 +17,20 @@ import type { CueEdits } from './cueEdits';
  * reports go back as JSON through `videoPlayerReport`.
  */
 
-/** A remembered track: matched by label, then language. */
-export type TrackChoice = { language: string | null; label: string | null };
+/** What a subtitle track is besides its language: forced, for the deaf and hard of hearing, or
+ * neither. */
+export type SubtitleKind = 'plain' | 'forced' | 'sdh';
+
+/** A remembered track: matched by label, then language; a subtitle track's kind finds its like in
+ * another title. */
+export type TrackChoice = { language: string | null; label: string | null; kind?: SubtitleKind };
+
+/** The last subtitle choice made in any title (`video.lastSubtitles` in Rust): where a title
+ * without its own starts. */
+export type LastSubtitles = {
+  subtitle?: TrackChoice | { off: true };
+  secondarySubtitle?: TrackChoice | null;
+};
 
 /** Sound from another source a title remembers: taken again where the same source offers the
  * same language. */
@@ -83,6 +95,7 @@ export type PlayerRequest = {
   spokenLanguage?: string | null;
   group?: string;
   titleState?: TitleState | null;
+  lastSubtitles?: LastSubtitles | null;
   chapters?: VideoChapter[];
   anime?: unknown;
   prefs?: VideoPlayerPrefs;

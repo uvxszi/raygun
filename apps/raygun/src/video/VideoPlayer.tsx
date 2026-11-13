@@ -773,6 +773,7 @@ const VideoStage: FC<StageProps> = ({
       spoken,
       prefs.subtitlePreferWords,
       prefs.subtitleSkipWords,
+      request.lastSubtitles?.subtitle,
     );
     selectSubtitle(chosen?.key ?? null, false);
   };

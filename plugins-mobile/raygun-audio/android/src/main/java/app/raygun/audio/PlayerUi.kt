@@ -287,6 +287,18 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         val width = minOf(context.resources.displayMetrics.widthPixels, context.dp(if (wide) 880 else 560))
         addView(panel, FrameLayout.LayoutParams(width, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         elevation = context.dp(16).toFloat()
+        // The system bars show while a sheet is open: the panel keeps clear of them (and of a
+        // cutout) at the sides and top, and its colour runs on under the navigation bar.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+            val area = SafeInsets.of(insets, hiddenBars = true)
+            view.setPadding(area.left, area.top, area.right, 0)
+            panel.setPadding(0, context.dp(16), 0, context.dp(12) + area.bottom)
+            insets
+        }
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = androidx.core.view.ViewCompat.requestApplyInsets(view)
+            override fun onViewDetachedFromWindow(view: View) = Unit
+        })
     }
     var onDismiss: (() -> Unit)? = null
 

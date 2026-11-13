@@ -61,11 +61,11 @@ export const HOLD_SPEEDS = [0, 150, 200, 300];
 export const SKIP_WAIT_SECONDS = [3, 5, 7, 10];
 
 export const ORIENTATIONS: PlayerOrientation[] = [
+  'free',
+  'video',
   'sensorLandscape',
   'landscape',
   'reverseLandscape',
-  'video',
-  'free',
   'sensorPortrait',
   'portrait',
   'reversePortrait',
@@ -192,8 +192,9 @@ export const SUBTITLE_MAX_WIDTH = { min: 40, max: 100, step: 5 };
 
 /** Matches `VideoPlayerPrefs::default()` in raygun-model. */
 export const PLAYER_DEFAULTS: PlayerPrefs = {
+  version: 1,
   preferredResolution: '1080p',
-  orientation: 'sensorLandscape',
+  orientation: 'free',
   aspect: 'fit',
   controlsSeconds: 4,
   showRemaining: false,

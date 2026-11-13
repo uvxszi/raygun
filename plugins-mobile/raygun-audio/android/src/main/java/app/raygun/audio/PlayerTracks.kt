@@ -111,8 +111,14 @@ internal class TrackRef(val group: Tracks.Group, val index: Int) {
         get() = format.roleFlags and (C.ROLE_FLAG_COMMENTARY or C.ROLE_FLAG_DESCRIBES_VIDEO) != 0 ||
             hasWord(format.label, listOf("commentary", "description", "descriptive"))
 
-    /** Its language and name, to find the same track in the next episode. */
-    fun choice(): TrackChoice = TrackChoice(format.language ?: language, format.label)
+    /** Forced, for the deaf and hard of hearing, or plain ([SubtitleKind]); for subtitle tracks. */
+    val kind: String
+        get() = marksOf(format).let { marks ->
+            SubtitleKind.of(forced, TrackMark.SDH in marks || TrackMark.CC in marks, format.label)
+        }
+
+    /** Its language and name, to find the same track in the next episode; its kind for another title. */
+    fun choice(): TrackChoice = TrackChoice(format.language ?: language, format.label, kind)
 }
 
 /**
@@ -144,7 +150,7 @@ internal data class Sidecar(
     val label: String?,
     val source: String? = null,
 ) {
-    fun choice(): TrackChoice = TrackChoice(language, label)
+    fun choice(): TrackChoice = TrackChoice(language, label, SubtitleKind.of(false, false, label))
 }
 
 /** "en", "eng", "en-US" and "English" are the same language, and so are "ger", "deu" and "de". */
@@ -457,6 +463,12 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
         val tracks = list(C.TRACK_TYPE_TEXT)
         if (state.subtitleOff) return null
         state.subtitle?.let { choice -> find(tracks, choice)?.let { return it } }
+        // A title without a choice of its own starts from the last one made in any title.
+        if (state.carried.off) return null
+        state.carried.subtitle?.let { choice ->
+            carriedMatch(tracks.map { SubtitleCandidate(it.language, it.format.label, it.kind) }, choice)
+                ?.let { return tracks[it] }
+        }
         val understood = spoken == null || spoken in languages.subtitles
         return when {
             languages.subtitleMode == "never" -> null

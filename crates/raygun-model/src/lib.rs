@@ -2627,7 +2627,9 @@ impl Default for NovelReaderPrefs {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PlayerOrientation {
-    /// Follows the device.
+    /// Follows the device as the system turns it: every side while auto-rotate is on, the way
+    /// it's held while it's off.
+    #[default]
     Free,
     /// Landscape for wide videos, portrait for tall ones.
     Video,
@@ -2636,7 +2638,6 @@ pub enum PlayerOrientation {
     SensorPortrait,
     Landscape,
     ReverseLandscape,
-    #[default]
     SensorLandscape,
 }
 
@@ -2861,6 +2862,9 @@ impl Default for SubtitleStyle {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct VideoPlayerPrefs {
+    /// The shape the row was saved in (`VIDEO_PLAYER_VERSION`); older rows are moved to it when
+    /// read (`settings::migrate_row`).
+    pub version: u32,
     /// The picture size among a source's links and a stream's variants (1080p unless changed).
     pub preferred_resolution: VideoResolution,
     pub orientation: PlayerOrientation,
@@ -2949,8 +2953,9 @@ pub struct VideoPlayerPrefs {
 impl Default for VideoPlayerPrefs {
     fn default() -> Self {
         Self {
+            version: VIDEO_PLAYER_VERSION,
             preferred_resolution: VideoResolution::default(),
-            orientation: PlayerOrientation::SensorLandscape,
+            orientation: PlayerOrientation::Free,
             aspect: VideoAspect::Fit,
             controls_seconds: 4,
             show_remaining: false,
@@ -2996,6 +3001,10 @@ impl Default for VideoPlayerPrefs {
         }
     }
 }
+
+/// `VideoPlayerPrefs::version` today. 1: the orientation follows the device unless changed (it
+/// was landscape on either side before, so rows still holding that move to following it).
+pub const VIDEO_PLAYER_VERSION: u32 = 1;
 
 /// The speed chip's speeds unless changed, in hundredths.
 pub const SPEED_PRESETS: [u32; 12] = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400];

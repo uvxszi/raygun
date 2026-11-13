@@ -1,6 +1,6 @@
 import type { SubtitleMode, VideoResolution } from '@raygun/bindings';
 
-import type { TrackChoice } from './protocol';
+import type { SubtitleKind, TrackChoice } from './protocol';
 
 /**
  * Which subtitle and audio tracks the webview's player turns on by itself (M46.4), by the same
@@ -383,7 +383,45 @@ export const pickAudio = <T extends TrackOption>(
   );
 };
 
-/** The subtitles to show; null for none. `spoken` is the audio's language. */
+const saysWord = (label: string, list: string[]) =>
+  list.some((word) => new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'iu').test(label));
+
+/** What a subtitle track is besides its language (`SubtitleKind` in the Android player). */
+export const subtitleKind = (option: TrackOption): SubtitleKind => {
+  if (option.forced || saysWord(option.label, ['forced'])) return 'forced';
+  if (option.sdh || saysWord(option.label, ['sdh', 'cc', 'hi', 'hoh'])) return 'sdh';
+  return 'plain';
+};
+
+/**
+ * The track among `options` matching a choice made in another title: the same language (it must
+ * have one) and, within it, the same kind, the same name first. Full subtitles and SDH ones stand
+ * in for each other when the video lacks the kind chosen; forced ones never stand in for full
+ * ones, nor full ones for forced.
+ */
+export const carriedMatch = <T extends TrackOption>(
+  options: T[],
+  choice: TrackChoice,
+): T | null => {
+  const language = languageCode(choice.language);
+  if (!language) return null;
+  const kind: SubtitleKind =
+    choice.kind === 'forced' || choice.kind === 'sdh' ? choice.kind : 'plain';
+  const same = options.filter((option) => languageOf(option) === language);
+  const ofKind = (wanted: SubtitleKind) => same.filter((option) => subtitleKind(option) === wanted);
+  const standIn: SubtitleKind | null = kind === 'plain' ? 'sdh' : kind === 'sdh' ? 'plain' : null;
+  const ordered = [...ofKind(kind), ...(standIn ? ofKind(standIn) : [])];
+  return (
+    ordered.find((option) => choice.label !== null && option.label === choice.label) ??
+    ordered[0] ??
+    null
+  );
+};
+
+/**
+ * The subtitles to show; null for none. `spoken` is the audio's language. `remembered` is the
+ * title's own choice; without one, `carried` (the last choice made in any title) applies.
+ */
 export const pickSubtitles = <T extends TrackOption>(
   options: T[],
   remembered: TrackChoice | { off: true } | undefined,
@@ -391,10 +429,16 @@ export const pickSubtitles = <T extends TrackOption>(
   spoken: string | null,
   preferWords = '',
   skipWords = '',
+  carried?: TrackChoice | { off: true } | null,
 ): T | null => {
   if (remembered && 'off' in remembered) return null;
   const kept = remembered ? matchChoice(options, remembered) : null;
   if (kept) return kept;
+  if (!remembered && carried) {
+    if ('off' in carried) return null;
+    const match = carriedMatch(options, carried);
+    if (match) return match;
+  }
   if (prefs.subtitleMode === 'never') return null;
   const understood = spoken === null || prefs.subtitles.includes(spoken);
   if (prefs.subtitleMode === 'foreign' && understood) {
@@ -410,6 +454,7 @@ export const pickSubtitles = <T extends TrackOption>(
 export const choiceOf = (option: TrackOption): TrackChoice => ({
   language: option.language ?? languageOf(option),
   label: option.label,
+  kind: subtitleKind(option),
 });
 
 /** A stream's variant as its engine describes it; sizes and bit rates may be unknown (0). */

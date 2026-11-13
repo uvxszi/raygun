@@ -424,6 +424,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         }
         placeSkip()
         host.liftSubtitles(!locked)
+        host.syncSystemBars()
         update()
         bump()
     }
@@ -437,6 +438,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         unlockButton.visibility = View.GONE
         placeSkip()
         host.liftSubtitles(false)
+        host.syncSystemBars()
     }
 
     fun toggle() = if (visible) hide() else show()

@@ -35,9 +35,6 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -179,6 +176,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     private lateinit var stats: TextView
     private var statsHelper: DebugTextViewHelper? = null
     private var openSheet: PlayerSheet? = null
+    private lateinit var systemBars: PlayerSystemBars
     private var loudness: LoudnessEnhancer? = null
 
     internal val main = Handler(Looper.getMainLooper())
@@ -336,7 +334,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             }
         }
         applyOrientation()
-        hideSystemBars()
+        systemBars = PlayerSystemBars(window)
+        systemBars.apply(false)
 
         tracks = PlayerTracks(this)
         softwareFirst = prefs.decoder == "software"
@@ -834,7 +833,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         controls.setAudioChoice(false)
         applySubtitleStyle()
 
-        state = TitleState(request.optJSONObject("titleState"))
+        state = TitleState(request.optJSONObject("titleState"), request.optJSONObject("lastSubtitles"))
         effects.onLoad(request)
         group = request.optString("group").ifBlank { videoId }
         // Another episode starts with its own sound; the title's audio delay applies.
@@ -872,6 +871,10 @@ class VideoPlayerActivity : AppCompatActivity() {
         val secondTrack = secondChoice?.let { choice ->
             sidecars.firstOrNull { sameLanguage(it.language, choice.language) && it.label == choice.label }
                 ?: sidecars.firstOrNull { sameLanguage(it.language, choice.language) }
+        } ?: state.carried.secondary?.let { choice ->
+            // Without a choice of this title's own: the last one made in any title.
+            val candidates = sidecars.map { SubtitleCandidate(it.language, it.label, it.choice().kind ?: SubtitleKind.PLAIN) }
+            carriedMatch(candidates, choice)?.let { sidecars[it] }
         }
         if (secondTrack != null) loadSecond(secondTrack) else second.clear()
 
@@ -1034,16 +1037,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     }
 
     private fun applyOrientation() {
-        requestedOrientation = when (prefs.orientation) {
-            "free" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
-            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            "reversePortrait" -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-            "sensorPortrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            "reverseLandscape" -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-            // "video" follows the video once its size is known.
-            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
+        requestedOrientation = screenOrientationFor(prefs.orientation)
     }
 
     /** The rotate button: portrait ⇄ landscape for this viewing; once held, a tap lets it turn again. */
@@ -1774,6 +1768,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         root.addView(sheet.root, FrameLayout.LayoutParams(-1, -1))
         if (previous != null && previous.title == sheet.title) sheet.scrolled = previous.scrolled
         controls.bump()
+        syncSystemBars()
     }
 
     /** Whether `sheet` is the one showing. */
@@ -1784,6 +1779,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         root.removeView(sheet.root)
         openSheet = null
         sheet.dismissed()
+        syncSystemBars()
     }
 
     // ---- Play on TV ----
@@ -2144,17 +2140,21 @@ class VideoPlayerActivity : AppCompatActivity() {
         return runCatching { PluralRules.forLocale(locale).select(count.toDouble()) }.getOrDefault("other")
     }
 
-    private fun hideSystemBars() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+    /**
+     * Shows the system bars while the controls or a sheet show, hides them otherwise
+     * (`PlayerSystemBars`). The controls call this as they show and hide; `again` re-applies the
+     * state after the system may have changed it.
+     */
+    internal fun syncSystemBars(again: Boolean = false) {
+        if (!::systemBars.isInitialized) return
+        val shown = ::controls.isInitialized && controls.visible
+        val locked = ::controls.isInitialized && controls.locked
+        systemBars.apply(PlayerSystemBars.wanted(shown, locked, openSheet != null, isInPip()), again)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
+        if (hasFocus) syncSystemBars(again = true)
     }
 
     override fun onStop() {

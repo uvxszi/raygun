@@ -1,5 +1,6 @@
 package app.raygun.audio
 
+import android.content.pm.ActivityInfo
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -86,7 +87,7 @@ internal data class SubtitleLook(
  * the player itself can change are `var`; the change is also sent to Rust to be saved.
  */
 internal class PlayerPrefs(json: JSONObject) {
-    val orientation: String = json.optString("orientation", "sensorLandscape")
+    val orientation: String = json.optString("orientation", "free")
     val aspect: String = json.optString("aspect", "fit")
     val controlsMs: Long = json.optInt("controlsSeconds", 4).coerceIn(1, 30) * 1000L
     var showRemaining: Boolean = json.optBoolean("showRemaining", false)
@@ -154,18 +155,23 @@ internal class PlayerPrefs(json: JSONObject) {
     }
 }
 
-/** A track picked by language and name, so the same one is found in the next episode. */
-internal data class TrackChoice(val language: String?, val label: String?) {
+/**
+ * A track picked by language and name, so the same one is found in the next episode; a subtitle
+ * track's `kind` ([SubtitleKind]) finds its like in another title.
+ */
+internal data class TrackChoice(val language: String?, val label: String?, val kind: String? = null) {
     fun toJson(): JSONObject = JSONObject()
         .put("language", language ?: JSONObject.NULL)
         .put("label", label ?: JSONObject.NULL)
+        .apply { if (kind != null) put("kind", kind) }
 
     companion object {
         fun from(json: JSONObject?): TrackChoice? {
             json ?: return null
             val language = json.optString("language").takeIf { it.isNotBlank() && it != "null" }
             val label = json.optString("label").takeIf { it.isNotBlank() && it != "null" }
-            return if (language == null && label == null) null else TrackChoice(language, label)
+            val kind = json.optString("kind").takeIf { it.isNotBlank() && it != "null" }
+            return if (language == null && label == null) null else TrackChoice(language, label, kind)
         }
     }
 }
@@ -173,9 +179,12 @@ internal data class TrackChoice(val language: String?, val label: String?) {
 /**
  * What a title remembers (`video.playerState.<group>` in Rust): speed (hundredths), aspect, the
  * subtitle choice (`{"off": true}` or a track), the second subtitle track, the subtitle delay,
- * the audio track, the audio delay, another source's sound and the intro length.
+ * the audio track, the audio delay, another source's sound and the intro length. `last` is the
+ * last subtitle choice made in any title, for a title without its own ([carried]).
  */
-internal class TitleState(json: JSONObject?) {
+internal class TitleState(json: JSONObject?, last: JSONObject? = null) {
+    /** The last choice in any title, where this title has made none of its own. */
+    val carried = CarriedSubtitles(json, last)
     var speed: Float? = json?.optInt("speed", 0)?.takeIf { it > 0 }?.let { it / 100f }
     var aspect: String? = json?.optString("aspect")?.takeIf { it.isNotBlank() }
     var subtitleOff: Boolean = json?.optJSONObject("subtitle")?.optBoolean("off") == true
@@ -210,4 +219,20 @@ internal data class Chapter(val startMs: Long, val endMs: Long?, val name: Strin
             }.sortedBy { it.startMs }
         }
     }
+}
+
+/**
+ * The screen orientation the player asks for under Settings → Player → Orientation
+ * (`PlayerOrientation`). Following the device (`free`, the default) turns as the system does:
+ * every side while auto-rotate is on, the way it's held while it's off. `video` starts in
+ * landscape until the video's size is known; anything unknown follows the device.
+ */
+internal fun screenOrientationFor(name: String): Int = when (name) {
+    "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    "reversePortrait" -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+    "sensorPortrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    "reverseLandscape" -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+    "sensorLandscape", "video" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    else -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
 }

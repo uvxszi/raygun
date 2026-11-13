@@ -77,6 +77,12 @@ fn accent_color(settings: &Settings) -> String {
 
 /// Where a title's player memory is kept, after its group.
 const STATE_PREFIX: &str = "video.playerState.";
+/// The subtitle choice last made in the player, in any title (`{subtitle, secondarySubtitle}` as a
+/// title keeps them): a title without a choice of its own starts from it, matched by language and
+/// kind (forced, SDH) rather than by the track's name.
+const LAST_SUBTITLES_KEY: &str = "video.lastSubtitles";
+/// The parts of a title's memory that also become the last subtitle choice.
+const SUBTITLE_KEYS: [&str; 2] = ["subtitle", "secondarySubtitle"];
 /// The brightness the player last had, for "remember brightness".
 const BRIGHTNESS_KEY: &str = "video.brightness";
 /// What a title remembers: speed, aspect, subtitle and audio choices, subtitle delay, intro length.
@@ -445,6 +451,7 @@ pub async fn prepare(
     // The title's memory, and AniSkip unless the source's own chapters are enough.
     let group = request.group.clone().unwrap_or_else(|| request.key.clone());
     let title_state = title_state(&db, &group).await;
+    let last_subtitles = last_subtitles(&db).await;
     let player = &prefs.video_player;
     let anime = request.anime.as_ref().filter(|_| {
         player.aniskip && !(player.aniskip_unless_chapters && !request.chapters.is_empty())
@@ -455,6 +462,7 @@ pub async fn prepare(
     let payload = serde_json::json!({
         "group": group,
         "titleState": title_state,
+        "lastSubtitles": last_subtitles,
         "chapters": request.chapters,
         "anime": anime,
         "prefs": settings,
@@ -568,6 +576,30 @@ async fn title_state(db: &raygun_db::Db, group: &str) -> Value {
         .unwrap_or(Value::Null)
 }
 
+/// The last subtitle choice made in any title; null before the first.
+async fn last_subtitles(db: &raygun_db::Db) -> Value {
+    raygun_db::local_value(db, LAST_SUBTITLES_KEY)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(Value::is_object)
+        .unwrap_or(Value::Null)
+}
+
+/// Takes the subtitle choices in `change` (a title's memory changing) into the last choice; a null
+/// (second subtitles turned off) is kept as one. False when `change` has none.
+fn merge_last_subtitles(saved: &mut Map<String, Value>, change: &Map<String, Value>) -> bool {
+    let mut changed = false;
+    for key in SUBTITLE_KEYS {
+        if let Some(value) = change.get(key) {
+            saved.insert(key.to_owned(), value.clone());
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// Merges what the player changed into a title's memory. Null forgets a key; keys a title doesn't
 /// remember are ignored.
 fn merge_state(saved: &mut Map<String, Value>, change: &Map<String, Value>) {
@@ -625,6 +657,18 @@ async fn player_request(app: &AppHandle, action: &str, raw: &Value) {
             let text = Value::Object(saved).to_string();
             if let Err(error) = raygun_db::set_local_value(&db, &key, &text).await {
                 tracing::warn!(%error, "could not remember the player's state");
+            }
+            // A subtitle choice is also where the next title without its own starts.
+            let mut last = match last_subtitles(&db).await {
+                Value::Object(last) => last,
+                _ => Map::new(),
+            };
+            if merge_last_subtitles(&mut last, change) {
+                let text = Value::Object(last).to_string();
+                if let Err(error) = raygun_db::set_local_value(&db, LAST_SUBTITLES_KEY, &text).await
+                {
+                    tracing::warn!(%error, "could not remember the subtitle choice");
+                }
             }
         }
         "prefs" => {
@@ -1783,6 +1827,33 @@ mod tests {
         // Picking the video's own sound again forgets the other source's.
         merge_state(&mut saved, &object(json!({ "externalAudio": null })));
         assert!(!saved.contains_key("externalAudio"));
+    }
+
+    #[test]
+    fn the_last_subtitle_choice_follows_every_title() {
+        let mut last = Map::new();
+        // Other changes leave it alone.
+        assert!(!merge_last_subtitles(
+            &mut last,
+            &object(json!({ "speed": 150 }))
+        ));
+        assert!(merge_last_subtitles(
+            &mut last,
+            &object(json!({
+                "subtitle": { "language": "en", "label": "English SDH", "kind": "sdh" },
+                "secondarySubtitle": { "language": "ja", "label": null },
+                "speed": 150,
+            })),
+        ));
+        // Turning subtitles off, and the second ones off, is a choice too.
+        merge_last_subtitles(
+            &mut last,
+            &object(json!({ "subtitle": { "off": true }, "secondarySubtitle": null })),
+        );
+        assert_eq!(
+            Value::Object(last),
+            json!({ "subtitle": { "off": true }, "secondarySubtitle": null })
+        );
     }
 
     #[test]

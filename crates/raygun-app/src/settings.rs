@@ -100,9 +100,13 @@ fn cover_size_from(columns: u32, width: u32) -> i32 {
 /// the manga reader's widths in percent of the window become percent more or less than the
 /// screen's own. The novel reader's paragraph indent was a switch: on is the indent it gave
 /// (2 em), off none. Its reading-aloud speed was in tenths (`ttsRate`); it's in hundredths now.
+/// The video player's rows: `migrate_player_row`.
 fn migrate_row(key: &str, value: &str) -> String {
     if key == "rail" {
         return crate::quick_access::migrate_row(value);
+    }
+    if key == "videoPlayer" {
+        return migrate_player_row(value);
     }
     type Rename = (&'static str, &'static str, fn(i64) -> i64);
     const NOVEL: &[Rename] = &[
@@ -139,6 +143,32 @@ fn migrate_row(key: &str, value: &str) -> String {
         }
         .into();
     }
+    serde_json::Value::Object(fields).to_string()
+}
+
+/// A video player row of an older shape (`VideoPlayerPrefs::version` below
+/// `VIDEO_PLAYER_VERSION`) as it is now. Version 1: the player follows the device's turning unless
+/// changed; it held landscape on either side before, so a row still holding that default follows
+/// the device too (one that picked another orientation keeps it).
+fn migrate_player_row(value: &str) -> String {
+    let Ok(serde_json::Value::Object(mut fields)) = serde_json::from_str(value) else {
+        return value.to_owned();
+    };
+    let version = fields
+        .get("version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if version >= u64::from(raygun_model::VIDEO_PLAYER_VERSION) {
+        return value.to_owned();
+    }
+    if fields
+        .get("orientation")
+        .and_then(serde_json::Value::as_str)
+        == Some("sensorLandscape")
+    {
+        fields.insert("orientation".into(), "free".into());
+    }
+    fields.insert("version".into(), raygun_model::VIDEO_PLAYER_VERSION.into());
     serde_json::Value::Object(fields).to_string()
 }
 
@@ -639,6 +669,36 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn the_player_follows_the_device_unless_another_orientation_was_picked() {
+        use raygun_model::{PlayerOrientation, VideoPlayerPrefs};
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        async fn orientation(db: &Db) -> PlayerOrientation {
+            load(db).await.unwrap().video_player.orientation
+        }
+        assert_eq!(orientation(&db).await, PlayerOrientation::Free);
+        // An older row holding the old default follows the device now.
+        settings::put(&db, "videoPlayer", r#"{"orientation":"sensorLandscape"}"#)
+            .await
+            .unwrap();
+        assert_eq!(orientation(&db).await, PlayerOrientation::Free);
+        // One that picked something else keeps it.
+        settings::put(&db, "videoPlayer", r#"{"orientation":"video"}"#)
+            .await
+            .unwrap();
+        assert_eq!(orientation(&db).await, PlayerOrientation::Video);
+        // Landscape picked after the change stays landscape.
+        let prefs = VideoPlayerPrefs {
+            orientation: PlayerOrientation::SensorLandscape,
+            ..VideoPlayerPrefs::default()
+        };
+        update(&db, SettingChange::VideoPlayer(Box::new(prefs)))
+            .await
+            .unwrap();
+        assert_eq!(orientation(&db).await, PlayerOrientation::SensorLandscape);
     }
 
     #[tokio::test]

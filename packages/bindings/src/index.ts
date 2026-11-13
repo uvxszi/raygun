@@ -5663,7 +5663,10 @@ export type PlayerLayout =
 
 /**  How the video player turns (M45, Aniyomi's choices). */
 export type PlayerOrientation = 
-/**  Follows the device. */
+/**
+ *  Follows the device as the system turns it: every side while auto-rotate is on, the way
+ *  it's held while it's off.
+ */
 "free" | 
 /**  Landscape for wide videos, portrait for tall ones. */
 "video" | "portrait" | "reversePortrait" | "sensorPortrait" | "landscape" | "reverseLandscape" | "sensorLandscape";
@@ -8748,6 +8751,11 @@ export type VideoPlayerMessageKind = "open" | "update";
  *  from it keep their defaults, so later fields need no migration.
  */
 export type VideoPlayerPrefs = {
+	/**
+	 *  The shape the row was saved in (`VIDEO_PLAYER_VERSION`); older rows are moved to it when
+	 *  read (`settings::migrate_row`).
+	 */
+	version?: number,
 	/**  The picture size among a source's links and a stream's variants (1080p unless changed). */
 	preferredResolution?: VideoResolution,
 	orientation?: PlayerOrientation,
