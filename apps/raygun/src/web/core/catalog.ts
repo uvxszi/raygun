@@ -15,6 +15,7 @@ import type {
   MangaListingPage,
   MangaSource_Serialize,
   MangaTitleView,
+  MangaUpdateStatus,
   NovelChapter_Serialize,
   ReaderMode,
   Settings,
@@ -821,11 +822,53 @@ export class CatalogService {
     if (medium) this.changed(medium);
   }
 
-  /** Library titles pinned to quick access. */
-  pinned(): StoredTitle[] {
-    return this.context.store
-      .all<StoredTitle>('titles')
-      .filter((title) => title.inLibrary && title.pinned);
+  private updates: MangaUpdateStatus = {
+    running: false,
+    checked: 0,
+    total: 0,
+    newChapters: 0,
+    failed: 0,
+    lastRunAt: null,
+    failures: [],
+  };
+
+  updateStatus(): MangaUpdateStatus {
+    return { ...this.updates };
+  }
+
+  /** Asks each library title's source again (Updates → Check for updates). */
+  async updateLibrary(): Promise<MangaUpdateStatus> {
+    if (this.updates.running) return this.updateStatus();
+    const titles = this.context.store.all<StoredTitle>('titles').filter((title) => title.inLibrary);
+    this.updates = {
+      running: true,
+      checked: 0,
+      total: titles.length,
+      newChapters: 0,
+      failed: 0,
+      lastRunAt: this.updates.lastRunAt,
+      failures: [],
+    };
+    for (const title of titles) {
+      try {
+        const before = new Set(title.units.map((unit) => unit.remoteId));
+        const after = await this.fetchTitle(title.medium, title.sourceId, title.remoteId);
+        this.updates.newChapters += after.units.filter((unit) => !before.has(unit.remoteId)).length;
+      } catch (error) {
+        this.updates.failed += 1;
+        this.updates.failures?.push({
+          medium: title.medium,
+          sourceId: title.sourceId,
+          remoteId: title.remoteId,
+          title: title.title,
+          sourceName: title.sourceName,
+          message: message(error),
+        });
+      }
+      this.updates.checked += 1;
+    }
+    this.updates = { ...this.updates, running: false, lastRunAt: this.context.now() };
+    return this.updateStatus();
   }
 
   continueChapter(titleId: string): string | null {

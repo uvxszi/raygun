@@ -12,6 +12,7 @@ import { useKnownCard } from '../manga/knownCard';
 import { ChapterOrderButton } from '../manga/ChapterOrderButton';
 import { orderChapters, useChapterOrder } from '../manga/chapterOrder';
 import { DownloadMenu } from '../manga/DownloadMenu';
+import { useNeedsApp } from '../shell/NeedsApp';
 import { SelectionTopBar } from '../manga/LibrarySelection';
 import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { unwrapResult } from '../lib/commandResult';
@@ -38,6 +39,8 @@ const NONE: Set<string> = new Set();
 /** A title: details, library button, continue reading and chapters. */
 export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga' }) => {
   const { t } = useTranslation();
+  // Downloads need the app (docs/WEB.md).
+  const needsApp = useNeedsApp();
   const { source = '', id = '' }: { source?: string; id?: string } = useSearch({ strict: false });
   useMangaLiveEvents();
   const title = useMangaTitle(source, id, medium);
@@ -177,7 +180,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   // Once everything is read there's nothing to continue (Mihon hides the button).
   const finished = view.chapters.length > 0 && view.chapters.every((chapter) => chapter.read);
   // Imported books are already on the device.
-  const downloadable = !isLocalSource(view.sourceId);
+  const downloadable = !isLocalSource(view.sourceId) && !needsApp;
   const shown = orderChapters(view.chapters, order);
   const issue = refresh.error ?? setInLibrary.error ?? website.error;
 

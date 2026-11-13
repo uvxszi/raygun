@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import { PrefAction, PrefGroup, PrefLink } from '../settings/prefs';
 import { Problem } from '../settings/Problem';
+import { NeedsApp } from '../shell/NeedsApp';
 import { useAppUpdate, useAppUpdateActions } from '../updates/useAppUpdate';
 
 const STORAGE_MODE_KEYS: Record<StorageMode, string> = {
@@ -89,24 +90,27 @@ export const AboutCard: FC = () => {
           </li>
         )}
       </PrefGroup>
-      <PrefGroup title={t('crash.logs')}>
-        <PrefLink
-          icon={Bug}
-          title={t('crash.logs')}
-          summary={t('crash.logsSummary')}
-          to="/about/crashes"
-          search={{ id: undefined }}
-        />
-        <PrefAction
-          icon={FolderOpen}
-          title={t('crash.logsFolder')}
-          summary={
-            logsNote ??
-            t(app?.platform === 'android' ? 'crash.logsFolderAndroid' : 'crash.logsFolderDesktop')
-          }
-          onClick={() => void openLogs()}
-        />
-      </PrefGroup>
+      {/* Logs are the app's files (docs/WEB.md). */}
+      <NeedsApp hide>
+        <PrefGroup title={t('crash.logs')}>
+          <PrefLink
+            icon={Bug}
+            title={t('crash.logs')}
+            summary={t('crash.logsSummary')}
+            to="/about/crashes"
+            search={{ id: undefined }}
+          />
+          <PrefAction
+            icon={FolderOpen}
+            title={t('crash.logsFolder')}
+            summary={
+              logsNote ??
+              t(app?.platform === 'android' ? 'crash.logsFolderAndroid' : 'crash.logsFolderDesktop')
+            }
+            onClick={() => void openLogs()}
+          />
+        </PrefGroup>
+      </NeedsApp>
       <PrefGroup title={t('settings.licenses')}>
         <PrefAction
           icon={Scale}

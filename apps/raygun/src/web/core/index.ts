@@ -19,6 +19,7 @@ import type {
   QuickAccessItem,
   QuickAccessList,
   QuickAccessNames,
+  RailPin,
   SettingChange,
   SettingValue,
   StorageInfo,
@@ -77,6 +78,8 @@ export type WebCoreOptions = {
 
 /** Linked devices sync at least this often while the page is open. */
 const SYNC_EVERY_MS = 5 * 60_000;
+/** When incognito was turned on (`local_meta`), or nothing while it's off. */
+const INCOGNITO = 'incognito.since';
 /** How often the change log is looked at for changes to send. */
 const WATCH_EVERY_MS = 10_000;
 
@@ -149,7 +152,7 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
         return {
           kind: 'error',
           message:
-            'No source in this browser plays this song. Add sources in Browse → Extensions; only those whose sites allow web pages work here.',
+            'No source in this browser plays this song. Add sources in Browse â†’ Extensions; only those whose sites allow web pages work here.',
         };
       }
     }
@@ -159,7 +162,7 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     find,
     settings: () => settings.stored(),
     played: (item) => {
-      const kept = settings.stored().privacy.history;
+      const kept = settings.stored().privacy.history && !incognito().on;
       if (!kept) return;
       collections.recordPlay({
         title: item.title,
@@ -175,34 +178,34 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
   });
 
   const quickAccess = (names: QuickAccessNames): QuickAccessList => {
-    const items: QuickAccessItem[] = [
+    const listed: QuickAccessItem[] = [
       fixedItem('favorites', '/library', { view: 'favorites' }, names.favorites),
     ];
     for (const playlist of collections.playlists()) {
-      items.push({
+      listed.push({
         ...fixedItem('playlist', '/library/playlist', { id: playlist.id }, playlist.name),
         artworkUrls: playlist.artworkUrls,
         removable: true,
       });
     }
-    // Comics, books and videos show while pinned (quick_access.rs `title_pin`).
-    for (const title of catalog.pinned()) {
-      const to =
-        title.medium === 'novel'
-          ? '/novel/title'
-          : title.medium === 'video'
-            ? '/watch/video'
-            : '/manga/title';
-      items.push({
-        ...fixedItem(title.medium, to, { source: title.sourceId, id: title.remoteId }, title.title),
-        subtitle: title.authors[0] ?? null,
-        artworkUrl: title.coverUrl,
+    // Pins lead in their own order and always show; comics, books, videos and sites show only
+    // while pinned (quick_access.rs).
+    const place = (item: { to: string; search: Record<string, string> }) =>
+      `${item.to}?${new URLSearchParams(Object.entries(item.search).sort()).toString()}`;
+    const pins = (settings.stored().rail.pins as RailPin[]) ?? [];
+    const pinned = new Set(pins.map(place));
+    const items: QuickAccessItem[] = pins.map((pin) => {
+      const own = listed.find((item) => place(item) === place(pin));
+      return {
+        ...(own ?? fixedItem(pin.kind, pin.to, pin.search, pin.name)),
+        artworkUrl: own?.artworkUrl ?? pin.artworkUrl,
         pinned: true,
-        removable: true,
-        addedAt: title.addedAt ?? 0,
-        playedAt: title.lastReadAt ?? 0,
-      });
-    }
+        removable: own?.removable ?? pin.kind !== 'favorites',
+        addedAt: pin.pinnedAt,
+        playedAt: pin.playedAt,
+      };
+    });
+    items.push(...listed.filter((item) => !pinned.has(place(item))));
     return { items, more: 0 };
   };
 
@@ -231,6 +234,11 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
 
   const syncStatus = () => sync.status();
 
+  const incognito = () => {
+    const since = context.meta<number | null>(INCOGNITO) ?? null;
+    return { on: since !== null, sinceMs: since };
+  };
+
   const handlers: Record<string, Handler> = {
     // ---- This device ----
     app_info: (): AppInfo => ({
@@ -258,17 +266,29 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
       mobileData: false,
     }),
 
+    // ---- Incognito (privacy.rs): nothing played or searched is remembered while on ----
+    incognito_status: () => incognito(),
+    incognito_set_enabled: ({ enabled }) => {
+      context.setMeta(INCOGNITO, enabled === true ? context.now() : null);
+      const status = incognito();
+      context.emit('incognitoEvent', status);
+      return status;
+    },
+
     // ---- Settings ----
     settings_get: () => settings.load(),
     settings_defaults: () => ({ ...structuredClone(SETTINGS_DEFAULTS), windowFrame: 'system' }),
     settings_update: ({ change }) => {
       const next = settings.update([change as SettingChange]);
       playback.settingsChanged(settings.stored());
+      // Pins live in the settings (`rail`), as in quick_access.rs.
+      context.emit('quickAccessChangedEvent', 'settings');
       return next;
     },
     settings_update_many: ({ changes }) => {
       const next = settings.update(changes as SettingChange[]);
       playback.settingsChanged(settings.stored());
+      context.emit('quickAccessChangedEvent', 'settings');
       return next;
     },
 
@@ -337,7 +357,7 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     },
     recent_contexts: () => collections.recentContexts(),
     recent_contexts_add: ({ context: played }) => {
-      const kept = settings.stored().privacy.recentlyPlayed;
+      const kept = settings.stored().privacy.recentlyPlayed && !incognito().on;
       if (kept) collections.addRecentContext(played as PlayContext);
       return null;
     },
@@ -412,9 +432,9 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     },
     sync_open_pairing: () =>
       fail(
-        'A browser can’t be reached by other devices. Show the code on the other device and scan it here.',
+        'A browser canâ€™t be reached by other devices. Show the code on the other device and scan it here.',
       ),
-    sync_undo_last: () => fail('Undoing a sync isn’t available in the browser.'),
+    sync_undo_last: () => fail('Undoing a sync isnâ€™t available in the browser.'),
     connect_link_code: async ({ text }) => {
       await linkWith(String(text));
       return [];
@@ -614,6 +634,14 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
       return null;
     },
     library_continue: ({ titleId }) => catalog.continueChapter(String(titleId)),
+    manga_update_status: () => catalog.updateStatus(),
+    manga_update_library: () => catalog.updateLibrary(),
+    app_open_page: ({ url }) => {
+      const address = String(url);
+      if (!/^https?:\/\//i.test(address)) fail('Only web pages open from here.');
+      window.open(address, '_blank', 'noopener');
+      return null;
+    },
     video_servers: ({ sourceId, episodeId }) =>
       catalog.servers(String(sourceId), String(episodeId)),
     video_links: ({ sourceId, serverId }) => catalog.links(String(sourceId), String(serverId)),

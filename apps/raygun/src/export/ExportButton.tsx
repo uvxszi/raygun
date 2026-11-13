@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { Medium } from '../manga/medium';
+import { useNeedsApp } from '../shell/NeedsApp';
 import { TopBarAction } from '../shell/TopBar';
 import { ExportSheet } from './ExportSheet';
 import type { ExportChapter, ExportEpisode } from './ExportSheet';
@@ -18,6 +19,9 @@ export const ExportButton: FC<{
 }> = ({ medium, titleIds, chapters, episodes }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  // Exports write files through the app (docs/WEB.md).
+  const needsApp = useNeedsApp();
+  if (needsApp) return null;
   return (
     <>
       <TopBarAction label={t('export.title')} icon={FileDown} onClick={() => setOpen(true)} />

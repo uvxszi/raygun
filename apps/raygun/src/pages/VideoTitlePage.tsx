@@ -34,6 +34,7 @@ import { ServerPicker } from '../watch/ServerPicker';
 import type { PickIntent, ServerTarget } from '../watch/ServerPicker';
 import { StremioPoster } from '../watch/StremioRow';
 import { VideoDownloadControl } from '../watch/VideoDownloadControl';
+import { useNeedsApp } from '../shell/NeedsApp';
 import { EpisodeCheck, EpisodeSelectionBar } from '../watch/EpisodeSelection';
 import { useEpisodeSelection } from '../watch/useEpisodeSelection';
 import type { ExportEpisode } from '../export/ExportSheet';
@@ -87,7 +88,9 @@ const Episodes: FC<{
   const { t } = useTranslation();
   const setWatched = useSetEpisodeWatched();
   const selection = useEpisodeSelection();
-  const canDownload = view.sourceId !== LOCAL_VIDEO;
+  // Downloads need the app (docs/WEB.md).
+  const needsApp = useNeedsApp();
+  const canDownload = view.sourceId !== LOCAL_VIDEO && !needsApp;
   const seasons = useMemo(
     () => [...new Set(view.episodes.map((episode) => episode.season))],
     [view.episodes],
@@ -234,6 +237,7 @@ export const VideoTitlePage: FC = () => {
   const setInLibrary = useSetVideoInLibrary();
   const duplicates = useDuplicateCheck('video');
   const downloads = useDownloadsByKey();
+  const needsApp = useNeedsApp();
   const watch = useWatchSourceTitle();
   const [picking, setPicking] = useState<{ target: ServerTarget; intent: PickIntent } | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -431,7 +435,7 @@ export const VideoTitlePage: FC = () => {
                 {t(movie.watched ? 'watch.watched' : 'watch.markWatchedShort')}
               </button>
             )}
-            {movie && view.sourceId !== LOCAL_VIDEO && (
+            {movie && view.sourceId !== LOCAL_VIDEO && !needsApp && (
               <span className="bg-surface/80 rounded-full">
                 <VideoDownloadControl
                   item={downloads.get(sourceKey(view.sourceId, movie.remoteId))}

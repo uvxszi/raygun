@@ -176,6 +176,30 @@ Not in the browser, and why:
   they need the app.
 - Sources whose sites don't allow web pages, and sources in other formats: they need the app.
 
+### Hidden or marked in the browser
+
+`shell/NeedsApp.tsx` (`useNeedsApp`, `NeedsApp`, `NeedsAppNote`) hides or marks what only the app
+can do while the page runs on the web without a linked app answering for it (with one,
+`useRemoteConnected()`, they come back). The catalogue's own rows say "Needs the app"
+(`lib/webBuild.ts` tells catalogue rows they're on the web without a query each).
+
+| Where | What | Why |
+| --- | --- | --- |
+| Library → Local files | the page is a note with a link to Devices | the browser can't read this computer's folders yet |
+| Settings → Data | the screen is a note | backups, caches, storage and erasing are the app's files |
+| More | Offline mode and Data Saver row hidden | they steer the app's network stack |
+| About | Crash logs and Logs folder hidden | the logs are the app's files |
+| Comic, book and video title pages | Download and Export hidden | downloads and exports write files through the app |
+| Extension catalogue | Needs the app instead of Install | the source's site refuses web pages, or its kind isn't used here |
+
+Answered in the page so they work: incognito (`incognito_*`), library updates
+(`manga_update_library`), opening pages (`app_open_page`, `catalog_open_page`,
+`extension_open_website`: a new tab), install queue cancel and retry, repository previews.
+
+Checking the build: `globalThis.__RAYGUN_WEB_FALLBACKS__`, when a page sets it to an array, gets
+the name of every command that fell back, so a script driving the preview build (Playwright) can
+click through each route's buttons and list what fell back or changed nothing.
+
 ## Publishing
 
 `.github/workflows/pages.yml` builds `dist-web` and publishes it on pushes to `main` (and when

@@ -18,6 +18,7 @@ import { OfflineRow } from '../network/OfflineSwitch';
 import { IncognitoRow } from '../privacy/IncognitoSwitch';
 import { PrefLink } from '../settings/prefs';
 import { useNavTabs } from '../shell/navTabs';
+import { NeedsApp } from '../shell/NeedsApp';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { TopBar } from '../shell/TopBar';
 
@@ -85,7 +86,10 @@ export const MorePage: FC = () => {
         }
       />
       <IncognitoRow />
-      <OfflineRow />
+      {/* Offline mode and Data Saver steer the app's network stack (docs/WEB.md). */}
+      <NeedsApp hide>
+        <OfflineRow />
+      </NeedsApp>
       {tabRows.length > 0 && (
         <ul aria-label={t('more.otherTabs')} className="border-surface flex flex-col border-b pb-2">
           {tabRows.map(link)}
