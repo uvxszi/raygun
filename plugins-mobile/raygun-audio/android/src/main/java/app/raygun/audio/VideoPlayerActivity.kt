@@ -1657,9 +1657,13 @@ class VideoPlayerActivity : AppCompatActivity() {
      * motion's does), the video plays muted for a moment and pauses again ([nudgeFrame]).
      */
     private val redrawFrame = Runnable {
-        if (!stillPaused()) return@Runnable
+        if (!stillPaused()) {
+            Log.d("RaygunPip", "no redraw: not paused (state ${player.playbackState}, nudging $nudging)")
+            return@Runnable
+        }
         frameShown = false
         val way = pausedRedrawWay(effects.redrawPaused(), player.isCurrentMediaItemSeekable)
+        Log.d("RaygunPip", "paused frame drawn again: $way")
         if (way == PausedRedraw.SEEK) player.seekTo(player.currentPosition)
         main.removeCallbacks(checkFrame)
         if (way == PausedRedraw.NUDGE) nudgeFrame() else main.postDelayed(checkFrame, FRAME_WAIT_MS)
@@ -1681,6 +1685,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     private fun nudgeFrame() {
         if (nudging) return
+        Log.d("RaygunPip", "no frame came: playing muted for a moment")
         nudging = true
         val volume = player.volume
         player.volume = 0f
