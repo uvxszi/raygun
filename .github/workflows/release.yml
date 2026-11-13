@@ -365,7 +365,7 @@ jobs:
           apt-get install -y --no-install-recommends --download-only \
             libwebkit2gtk-4.1-dev:riscv64 libgtk-3-dev:riscv64 librsvg2-dev:riscv64 libdbus-1-dev:riscv64
           root=$(mktemp -d)
-          for deb in /var/cache/apt/archives/*_riscv64.deb /var/cache/apt/archives/*_all.deb; do
+          for deb in /var/cache/apt/archives/*.deb; do
             dpkg-deb -x "$deb" "$root"
           done
           mkdir -p /usr/lib/riscv64-linux-gnu /usr/share/pkgconfig
