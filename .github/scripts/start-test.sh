@@ -5,12 +5,20 @@
 # Used by the release workflow for the AppImage, the deb and the Arch package.
 #
 # Usage: start-test.sh <screenshot.png> <program> [arguments...]
+# With START_TEST_LOGS set, Raygun keeps its usual data folder and its logs are read from there
+# (a Flatpak's data is inside its sandbox's folder).
 set -u
 shot=$(realpath -m "$1")
 shift
 mkdir -p "$(dirname "$shot")"
-home=$(mktemp -d)
-export RAYGUN_HOME="$home" SHOT="$shot"
+if [ -n "${START_TEST_LOGS:-}" ]; then
+  logs=$START_TEST_LOGS
+else
+  home=$(mktemp -d)
+  export RAYGUN_HOME="$home"
+  logs="$home/logs"
+fi
+export LOGS="$logs" SHOT="$shot"
 # WebKitGTK's DMA-BUF renderer needs a GPU the virtual display doesn't have.
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
 
@@ -20,7 +28,7 @@ xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- bash -c '
   for _ in $(seq 1 45); do
     sleep 2
     kill -0 "$app" 2>/dev/null || break
-    grep -qs "the start went well" "$RAYGUN_HOME"/logs/raygun.* && break
+    grep -qs "the start went well" "$LOGS"/raygun.* && break
   done
   # A moment for the page to draw before the screenshot.
   sleep 5
@@ -36,14 +44,14 @@ xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- bash -c '
 ' start-test "$@"
 status=$?
 
-find "$home/logs" -maxdepth 1 -type f -exec tail -n 30 {} + 2>/dev/null
+find "$logs" -maxdepth 1 -type f -exec tail -n 30 {} + 2>/dev/null
 # Crash records are `<time>-<kind>.txt`; the folder also holds the start markers.
-if compgen -G "$home/logs/crashes/*.txt" > /dev/null; then
+if compgen -G "$logs/crashes/*.txt" > /dev/null; then
   echo "::error::Raygun wrote a crash log"
-  cat "$home"/logs/crashes/*.txt
+  cat "$logs"/crashes/*.txt
   exit 1
 fi
-if ! grep -qs "the start went well" "$home"/logs/raygun.*; then
+if ! grep -qs "the start went well" "$logs"/raygun.*; then
   echo "::error::Raygun's log doesn't say its start went well"
   exit 1
 fi

@@ -556,19 +556,36 @@ jobs:
       - name: Put the deb beside the manifest
         run: cp linux/*.deb packaging/flatpak/raygun.deb
 
+      # `repo/` is Raygun's extension repository: the Flatpak's OSTree repository goes elsewhere.
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: packaging/flatpak/app.raygun.player.yml
           bundle: Raygun_${{ env.VERSION }}_${{ matrix.arch }}.flatpak
           arch: ${{ matrix.arch }}
+          repo-dir: flatpak-repo
           cache: false
           upload-artifact: false
+
+      # Installed and started like the Linux builds; a Flatpak keeps its data in its own folder
+      # (a packaged copy: no question where).
+      - name: Install the bundle and start it
+        run: |
+          flatpak install --user --noninteractive "Raygun_${VERSION}_${{ matrix.arch }}.flatpak"
+          START_TEST_LOGS="$HOME/.var/app/app.raygun.player/data/app.raygun.player/logs" \
+            bash .github/scripts/start-test.sh "shots/flatpak-${{ matrix.arch }}.png" flatpak run app.raygun.player
 
       - uses: actions/upload-artifact@v7
         with:
           name: flatpak-${{ matrix.arch }}
           path: Raygun_*.flatpak
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots-flatpak-${{ matrix.arch }}
+          path: shots/*
+          if-no-files-found: ignore
 
   arch:
     name: Arch Linux ${{ matrix.arch }}
