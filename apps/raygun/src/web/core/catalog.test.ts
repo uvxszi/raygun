@@ -191,7 +191,12 @@ describe('catalogue sources in the browser', () => {
       }),
     ]);
     catalog.report(
-      JSON.stringify({ id: view.episodes[0]?.id, state: 'playing', positionMs: 990, durationMs: 1000 }),
+      JSON.stringify({
+        id: view.episodes[0]?.id,
+        state: 'playing',
+        positionMs: 990,
+        durationMs: 1000,
+      }),
     );
     const after = await catalog.videoTitle('dev.test/books', 'film', false);
     expect(after.episodes[0]).toEqual(

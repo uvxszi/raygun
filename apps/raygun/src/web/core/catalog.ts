@@ -4,6 +4,7 @@
 // Titles opened or saved are kept in the `titles` table (device-local, as in the app), with their
 // chapters or episodes and what was read or watched of them.
 import type {
+  ContinueWatching,
   FilterValue,
   LibraryList,
   MangaBrowseMode,
@@ -113,7 +114,8 @@ export const stableId = (prefix: string, text: string) => {
 export const titleIdOf = (medium: Medium, sourceId: string, remoteId: string) =>
   stableId('t', `${medium}\u0000${sourceId}\u0000${remoteId}`);
 
-const unitIdOf = (titleId: string, remoteId: string) => stableId('c', `${titleId}\u0000${remoteId}`);
+const unitIdOf = (titleId: string, remoteId: string) =>
+  stableId('c', `${titleId}\u0000${remoteId}`);
 
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -161,9 +163,7 @@ export const listingOf = (answer: unknown): { items: Listed[]; hasNextPage: bool
           coverUrl: webUrl(item.coverUrl),
           authors: texts(item.authors).slice(0, 4),
           adult: item.nsfw === true,
-          live: live
-            ? { viewers: finite(item.viewers), startedAt: finite(item.startedAt) }
-            : null,
+          live: live ? { viewers: finite(item.viewers), startedAt: finite(item.startedAt) } : null,
           subtitle: text(item.subtitle)?.slice(0, 120) ?? null,
           folder: item.folder === true,
         },
@@ -234,22 +234,22 @@ const videoOf = (raw: unknown, preferred: number | null): VideoLinkView | null =
   const url = webUrl(video.url);
   if (!url) return null;
   const quality = finite(video.quality);
-  const subtitles: VideoSubtitle[] = (Array.isArray(video.subtitles) ? video.subtitles : []).flatMap(
-    (track) => {
-      const item = (track ?? {}) as Record<string, unknown>;
-      const address = webUrl(item.url);
-      return address
-        ? [
-            {
-              url: address,
-              lang: text(item.lang),
-              label: text(item.label),
-              format: text(item.format),
-            },
-          ]
-        : [];
-    },
-  );
+  const subtitles: VideoSubtitle[] = (
+    Array.isArray(video.subtitles) ? video.subtitles : []
+  ).flatMap((track) => {
+    const item = (track ?? {}) as Record<string, unknown>;
+    const address = webUrl(item.url);
+    return address
+      ? [
+          {
+            url: address,
+            lang: text(item.lang),
+            label: text(item.label),
+            format: text(item.format),
+          },
+        ]
+      : [];
+  });
   const headers =
     video.headers && typeof video.headers === 'object'
       ? (video.headers as Record<string, string>)
@@ -463,11 +463,9 @@ export class CatalogService {
   private async fetchTitle(medium: Medium, sourceId: string, remoteId: string) {
     const [details, units] = await Promise.all([
       this.extensions.call<Record<string, unknown>>(sourceId, 'details', { id: remoteId }),
-      this.extensions.call(
-        sourceId,
-        medium === 'video' ? 'episodes' : 'chapters',
-        { id: remoteId },
-      ),
+      this.extensions.call(sourceId, medium === 'video' ? 'episodes' : 'chapters', {
+        id: remoteId,
+      }),
     ]);
     const name = text(details?.title) ?? fail(`${this.extensions.nameOf(sourceId)} sent no title`);
     const id = titleIdOf(medium, sourceId, remoteId);
@@ -658,7 +656,8 @@ export class CatalogService {
       fail('This chapter is a PDF document, which only the Raygun app can show.');
     }
     const pages = (Array.isArray(answer?.pages) ? answer.pages : []).flatMap((page) => {
-      const address = typeof page === 'string' ? webUrl(page) : webUrl((page as { url?: unknown })?.url);
+      const address =
+        typeof page === 'string' ? webUrl(page) : webUrl((page as { url?: unknown })?.url);
       return address ? [address] : [];
     });
     if (pages.length === 0) fail(`${title.sourceName} has no pages for this chapter`);
@@ -822,6 +821,13 @@ export class CatalogService {
     if (medium) this.changed(medium);
   }
 
+  /** Library titles pinned to quick access. */
+  pinned(): StoredTitle[] {
+    return this.context.store
+      .all<StoredTitle>('titles')
+      .filter((title) => title.inLibrary && title.pinned);
+  }
+
   continueChapter(titleId: string): string | null {
     const title = this.stored(titleId);
     return title ? this.continueOf(title) : null;
@@ -965,6 +971,62 @@ export class CatalogService {
       this.save(title);
       return;
     }
+  }
+
+  /** Videos partly watched (or all watched, for history), latest first. */
+  continueWatching(history = false): ContinueWatching[] {
+    return this.context.store
+      .all<StoredTitle>('titles')
+      .filter((title) => title.medium === 'video')
+      .flatMap((title) =>
+        title.units
+          .filter((unit) => unit.positionMs !== null && (history || !unit.read))
+          .map((unit) => ({ title, unit })),
+      )
+      .sort((a, b) => (b.title.lastReadAt ?? 0) - (a.title.lastReadAt ?? 0))
+      .map(({ title, unit }) => {
+        const series = title.units.length > 1 || title.mediaType === 'series';
+        return {
+          key: unit.id,
+          title: title.title,
+          subtitle: series ? unit.name : null,
+          poster: title.coverUrl,
+          positionMs: unit.positionMs,
+          durationMs: unit.durationMs,
+          updatedAt: title.lastReadAt,
+          watched: unit.read,
+          sourceId: title.sourceId,
+          remoteId: title.remoteId,
+          group: `title:${title.id}`,
+          episodeId: unit.remoteId,
+          unitId: unit.id,
+          series,
+        };
+      });
+  }
+
+  /** Plays a video kept in Continue watching, from where it was or from its start. */
+  async resume(key: string, fromStart: boolean) {
+    const { title, unit } = this.unitOf(key);
+    if (fromStart) {
+      unit.positionMs = 0;
+      this.save(title);
+    }
+    await this.watch(title.id, unit.id);
+  }
+
+  /** Forgets where videos got to (Continue watching's Remove). */
+  forgetProgress(keys: string[]) {
+    for (const key of keys) {
+      try {
+        const { title, unit } = this.unitOf(key);
+        unit.positionMs = null;
+        this.save(title);
+      } catch {
+        // Already gone.
+      }
+    }
+    return keys.length;
   }
 
   setWatched(titleId: string, episodeId: string, watched: boolean) {

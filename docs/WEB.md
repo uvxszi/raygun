@@ -38,10 +38,12 @@ Raygun's logic is Rust behind Tauri commands. Three ways to put it in a browser 
   The generated bindings (`packages/bindings`) are used unchanged; commands go to the core by their
   Rust names, events come back through the bindings' own `listen`. A thrown string is a command's
   error, as Rust's `Err` is.
-- `core/index.ts` routes commands to services. Commands without a web implementation get an
-  answer of their own type from `fallback.ts`: reads get an empty value (`[]`, `null`, `false`,
-  objects field by field), actions answering a `Result` get the error "This isn't available in
-  Raygun on the web". The empty values are made at build time from the bindings' types by
+- `core/index.ts` routes commands to services. A command without a web implementation goes first
+  to the remote handler when one is set (`setRemoteHandler`: a linked app answering for the page;
+  `web/remoteState.ts` `useRemoteConnected()` says whether one is connected, so "needs the app"
+  parts can turn on), then gets an answer of its own type from `fallback.ts`: reads get an empty value (`[]`, `null`, `false`,
+  objects field by field), actions answering a `Result` get the error saying it needs the Raygun
+  app and pointing to Devices to link one. The empty values are made at build time from the bindings' types by
   `web-build/commandAnswers.ts` (the TypeScript compiler; a virtual module), so new commands are
   covered without changes here.
 - Storage (`core/store.ts`): IndexedDB (`raygun-web`), read into memory when the page opens and
@@ -110,11 +112,36 @@ the page calls providers by `postMessage`. Packages come from repositories (Para
 checked against their SHA-256 and unpacked in the browser.
 
 The browser makes the requests, so a source works only where its site lets web pages read it
-(CORS). Among the first-party sources' APIs, the Internet Archive (and so its music, Live Music
-Archive and Great 78 sources), MusicBrainz, ListenBrainz, Wikimedia and fyyd do; incompetech,
-LibriVox and gutenberg.org don't. A source that fails says why. The web core wires them into Search
-→ Music (`online_search`) and into playback (`music.stream` candidates for songs found elsewhere).
-Other formats (Nuclear, Shosetsu, Kodi, Mihon, Stremio addons) need the app.
+(CORS). The sandbox's `fetch` leaves out a source's own `User-Agent` (the browser names itself, and
+a header of its own would make the browser ask the site first) and adds `origin=*` to MediaWiki
+`api.php` requests, which is how those APIs answer web pages. A source that fails says why. Other
+formats (Nuclear, Shosetsu, Kodi, Mihon, Stremio addons) need the app.
+
+- **Starter sources** (`extensions/webSources.ts`): a browser's first start installs, from
+  Paraline, the first-party sources measured to work in browsers (`WEB_STARTER_SOURCES`:
+  Internet Archive, MusicBrainz, ListenBrainz, Wikimedia Commons, Live Music Archive, Great 78,
+  Blender movies, ESA/Hubble, ESO, NASA, Library of Congress, PeerTube, Green Tea Press, Saylor,
+  Standard Ebooks, Wikisource), once (`ext.startersInstalled`), so a removed one stays removed.
+- **Needs the app**: Paraline sources whose sites refuse web pages (`APP_ONLY_SOURCES`:
+  archive-books (PDF chapters), archive-comics (the Archive's page servers), bccampus,
+  gnu-manuals, gutenberg, incompetech, nasa-svs, open-webcomics, openstax, peppercarrot,
+  ucsb-cylinders, wikibooks, xkcd) and sources of kinds the web core doesn't call (podcast and
+  audiobook directories, answers) are listed in the catalogue with "Needs the app" and their
+  reason instead of Install. The lists were measured by installing every Paraline source in the
+  web build and asking each for a listing, a title and a chapter or video.
+- **Music**: Search → Music (`online_search`), playback (`music.stream` candidates for songs
+  found elsewhere) and charts (`core/charts.ts`: `music_charts`, `music_chart`; Home's chart rows).
+- **Comics, books and videos** (`core/catalog.ts`): `manga.source`, `novel.source` and
+  `video.source` answer the catalogue commands the UI uses (`*_sources`, `*_browse`,
+  `catalog_search`, `catalog_filters`, `catalog_global_search`, `*_title`, `manga_chapter`,
+  `novel_chapter`, `video_servers`, `video_links`, `video_source_play`/`_watch`, progress, read
+  marks, the library and its marks, Continue watching). Titles opened or saved are kept in the
+  `titles` table (device-local, as in the app; ids are stable hashes of medium, source and remote
+  id). Comic pages are the sources' picture addresses (an `<img>` needs no CORS); book text is
+  parsed in the page (`core/passage.ts`: headings, paragraphs, code, pictures, rules; nothing
+  from the source's HTML is put on the page); videos open the page's own player
+  (`videoPlayerEvent`, as on desktop) with the link's address, reporting where they got to for
+  Continue watching. PDF chapters and torrents need the app.
 
 Sessions and cookies: a sandboxed source sends no cookies and keeps none (the browser doesn't let
 a page set other sites' cookies), so sources that need a sign-in work only with keys set in their
@@ -131,15 +158,19 @@ fragment, so Pages needs no fallback page.
 
 Works: the interface, settings, favorites, playlists, history and what was played from (kept and
 synced); linking and syncing with the apps; Search → Music and playback through Raygun's sources
-that allow web pages; songs with a stream address or a YouTube id; the queue and its restore;
-YouTube's player; installing as a web app.
+that allow web pages; charts on Home; books and videos from those sources (Browse, Search, title
+pages, the book reader, the video player, the library, Continue watching); songs with a stream
+address or a YouTube id; the queue and its restore; YouTube's player; installing as a web app.
 
 Not in the browser, and why:
 
 - Files on this computer: not yet (the next step: File System Access for folders, files copied
   into IndexedDB elsewhere). Files on other devices can't be reached.
-- Comics, books, video sources, podcasts and audiobooks: their sources' catalogue commands aren't
-  wired into the web core yet; podcast feeds are mostly not readable by web pages (CORS).
+- Comics: every first-party comics source's pictures or lists come from servers that refuse web
+  pages, so none runs in a browser yet (the catalogue says so).
+- Podcasts and audiobooks: their directories aren't wired into the web core, and most feeds aren't
+  readable by web pages (CORS).
+- PDF books (their pages are drawn by the app's renderer) and torrents.
 - Downloads, exports, recordings, yt-dlp, torrents, casting, the LAN remote, Connect (playing on
   another device), on-device AI (transcription, translation, OCR) and the apps' system integrations:
   they need the app.
@@ -156,5 +187,4 @@ The `github-pages` environment allows the default branch to publish.
 
 - Local files: File System Access (`showDirectoryPicker`) where the browser has it, files kept in
   IndexedDB elsewhere, played as object URLs; `local_folders_*` and the library commands.
-- Catalogue sources (comics, books, videos) through the same sandboxes and the readers.
 - More of the shared logic as WebAssembly where it pays off (the resolver's ranking).

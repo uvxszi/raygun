@@ -18,4 +18,5 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-export const useRemoteConnected = () => useSyncExternalStore(subscribe, remoteConnected, () => false);
+export const useRemoteConnected = () =>
+  useSyncExternalStore(subscribe, remoteConnected, () => false);

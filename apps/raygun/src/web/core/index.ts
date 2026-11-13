@@ -122,8 +122,11 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
   const settings = new SettingsService(context);
   const collections = new CollectionsService(context);
   const extensions = new ExtensionsService(context, () => settings.stored());
-  const catalog = new CatalogService(context, extensions, () => settings.stored(), (request) =>
-    context.emit('videoPlayerEvent', { kind: 'open', json: JSON.stringify(request) }),
+  const catalog = new CatalogService(
+    context,
+    extensions,
+    () => settings.stored(),
+    (request) => context.emit('videoPlayerEvent', { kind: 'open', json: JSON.stringify(request) }),
   );
   const charts = new ChartsService(extensions);
 
@@ -180,6 +183,24 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
         ...fixedItem('playlist', '/library/playlist', { id: playlist.id }, playlist.name),
         artworkUrls: playlist.artworkUrls,
         removable: true,
+      });
+    }
+    // Comics, books and videos show while pinned (quick_access.rs `title_pin`).
+    for (const title of catalog.pinned()) {
+      const to =
+        title.medium === 'novel'
+          ? '/novel/title'
+          : title.medium === 'video'
+            ? '/watch/video'
+            : '/manga/title';
+      items.push({
+        ...fixedItem(title.medium, to, { source: title.sourceId, id: title.remoteId }, title.title),
+        subtitle: title.authors[0] ?? null,
+        artworkUrl: title.coverUrl,
+        pinned: true,
+        removable: true,
+        addedAt: title.addedAt ?? 0,
+        playedAt: title.lastReadAt ?? 0,
       });
     }
     return { items, more: 0 };
@@ -469,11 +490,29 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     novel_sources: () => catalog.sources('novel'),
     video_sources: () => catalog.sources('video'),
     manga_browse: ({ sourceId, mode, query, page }) =>
-      catalog.browse('manga', String(sourceId), mode as MangaBrowseMode, query as string | null, Number(page) || 1),
+      catalog.browse(
+        'manga',
+        String(sourceId),
+        mode as MangaBrowseMode,
+        query as string | null,
+        Number(page) || 1,
+      ),
     novel_browse: ({ sourceId, mode, query, page }) =>
-      catalog.browse('novel', String(sourceId), mode as MangaBrowseMode, query as string | null, Number(page) || 1),
+      catalog.browse(
+        'novel',
+        String(sourceId),
+        mode as MangaBrowseMode,
+        query as string | null,
+        Number(page) || 1,
+      ),
     video_browse: ({ sourceId, mode, query, page }) =>
-      catalog.browse('video', String(sourceId), mode as MangaBrowseMode, query as string | null, Number(page) || 1),
+      catalog.browse(
+        'video',
+        String(sourceId),
+        mode as MangaBrowseMode,
+        query as string | null,
+        Number(page) || 1,
+      ),
     catalog_search: ({ medium, sourceId, query, page, filters }) =>
       catalog.search(
         mediumOf(medium),
@@ -484,7 +523,11 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
       ),
     catalog_filters: ({ sourceId }) => catalog.filters(String(sourceId)),
     catalog_global_search: ({ medium, query, sources }) =>
-      catalog.globalSearch(mediumOf(medium), String(query ?? ''), (sources as string[] | null) ?? []),
+      catalog.globalSearch(
+        mediumOf(medium),
+        String(query ?? ''),
+        (sources as string[] | null) ?? [],
+      ),
     catalog_open_page: async ({ sourceId, url }) => {
       const address =
         (url as string | null) ??
@@ -586,6 +629,25 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
       catalog.setWatched(String(titleId), String(episodeId), watched === true);
       return null;
     },
+    video_continue_watching: () => catalog.continueWatching(),
+    video_history: () => catalog.continueWatching(true),
+    video_resume: async ({ key }) => {
+      await catalog.resume(String(key), false);
+      return null;
+    },
+    video_play_from_start: async ({ key }) => {
+      await catalog.resume(String(key), true);
+      return null;
+    },
+    video_remove: ({ key }) => {
+      catalog.forgetProgress([String(key)]);
+      return null;
+    },
+    video_remove_many: ({ keys }) => catalog.forgetProgress(keys as string[]),
+    video_mark_watched: ({ key }) => {
+      catalog.setRead([String(key)], true);
+      return null;
+    },
     video_player_report: ({ report }) => {
       catalog.report(String(report));
       return null;
@@ -600,6 +662,10 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
         if (answer.handled) return answer.value;
       }
       if (options.debug) console.debug('[raygun web] no web implementation:', command);
+      // What fell back, for checking the web build's screens (docs/WEB.md, the audit).
+      (globalThis as { __RAYGUN_WEB_FALLBACKS__?: string[] }).__RAYGUN_WEB_FALLBACKS__?.push(
+        command,
+      );
       return fallbackAnswer(options.answers, command);
     }
     return handler(args);

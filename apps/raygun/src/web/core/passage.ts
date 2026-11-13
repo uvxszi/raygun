@@ -103,7 +103,10 @@ export const blocksFromHtml = (html: string, baseUrl: string | null): TextBlock_
       } else if (tag === 'BR') {
         flush();
       } else if (tag === 'IMG') {
-        const url = webAddress(element.getAttribute('src') ?? element.getAttribute('data-src'), base);
+        const url = webAddress(
+          element.getAttribute('src') ?? element.getAttribute('data-src'),
+          base,
+        );
         if (url) {
           flush();
           blocks.push({ kind: 'image', url });

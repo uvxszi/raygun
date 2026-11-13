@@ -38,8 +38,8 @@ describe('charts in the browser', () => {
     } as unknown as ExtensionsService;
     const charts = new ChartsService(extensions);
     expect((await charts.charts(null)).charts.map((chart) => chart.name)).toEqual(['Top']);
-    expect((await charts.chart('dev.test/charts', 'top', null)).map((track) => track.title)).toEqual(
-      ['Song'],
-    );
+    expect(
+      (await charts.chart('dev.test/charts', 'top', null)).map((track) => track.title),
+    ).toEqual(['Song']);
   });
 });

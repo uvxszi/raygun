@@ -22,8 +22,7 @@ const GROUPS = new Set<ChartGroup>([
   'underground',
 ]);
 
-const text = (value: unknown) =>
-  typeof value === 'string' && value.trim() ? value.trim() : null;
+const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
 /** A `charts` answer (`parse_charts`): charts with an id and a name. */
 export const chartsOf = (
