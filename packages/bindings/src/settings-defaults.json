@@ -79,7 +79,17 @@
       "look": "none",
       "deflicker": 0,
       "denoise": 0,
-      "smoothMotion": false
+      "smoothMotion": false,
+      "watermark": {
+        "enabled": false,
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "brightness": 0,
+        "contrast": 0,
+        "feather": 0
+      }
     },
     "smartAudio": {
       "dialogue": false,
@@ -641,7 +651,8 @@
     "mono": false,
     "normalize": false,
     "normalizeTarget": -14,
-    "crossfadeMs": 2000
+    "crossfadeMs": 2000,
+    "pitch": 0
   },
   "keepMusicPlaying": false,
   "resumeOnStart": true,

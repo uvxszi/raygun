@@ -51,12 +51,94 @@ pub struct PictureEffects {
     /// In-between frames made from the motion between two (about 60 a second, at most the
     /// screen's), so pans and movement look smoother.
     pub smooth_motion: bool,
+    /// A watermark taken out of a box of the picture (per title; off unless turned on).
+    pub watermark: WatermarkRemoval,
+}
+
+/// The box's sides are in ten-thousandths of the picture's, from its top left.
+pub const WATERMARK_SCALE: u32 = 10_000;
+
+/// The watermark remover: a static overlay (a channel's logo, a "sample" mark) inside a box of
+/// the picture. Its alpha mask and colour are estimated from the frames as they play (the overlay
+/// stays while the video under it changes), then the blend is inverted in the box; parts too
+/// opaque to invert are filled from the box's edges. Brightness and contrast correct what's left,
+/// the feather softens the box's edge.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WatermarkRemoval {
+    pub enabled: bool,
+    /// The box, in ten-thousandths of the picture ([`WATERMARK_SCALE`]) from its top left.
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    /// −100 to 100, applied where the overlay was.
+    pub brightness: i32,
+    /// −100 to 100, applied where the overlay was.
+    pub contrast: i32,
+    /// 0 to 100: how much of the box's edge blends into the picture around it.
+    pub feather: u32,
+}
+
+impl WatermarkRemoval {
+    /// On, with a box to work in.
+    pub fn is_active(&self) -> bool {
+        self.enabled && self.width > 0 && self.height > 0
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.x + self.width > WATERMARK_SCALE || self.y + self.height > WATERMARK_SCALE {
+            return Err("The watermark's box must lie inside the picture".into());
+        }
+        if self.brightness.abs() > PICTURE_ADJUST_RANGE
+            || self.contrast.abs() > PICTURE_ADJUST_RANGE
+            || self.feather > PICTURE_STRENGTH_MAX
+        {
+            return Err("The watermark's corrections go from −100 to 100, its feather to 100".into());
+        }
+        Ok(())
+    }
+}
+
+/// A title's sound in the video player (`videoSound` in `video.playerState.<group>`): pitch, and
+/// an equalizer of its own or the music player's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct VideoSound {
+    /// Pitch shift in tenths of a semitone (−120 to 120), the tempo kept; the tempo is the
+    /// title's speed.
+    pub pitch: i32,
+    /// The title has an equalizer of its own; otherwise the music player's (`SoundPrefs`) applies.
+    pub own_eq: bool,
+    pub eq_enabled: bool,
+    pub eq_preset: String,
+    /// Gains in tenths of a dB (−120 to 120), one per band.
+    pub eq_bands: Vec<i32>,
+    /// Gain before the equalizer, tenths of a dB.
+    pub preamp: i32,
+}
+
+impl Default for VideoSound {
+    fn default() -> Self {
+        Self {
+            pitch: 0,
+            own_eq: false,
+            eq_enabled: false,
+            eq_preset: "flat".to_owned(),
+            eq_bands: vec![0; crate::EQ_FREQUENCIES.len()],
+            preamp: 0,
+        }
+    }
 }
 
 impl PictureEffects {
-    /// Nothing changed: the picture plays as it is.
+    /// Nothing changed: the picture plays as it is (a watermark box that's off changes nothing).
     pub fn is_neutral(&self) -> bool {
-        *self == Self::default()
+        let rest = Self {
+            watermark: WatermarkRemoval::default(),
+            ..*self
+        };
+        rest == Self::default() && !self.watermark.is_active()
     }
 
     /// Checks the ranges the type can't express.
@@ -77,7 +159,7 @@ impl PictureEffects {
         {
             return Err("Sharpen, deflicker and denoise go from 0 to 100".into());
         }
-        Ok(())
+        self.watermark.validate()
     }
 }
 
@@ -155,5 +237,40 @@ mod tests {
         effects.hue = 0;
         effects.denoise = 101;
         assert!(effects.validate().is_err());
+        effects.denoise = 0;
+        effects.watermark = WatermarkRemoval {
+            enabled: true,
+            x: 8_000,
+            y: 500,
+            width: 2_500,
+            height: 1_000,
+            ..WatermarkRemoval::default()
+        };
+        assert!(effects.validate().is_err());
+        effects.watermark.width = 1_500;
+        assert!(effects.validate().is_ok());
+    }
+
+    #[test]
+    fn a_watermark_box_left_off_changes_nothing() {
+        let mut effects = PictureEffects {
+            watermark: WatermarkRemoval {
+                x: 100,
+                y: 100,
+                width: 1_000,
+                height: 500,
+                ..WatermarkRemoval::default()
+            },
+            ..PictureEffects::default()
+        };
+        assert!(effects.is_neutral());
+        effects.watermark.enabled = true;
+        assert!(!effects.is_neutral());
+        let json = serde_json::to_value(effects).unwrap();
+        assert_eq!(json["watermark"]["width"], 1_000);
+        let sound: VideoSound = serde_json::from_str(r#"{"pitch": -20}"#).unwrap();
+        assert_eq!(sound.pitch, -20);
+        assert_eq!(sound.eq_bands.len(), crate::EQ_FREQUENCIES.len());
+        assert!(!sound.own_eq);
     }
 }

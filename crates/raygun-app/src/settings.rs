@@ -95,7 +95,7 @@ async fn apply_here(app: &tauri::AppHandle, settings: &Settings, changed: Option
         before.auto_subtitles == settings.auto_subtitles
     }) || differs("seekSeconds", &|before| {
         before.seek_seconds == settings.seek_seconds
-    });
+    }) || differs("sound", &|before| before.sound == settings.sound);
     if player && before.is_some() {
         crate::video::settings_changed(app).await;
     }

@@ -5630,6 +5630,8 @@ export type PictureEffects = {
 	 *  screen's), so pans and movement look smoother.
 	 */
 	smoothMotion?: boolean,
+	/**  A watermark taken out of a box of the picture (per title; off unless turned on). */
+	watermark?: WatermarkRemoval,
 };
 
 /**  A colour look laid over the picture. */
@@ -7134,6 +7136,12 @@ export type SoundPrefs = {
 	 *  [`CROSSFADE_DEFAULT_MS`]).
 	 */
 	crossfadeMs?: number,
+	/**
+	 *  Pitch shift in tenths of a semitone (−120 to 120), the tempo kept: songs, podcasts and
+	 *  audiobooks. The tempo is the player's speed (`PlaybackControl::SetRate`), which keeps the
+	 *  pitch.
+	 */
+	pitch?: number,
 };
 
 /**  A source as a picker shows it, to order (`video_source_order`). */
@@ -8989,6 +8997,26 @@ export type VideoServerView = {
 	links: VideoLinkView[] | null,
 };
 
+/**
+ *  A title's sound in the video player (`videoSound` in `video.playerState.<group>`): pitch, and
+ *  an equalizer of its own or the music player's.
+ */
+export type VideoSound = {
+	/**
+	 *  Pitch shift in tenths of a semitone (−120 to 120), the tempo kept; the tempo is the
+	 *  title's speed.
+	 */
+	pitch?: number,
+	/**  The title has an equalizer of its own; otherwise the music player's (`SoundPrefs`) applies. */
+	ownEq?: boolean,
+	eqEnabled?: boolean,
+	eqPreset?: string,
+	/**  Gains in tenths of a dB (−120 to 120), one per band. */
+	eqBands?: number[],
+	/**  Gain before the equalizer, tenths of a dB. */
+	preamp?: number,
+};
+
 /**  Plays a link of a stored episode. */
 export type VideoSourcePlay = {
 	titleId: string,
@@ -9079,6 +9107,28 @@ export type VideoUpdateItem = {
  *  (M38).
  */
 export type WatchChangedEvent = string;
+
+/**
+ *  The watermark remover: a static overlay (a channel's logo, a "sample" mark) inside a box of
+ *  the picture. Its alpha mask and colour are estimated from the frames as they play (the overlay
+ *  stays while the video under it changes), then the blend is inverted in the box; parts too
+ *  opaque to invert are filled from the box's edges. Brightness and contrast correct what's left,
+ *  the feather softens the box's edge.
+ */
+export type WatermarkRemoval = {
+	enabled?: boolean,
+	/**  The box, in ten-thousandths of the picture ([`WATERMARK_SCALE`]) from its top left. */
+	x?: number,
+	y?: number,
+	width?: number,
+	height?: number,
+	/**  −100 to 100, applied where the overlay was. */
+	brightness?: number,
+	/**  −100 to 100, applied where the overlay was. */
+	contrast?: number,
+	/**  0 to 100: how much of the box's edge blends into the picture around it. */
+	feather?: number,
+};
 
 /**  A website the user added. */
 export type Website = {

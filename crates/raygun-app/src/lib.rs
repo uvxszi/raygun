@@ -664,6 +664,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ConnectEvent,
             events::ConnectRequestEvent
         ])
+        // Kept in a title's player memory, read by the desktop player.
+        .typ::<raygun_model::VideoSound>()
 }
 
 /// Writes the TypeScript bindings for all commands to `path`.

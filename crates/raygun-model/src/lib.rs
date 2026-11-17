@@ -1551,7 +1551,15 @@ pub struct SoundPrefs {
     /// How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]; at first
     /// [`CROSSFADE_DEFAULT_MS`]).
     pub crossfade_ms: u32,
+    /// Pitch shift in tenths of a semitone (−120 to 120), the tempo kept: songs, podcasts and
+    /// audiobooks. The tempo is the player's speed (`PlaybackControl::SetRate`), which keeps the
+    /// pitch.
+    pub pitch: i32,
 }
+
+/// The farthest the pitch moves either way, in tenths of a semitone (an octave).
+/// The players turn it into a frequency ratio, 2^(tenths / 120).
+pub const PITCH_LIMIT: i32 = 120;
 
 impl Default for SoundPrefs {
     fn default() -> Self {
@@ -1567,6 +1575,7 @@ impl Default for SoundPrefs {
             normalize: false,
             normalize_target: -14,
             crossfade_ms: CROSSFADE_DEFAULT_MS,
+            pitch: 0,
         }
     }
 }
@@ -1605,6 +1614,9 @@ impl SoundPrefs {
         }
         if self.crossfade_ms > CROSSFADE_MAX_MS {
             return Err("a crossfade is at most 12 seconds".to_owned());
+        }
+        if self.pitch.abs() > PITCH_LIMIT {
+            return Err("the pitch moves at most 12 semitones either way".to_owned());
         }
         Ok(())
     }

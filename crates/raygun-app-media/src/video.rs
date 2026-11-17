@@ -46,6 +46,18 @@ struct PlayerPrefs {
     accent: String,
     /// Controls, gestures, tracks and tools (M45).
     video_player: VideoPlayerPrefs,
+    /// The music player's equalizer, for titles without one of their own (`VideoSound::own_eq`).
+    music_eq: Value,
+}
+
+/// The music player's equalizer as the video players read it (`VideoSound`'s field names).
+fn music_eq(sound: &raygun_model::SoundPrefs) -> Value {
+    json!({
+        "eqEnabled": sound.eq_enabled,
+        "eqPreset": sound.eq_preset,
+        "eqBands": sound.eq_bands,
+        "preamp": sound.preamp,
+    })
 }
 
 /// When subtitles turn on by themselves: the player's setting, else the older switch.
@@ -86,7 +98,7 @@ const SUBTITLE_KEYS: [&str; 2] = ["subtitle", "secondarySubtitle"];
 /// The brightness the player last had, for "remember brightness".
 const BRIGHTNESS_KEY: &str = "video.brightness";
 /// What a title remembers: speed, aspect, subtitle and audio choices, subtitle delay, intro length.
-const STATE_KEYS: [&str; 12] = [
+const STATE_KEYS: [&str; 13] = [
     "speed",
     "aspect",
     "subtitle",
@@ -104,6 +116,8 @@ const STATE_KEYS: [&str; 12] = [
     // The title's own picture effects and smart audio (`raygun_model::PictureEffects`).
     "pictureEffects",
     "smartAudio",
+    // The title's pitch and equalizer (`raygun_model::VideoSound`).
+    "videoSound",
 ];
 
 async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
@@ -127,6 +141,7 @@ async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
         keep_music_playing: settings.keep_music_playing,
         accent: accent_color(&settings),
         video_player: settings.video_player.clone(),
+        music_eq: music_eq(&settings.sound),
     }
 }
 
@@ -140,6 +155,7 @@ fn with_shared_fields(mut payload: Value, prefs: &PlayerPrefs) -> Value {
         fields.insert("subtitleMode".into(), json!(prefs.subtitle_mode));
         fields.insert("keepMusicPlaying".into(), json!(prefs.keep_music_playing));
         fields.insert("accent".into(), json!(prefs.accent));
+        fields.insert("musicEq".into(), prefs.music_eq.clone());
         // What sources were asked with: some links only play for the same User-Agent.
         fields.insert("userAgent".into(), json!(raygun_net::user_agent()));
     }
@@ -1498,6 +1514,7 @@ mod tests {
             keep_music_playing: false,
             accent: "#65adff".into(),
             video_player: video_player.clone(),
+            music_eq: Value::Null,
         };
         let update = prefs_update(serde_json::to_value(&video_player).unwrap(), &prefs);
         assert_eq!(update["type"], "prefs");
@@ -1958,9 +1975,11 @@ mod tests {
             keep_music_playing: true,
             accent: "#65adff".into(),
             video_player: VideoPlayerPrefs::default(),
+            music_eq: music_eq(&raygun_model::SoundPrefs::default()),
         };
         let payload = with_shared_fields(json!({ "id": "url:a" }), &prefs);
         assert_eq!(payload["id"], "url:a");
+        assert_eq!(payload["musicEq"]["eqBands"].as_array().map(Vec::len), Some(10));
         assert_eq!(payload["seekStepMs"], 10_000);
         assert_eq!(payload["appLanguage"], "pt-BR");
         assert_eq!(payload["subtitleLanguage"], "");
