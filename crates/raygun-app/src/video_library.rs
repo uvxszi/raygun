@@ -17,7 +17,7 @@ use crate::catalog::to_message;
 /// `title.kind` of video titles.
 pub const KIND: &str = "video";
 /// `title.source_id` of titles saved from Stremio addons; their `remote_id` is `<type>:<id>`.
-pub const STREMIO_SOURCE: &str = "stremio";
+pub use raygun_app_base::source_ids::STREMIO_SOURCE;
 /// Most episodes a feed lists.
 const FEED_LIMIT: u32 = 300;
 

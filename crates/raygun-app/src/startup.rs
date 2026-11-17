@@ -170,7 +170,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             .build()?,
     );
     app.manage(video_downloads.clone());
-    app.manage(std::sync::Arc::new(crate::export::ExportService::new(
+    let export = std::sync::Arc::new(crate::export::ExportService::new(
         app.handle().clone(),
         crate::export::Outputs::new(
             app.handle().clone(),
@@ -178,7 +178,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             paths.cache(raygun_paths::CacheKind::Share),
         ),
         paths.cache(raygun_paths::CacheKind::Convert),
-    )?));
+    )?);
+    // Where files go, as song downloads reach it.
+    app.manage(export.outputs().clone());
+    app.manage(export);
     let podcasts = std::sync::Arc::new(crate::podcasts::PodcastService::new(
         app.handle().clone(),
         raygun_net::http_client()?,

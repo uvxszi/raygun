@@ -95,31 +95,7 @@ fn medium_folder(medium: &str) -> &'static str {
     }
 }
 
-/// Where saved files go, from Settings → Downloads.
-pub fn place_for(prefs: &SavePrefs, destination: ExportDestination) -> Result<Place, String> {
-    match destination {
-        ExportDestination::Downloads => Ok(Place::Downloads),
-        ExportDestination::Share => Ok(Place::Share),
-        ExportDestination::Folder => match &prefs.folder_uri {
-            Some(uri) => Ok(Place::Folder {
-                uri: uri.clone(),
-                name: prefs.folder_name.clone().unwrap_or_else(|| "Folder".into()),
-            }),
-            None => Err("Choose a folder first".into()),
-        },
-    }
-}
-
-/// Where a request's files go: the folder chosen in the export sheet, else as [`place_for`].
-pub fn place_for_request(prefs: &SavePrefs, request: &ExportRequest) -> Result<Place, String> {
-    match (&request.destination, &request.folder) {
-        (ExportDestination::Folder, Some(folder)) => Ok(Place::Folder {
-            uri: folder.uri.clone(),
-            name: folder.name.clone(),
-        }),
-        _ => place_for(prefs, request.destination),
-    }
-}
+pub use raygun_app_export::places::{place_for, place_for_request};
 
 /// `local_meta` key of the folder last chosen in the export sheet.
 const LAST_FOLDER: &str = "export.lastFolder";

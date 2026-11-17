@@ -8,7 +8,7 @@
 //! downloads whole through the torrent engine (`torrents`) and is kept as the file.
 
 pub mod auto;
-pub mod hls;
+pub use raygun_app_music::hls_downloads as hls;
 pub mod subtitles;
 
 use std::collections::HashSet;

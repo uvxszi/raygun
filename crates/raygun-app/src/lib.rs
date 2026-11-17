@@ -3,67 +3,31 @@
 //! The Tauri shell in `apps/raygun/src-tauri` stays thin: it owns the config
 //! and context, and gets everything else from [`builder`].
 
-mod aniskip;
-mod answer_words;
 mod app_window;
-mod artist_profiles;
-mod background;
 mod backup;
 mod book_search;
 mod caches;
-mod captions;
-mod collections;
 mod commands;
 mod connect;
-mod cover_fallback;
 mod cover_search;
-mod details;
 mod device_link;
 mod device_sync;
-mod discovery;
-mod durations;
 mod export;
-mod follows;
-mod fonts;
-mod history;
-mod import;
-mod last_played;
-mod library;
 mod library_actions;
 mod local_files;
-mod logs;
-mod lyrics_store;
-mod lyrics_translation;
-mod made_for_you;
 mod manga;
 mod manga_downloads;
 mod mcp;
-mod miniplayer;
-mod music_downloads;
 mod network_mode;
 mod notifications;
 mod novel;
 mod open_with;
 mod permissions;
-mod playback;
-mod podcast_feed;
-mod podcasts;
-mod prefetch;
-mod quick_access;
-mod reader_ai;
 mod remote;
-mod resolution;
-mod resolver;
 mod settings;
-mod song_memory;
-mod sound;
-mod sponsorblock;
 mod startup;
 mod stremio;
-mod system_ui;
-mod text_translation;
 mod torrents;
-mod tts;
 mod updates;
 mod video;
 #[cfg(not(target_os = "android"))]
@@ -71,18 +35,22 @@ mod video_desktop;
 mod video_downloads;
 mod video_library;
 mod video_links;
-mod video_quality;
 mod video_session;
 mod video_sources;
 mod video_subtitles;
 mod web_remote;
 mod website_downloads;
 mod websites;
-mod youtube_embed;
-mod ytdlp;
 
 use raygun_app_answers as answers;
 use raygun_app_base::{device_state, events, local_network, network, picker, privacy};
+use raygun_app_music::{
+    aniskip, answer_words, artist_profiles, background, captions, collections, cover_fallback,
+    details, discovery, durations, follows, fonts, import, library, logs, lyrics_store,
+    lyrics_translation, made_for_you, miniplayer, music_downloads, playback, podcasts,
+    quick_access, reader_ai, resolution, resolver, song_memory, sound, sponsorblock, system_ui,
+    text_translation, tts, video_quality, youtube_embed, ytdlp,
+};
 use raygun_app_net::cast;
 use raygun_app_reading::{dictionary, epub};
 use raygun_app_sources::{
