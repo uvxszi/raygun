@@ -203,6 +203,9 @@ export class PlaybackService {
         return this.apply(core.setRepeat(control.mode));
       case 'setShuffle':
         return this.apply(core.setShuffle(control.enabled));
+      case 'setSmartShuffle':
+        // Smart Shuffle needs its chip, which only the apps install: the page shuffles plainly.
+        return this.apply(core.setShuffle(control.enabled || core.state().shuffle));
       case 'playItem':
         return this.apply(core.playItem(control.itemId));
       case 'remove':

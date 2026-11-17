@@ -120,14 +120,19 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
           onChange={(value) => effects.setPicture({ ...picture, [adjustment.key]: value })}
         />
       ))}
-      <PanelHeading>{t('videoPlayer.effectsMotion')}</PanelHeading>
-      <PanelOption
-        toggle
-        label={t('videoPlayer.effectSmoothMotion')}
-        hint={t('videoPlayer.effectSmoothMotionHint')}
-        selected={picture.smoothMotion}
-        onSelect={() => effects.setPicture({ ...picture, smoothMotion: !picture.smoothMotion })}
-      />
+      {/* Smooth motion is a Smart Chip: offered only while it's installed and on. */}
+      {effects.smoothMotionAvailable && (
+        <>
+          <PanelHeading>{t('videoPlayer.effectsMotion')}</PanelHeading>
+          <PanelOption
+            toggle
+            label={t('videoPlayer.effectSmoothMotion')}
+            hint={t('videoPlayer.effectSmoothMotionHint')}
+            selected={picture.smoothMotion}
+            onSelect={() => effects.setPicture({ ...picture, smoothMotion: !picture.smoothMotion })}
+          />
+        </>
+      )}
       <div className="flex flex-wrap gap-2 px-3 pt-3">
         <button type="button" onClick={effects.resetPicture} className={pill(false)}>
           {t('videoPlayer.effectsResetAll')}

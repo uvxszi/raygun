@@ -463,7 +463,7 @@ pub async fn prepare(
     let anime = request.anime.as_ref().filter(|_| {
         player.aniskip && !(player.aniskip_unless_chapters && !request.chapters.is_empty())
     });
-    let settings = player_settings(app, &db, &prefs).await;
+    let settings = with_chips(app, player_settings(app, &db, &prefs).await);
     // Music and video don't play over each other, unless the settings say they may.
     crate::playback::other_media_started(app).await;
     let payload = serde_json::json!({
@@ -529,7 +529,7 @@ fn playable_address(app: &AppHandle, url: &str) -> Result<String, String> {
 pub async fn session_shell(app: &AppHandle, title: &str, subtitle: &str) -> serde_json::Value {
     let db = app.state::<AppDb>().0.clone();
     let prefs = player_prefs(&db).await;
-    let settings = player_settings(app, &db, &prefs).await;
+    let settings = with_chips(app, player_settings(app, &db, &prefs).await);
     let shell = serde_json::json!({
         "session": true,
         "prefs": settings,
@@ -556,7 +556,7 @@ pub async fn settings_changed(app: &AppHandle) {
         ))
         .await;
     sessions.smart_subtitles_changed().await;
-    let settings = player_settings(app, &db, &prefs).await;
+    let settings = with_chips(app, player_settings(app, &db, &prefs).await);
     if let Err(error) = update_player(app, &prefs_update(settings, &prefs)) {
         tracing::debug!(%error, "no player to follow the settings");
     }
@@ -565,6 +565,18 @@ pub async fn settings_changed(app: &AppHandle) {
 /// The `prefs` update: the player's settings and what every request carries besides the video.
 fn prefs_update(settings: Value, prefs: &PlayerPrefs) -> Value {
     with_shared_fields(json!({ "type": "prefs", "prefs": settings }), prefs)
+}
+
+/// The player's settings with what the Smart Chips allow: Smooth motion's shaders' folder (no
+/// folder: the Effects sheet leaves it out) and whether Smart Subtitles may compare tracks.
+fn with_chips(app: &AppHandle, mut settings: Value) -> Value {
+    use raygun_app_base::chips;
+    use raygun_model::ChipId;
+    let motion = chips::folder_if_enabled(app, ChipId::SmoothMotion)
+        .map(|folder| folder.to_string_lossy().into_owned());
+    settings["smoothMotionDir"] = json!(motion);
+    settings["smartSubtitlesAvailable"] = json!(chips::enabled(app, ChipId::SmartSubtitles));
+    settings
 }
 
 /// The player's settings as it reads them, with the brightness to restore when it's remembered.

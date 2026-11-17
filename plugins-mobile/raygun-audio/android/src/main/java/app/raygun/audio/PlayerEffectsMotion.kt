@@ -13,6 +13,7 @@ import androidx.media3.effect.GlShaderProgram
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.Executor
+import java.io.File
 
 /** In-between frames ready to go at once (each full size); more wait for one to come back. */
 private const val OUTPUTS = 4
@@ -29,6 +30,8 @@ internal data class MotionParams(
     /** The screen's refresh rate. */
     val displayHz: Float = 60f,
     val speed: Float = 1f,
+    /** The Smooth Motion chip's folder, which holds its shaders; none while it isn't installed and on. */
+    val dir: String? = null,
 )
 
 /** How smooth motion does on this phone, written on the GL thread. */
@@ -231,7 +234,7 @@ private class SmoothMotionProgram(
 
     /** A new frame: kept, its luma pyramid made, then the frames up to it planned. */
     private fun take(input: GlTextureInfo, pts: Long) {
-        val passes = passes ?: MotionPasses(context).also { passes = it }
+        val passes = passes ?: MotionPasses(context, params.motion.dir).also { passes = it }
         if (input.width != width || input.height != height) resize(input.width, input.height)
         if (status.quality != pyramidQuality) makePyramids()
         val slot = if (keptCount == 0) 0 else 1 - latest
@@ -517,8 +520,11 @@ private class SmoothMotionProgram(
     }
 }
 
-/** Smooth motion's programs, from the plugin's assets (the shared `glsl/` folder). */
-private class MotionPasses(context: Context) {
+/**
+ * Smooth motion's programs: its own passes from the Smooth Motion chip's folder, the shared parts
+ * (vertex, common) from the plugin's assets (the shared `glsl/` folder).
+ */
+private class MotionPasses(context: Context, dir: String?) {
     val copy: GlPass
     val luma: GlPass
     val search: GlPass
@@ -529,9 +535,11 @@ private class MotionPasses(context: Context) {
     init {
         val assets = context.assets
         fun read(name: String) = assets.open(name).bufferedReader().use { it.readText() }
+        val folder = File(dir ?: throw IllegalStateException("the Smooth Motion chip isn't installed"))
+        fun chip(name: String) = File(folder, name).readText()
         val vertex = read("fx_vertex.glsl")
-        val common = read("fx_common.glsl") + "\n" + read("fx_motion_common.glsl")
-        fun fragment(name: String) = common + "\n" + read(name)
+        val common = read("fx_common.glsl") + "\n" + chip("fx_motion_common.glsl")
+        fun fragment(name: String) = common + "\n" + chip(name)
         copy = GlPass(vertex, fragment("fx_motion_copy.glsl"))
         luma = GlPass(vertex, fragment("fx_motion_luma.glsl"))
         search = GlPass(vertex, fragment("fx_motion_search.glsl"))

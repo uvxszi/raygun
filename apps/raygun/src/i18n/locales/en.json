@@ -708,6 +708,10 @@
       "about": {
         "title": "About",
         "summary": "Version and updates"
+      },
+      "chips": {
+        "title": "Smart Chips",
+        "summary": "Smart Shuffle, Smooth Motion, Smart Subtitles"
       }
     },
     "display": "Display",
@@ -1402,7 +1406,11 @@
       "openSource": "Open on {{source}}"
     },
     "nowPlayingMark": "Playing now",
-    "pausedMark": "Paused"
+    "pausedMark": "Paused",
+    "smartShuffle": "Smart Shuffle",
+    "suggested": "Suggested by Smart Shuffle",
+    "addToThisPlaylist": "Add to this playlist",
+    "notForMe": "Not for me"
   },
   "common": {
     "adult": "18+",
@@ -4984,8 +4992,31 @@
   },
   "smartChips": {
     "label": "Smart Chips",
-    "soon": "Smart Chips are coming soon",
-    "what": "Small AI models that work with your Raygun in the background: sorting your library, transcribing, and finding songs you'd like."
+    "what": "Optional features you install like extensions: each one downloads once, then turns on or off here.",
+    "loading": "Loading…",
+    "size": "Size: {{size}}",
+    "install": "Install",
+    "update": "Update",
+    "remove": "Remove",
+    "removeConfirm": "Remove {{name}}",
+    "turnOn": "{{name}} on",
+    "downloading": "Downloading {{name}}",
+    "failed": "Couldn't install it: {{message}}",
+    "inSettings": "Smart Chips in Settings",
+    "chips": {
+      "smartShuffle": {
+        "name": "Smart Shuffle",
+        "description": "Shuffle with recommended songs mixed in, about one for every three of the list's own. The shuffle button gets a third state."
+      },
+      "smoothMotion": {
+        "name": "Smooth Motion",
+        "description": "In-between frames for smoother movement in the video player, made on this device's graphics chip. Adds Smooth motion to the player's Effects."
+      },
+      "smartSubtitles": {
+        "name": "Smart Subtitles",
+        "description": "Compares subtitle and audio tracks from different sources: the ones that agree come first, marked Matching."
+      }
+    }
   },
   "forYou": {
     "title": "Made for You",

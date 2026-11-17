@@ -1,0 +1,7 @@
+{
+  "id": "smart-subtitles",
+  "name": "Smart Subtitles",
+  "description": "Compares subtitle and audio tracks from different sources: the ones that agree with the rest come first and are marked Matching, ones unlike all others get a note.",
+  "kind": "feature",
+  "version": "1.0.0"
+}

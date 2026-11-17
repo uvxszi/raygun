@@ -1,7 +1,18 @@
 import type { QueueItem } from '@raygun/bindings';
 import { defaultRangeExtractor, observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import type { Range } from '@tanstack/react-virtual';
-import { GripVertical, ListMinus, ListStart, ListX, Play, Save, Trash2, X } from 'lucide-react';
+import {
+  GripVertical,
+  ListMinus,
+  ListPlus,
+  ListStart,
+  ListX,
+  Play,
+  Save,
+  ThumbsDown,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   FC,
@@ -19,6 +30,8 @@ import { useTrackMenuItems } from '../music/useTrackMenu';
 import { MenuButton } from '../shell/MenuButton';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { useRootPx } from './playerLayout';
+import { addToThisPlaylist, notForMe, usePlaysFromPlaylist, useSuggestedIds } from './smartShuffle';
+import { SuggestedMark } from './SuggestedMark';
 import { sendControl } from './usePlayback';
 
 /** A row's height, rem (rows are measured; this is the first guess). */
@@ -91,6 +104,9 @@ export const QueueList: FC<QueueListProps> = ({ items, variant }) => {
     return optimistic.order.flatMap((id) => byId.get(id) ?? []);
   }, [items, optimistic]);
   const ids = useMemo(() => shown.map((item) => item.id), [shown]);
+  // Smart Shuffle's songs (a sparkle, and their own menu items), hoisted out of the rows.
+  const suggested = useSuggestedIds();
+  const fromPlaylist = usePlaysFromPlaylist();
 
   useEffect(() => {
     if (!optimistic) return;
@@ -280,7 +296,14 @@ export const QueueList: FC<QueueListProps> = ({ items, variant }) => {
                 transform: `translateY(${row.start + (dragged ? (drag?.offset ?? 0) : shift)}px)`,
               }}
             >
-              <QueueRow item={item} dragged={dragged} first={row.index === 0} actions={actions} />
+              <QueueRow
+                item={item}
+                dragged={dragged}
+                first={row.index === 0}
+                actions={actions}
+                suggested={suggested.has(item.id)}
+                fromPlaylist={fromPlaylist}
+              />
             </li>
           );
         })}
@@ -375,200 +398,239 @@ type Swipe = { x: number; y: number; at: number; dx: number; sideways: boolean |
  * One queued song. Its artist is plain text: the row plays the song, and its menu has Go to the
  * artist. On touch it slides sideways to come out of the queue.
  */
-const QueueRow: FC<{ item: QueueItem; dragged: boolean; first: boolean; actions: RowActions }> =
-  memo(function QueueRow({ item, dragged, first, actions }) {
-    const { t } = useTranslation();
-    const trackMenu = useTrackMenuItems();
-    const swipeRef = useRef<Swipe | null>(null);
-    const swipedRef = useRef(false);
-    const rowRef = useRef<HTMLDivElement>(null);
-    const [dx, setDx] = useState(0);
-    const [swiping, setSwiping] = useState(false);
-    const [leaving, setLeaving] = useState(0);
+type QueueRowProps = {
+  item: QueueItem;
+  dragged: boolean;
+  first: boolean;
+  actions: RowActions;
+  /** Smart Shuffle added it: marked with a sparkle, with Add to this playlist and Not for me. */
+  suggested: boolean;
+  /** The queue plays from a saved playlist (Add to this playlist goes there). */
+  fromPlaylist: boolean;
+};
 
-    const play = () => void sendControl({ type: 'playItem', itemId: item.id });
-    const remove = () => void sendControl({ type: 'remove', itemId: item.id });
+const QueueRow: FC<QueueRowProps> = memo(function QueueRow({
+  item,
+  dragged,
+  first,
+  actions,
+  suggested,
+  fromPlaylist,
+}) {
+  const { t } = useTranslation();
+  const trackMenu = useTrackMenuItems();
+  const swipeRef = useRef<Swipe | null>(null);
+  const swipedRef = useRef(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [dx, setDx] = useState(0);
+  const [swiping, setSwiping] = useState(false);
+  const [leaving, setLeaving] = useState(0);
 
-    const menu = (): MenuItem[] => {
-      // The song's own menu, less Play next and Add to queue, which would queue it again.
-      const again = new Set([t('menu.playNext'), t('menu.addToQueue')]);
-      const own: MenuItem[] = [
-        { kind: 'heading', label: item.title, subtitle: item.artist },
-        { label: t('menu.play'), icon: Play, onSelect: play },
-        ...(first
-          ? []
-          : [
-              {
-                label: t('menu.playNext'),
-                icon: ListStart,
-                onSelect: () => actions.playNext(item),
-              },
-            ]),
-        { label: t('player.removeFromQueueMenu'), icon: ListMinus, onSelect: remove },
-        { kind: 'separator' },
-      ];
-      const song = trackMenu(
-        fromQueueItem(item),
-        {},
-        { x: window.innerWidth / 2, y: window.innerHeight / 2 },
-      );
-      return [
-        ...own,
-        ...song.filter(
-          (entry) =>
-            entry.kind !== 'heading' && !(entry.kind !== 'separator' && again.has(entry.label)),
-        ),
-      ];
-    };
+  const play = () => void sendControl({ type: 'playItem', itemId: item.id });
+  const remove = () => void sendControl({ type: 'remove', itemId: item.id });
 
-    const onPointerDown = (event: ReactPointerEvent) => {
-      // Mice have ×; the grip drags instead.
-      if (event.pointerType === 'mouse' || (event.target as Element).closest('[data-grip]')) {
-        return;
-      }
-      swipeRef.current = {
-        x: event.clientX,
-        y: event.clientY,
-        at: event.timeStamp,
-        dx: 0,
-        sideways: null,
-      };
-      swipedRef.current = false;
-    };
-    const onPointerMove = (event: ReactPointerEvent) => {
-      const swipe = swipeRef.current;
-      if (!swipe) return;
-      const moveX = event.clientX - swipe.x;
-      const moveY = event.clientY - swipe.y;
-      if (swipe.sideways === null) {
-        // Up and down is the list scrolling; only a clearly sideways move is a swipe.
-        if (Math.abs(moveY) > 10) swipe.sideways = false;
-        else if (Math.abs(moveX) > 10 && Math.abs(moveX) > Math.abs(moveY) * 1.5) {
-          swipe.sideways = true;
-          swipedRef.current = true;
-          setSwiping(true);
-          (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
-        }
-      }
-      if (swipe.sideways) {
-        swipe.dx = moveX;
-        setDx(moveX);
-      }
-    };
-    const onPointerUp = (event: ReactPointerEvent) => {
-      const swipe = swipeRef.current;
-      swipeRef.current = null;
-      if (!swipe?.sideways) return;
-      setSwiping(false);
-      const width = rowRef.current?.offsetWidth ?? 320;
-      const speed = Math.abs(swipe.dx) / Math.max(1, event.timeStamp - swipe.at);
-      if (Math.abs(swipe.dx) > width * SWIPE_SHARE || speed > SWIPE_SPEED) {
-        // It slides out, then leaves the queue.
-        setLeaving(swipe.dx < 0 ? -width : width);
-        window.setTimeout(remove, 150);
-      } else {
-        setDx(0);
-      }
-    };
-    const offsetX = leaving || dx;
+  const smartItems = (): MenuItem[] =>
+    suggested
+      ? [
+          ...(fromPlaylist
+            ? [
+                {
+                  label: t('player.addToThisPlaylist'),
+                  icon: ListPlus,
+                  onSelect: () => void addToThisPlaylist(item.id).catch(() => undefined),
+                },
+              ]
+            : []),
+          {
+            label: t('player.notForMe'),
+            icon: ThumbsDown,
+            onSelect: () => void notForMe(item.id).catch(() => undefined),
+          },
+        ]
+      : [];
 
-    return (
-      <div
-        ref={rowRef}
-        data-testid="queue-row"
-        className={`group relative overflow-hidden rounded-lg ${
-          dragged ? 'bg-surface shadow-lg shadow-black/30' : ''
-        }`}
-      >
-        {offsetX !== 0 && (
-          <div
-            aria-hidden
-            className={`absolute inset-0 flex items-center bg-red-500/85 px-5 text-white ${
-              offsetX < 0 ? 'justify-end' : 'justify-start'
-            }`}
-          >
-            <Trash2 size={18} />
-          </div>
-        )}
-        <div
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={() => {
-            swipeRef.current = null;
-            setSwiping(false);
-            setDx(0);
-          }}
-          onClickCapture={(event) => {
-            // A swipe isn't a tap on the song.
-            if (swipedRef.current) {
-              event.preventDefault();
-              event.stopPropagation();
-              swipedRef.current = false;
-            }
-          }}
-          style={offsetX ? { transform: `translateX(${offsetX}px)` } : undefined}
-          className={`hover:bg-foreground/5 relative flex touch-pan-y items-center gap-0.5 rounded-lg pr-0.5 ${
-            offsetX ? 'bg-surface' : ''
-          } ${swiping ? '' : 'transition-transform duration-150'}`}
-        >
-          <button
-            type="button"
-            aria-label={item.title}
-            onClick={play}
-            className="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-2 text-left @max-xs/panel:gap-2.5"
-          >
-            <Artwork
-              url={item.artworkUrl}
-              fallback={songCover(item)}
-              className="size-10 shrink-0 rounded-md @max-xs/panel:size-9"
-              iconSize={18}
-            />
-            <span className="title-gap flex min-w-0 flex-col">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-sm leading-tight font-medium">{item.title}</span>
-                {item.explicit && <ExplicitMark />}
-              </span>
-              {item.artist && (
-                <span className="text-muted truncate text-xs leading-tight">
-                  {tidyCredit(item.artist)}
-                </span>
-              )}
-            </span>
-          </button>
-          <MenuButton
-            label={t('menu.options', { name: item.title })}
-            items={menu}
-            className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
-            iconSize={16}
-          />
-          <button
-            type="button"
-            aria-label={t('player.removeFromQueue', { title: item.title })}
-            title={t('player.removeFromQueueMenu')}
-            onClick={remove}
-            // In a narrow side panel it takes room only under the pointer or with focus.
-            className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center overflow-hidden rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 @max-xs/panel:pointer-fine:w-0 @max-xs/panel:pointer-fine:group-hover:w-9 @max-xs/panel:pointer-fine:focus-visible:w-9"
-          >
-            <X aria-hidden size={16} />
-          </button>
-          <button
-            type="button"
-            data-grip
-            aria-label={t('player.moveInQueue', { title: item.title })}
-            title={t('player.moveHint')}
-            onPointerDown={(event) => actions.grip(item, event)}
-            onPointerMove={actions.gripMove}
-            onPointerUp={() => actions.gripEnd(true)}
-            onPointerCancel={() => actions.gripEnd(false)}
-            onKeyDown={(event) => actions.gripKey(item, event)}
-            className={`text-muted hover:text-foreground grid size-9 shrink-0 touch-none place-items-center rounded-full @max-xs/panel:w-8 ${
-              dragged ? 'cursor-grabbing' : 'cursor-grab'
-            }`}
-          >
-            <GripVertical aria-hidden size={18} />
-          </button>
-        </div>
-      </div>
+  const menu = (): MenuItem[] => {
+    // The song's own menu, less Play next and Add to queue, which would queue it again.
+    const again = new Set([t('menu.playNext'), t('menu.addToQueue')]);
+    const own: MenuItem[] = [
+      { kind: 'heading', label: item.title, subtitle: item.artist },
+      { label: t('menu.play'), icon: Play, onSelect: play },
+      ...(first
+        ? []
+        : [
+            {
+              label: t('menu.playNext'),
+              icon: ListStart,
+              onSelect: () => actions.playNext(item),
+            },
+          ]),
+      ...smartItems(),
+      { label: t('player.removeFromQueueMenu'), icon: ListMinus, onSelect: remove },
+      { kind: 'separator' },
+    ];
+    const song = trackMenu(
+      fromQueueItem(item),
+      {},
+      { x: window.innerWidth / 2, y: window.innerHeight / 2 },
     );
-  });
+    return [
+      ...own,
+      ...song.filter(
+        (entry) =>
+          entry.kind !== 'heading' && !(entry.kind !== 'separator' && again.has(entry.label)),
+      ),
+    ];
+  };
+
+  const onPointerDown = (event: ReactPointerEvent) => {
+    // Mice have ×; the grip drags instead.
+    if (event.pointerType === 'mouse' || (event.target as Element).closest('[data-grip]')) {
+      return;
+    }
+    swipeRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      at: event.timeStamp,
+      dx: 0,
+      sideways: null,
+    };
+    swipedRef.current = false;
+  };
+  const onPointerMove = (event: ReactPointerEvent) => {
+    const swipe = swipeRef.current;
+    if (!swipe) return;
+    const moveX = event.clientX - swipe.x;
+    const moveY = event.clientY - swipe.y;
+    if (swipe.sideways === null) {
+      // Up and down is the list scrolling; only a clearly sideways move is a swipe.
+      if (Math.abs(moveY) > 10) swipe.sideways = false;
+      else if (Math.abs(moveX) > 10 && Math.abs(moveX) > Math.abs(moveY) * 1.5) {
+        swipe.sideways = true;
+        swipedRef.current = true;
+        setSwiping(true);
+        (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+      }
+    }
+    if (swipe.sideways) {
+      swipe.dx = moveX;
+      setDx(moveX);
+    }
+  };
+  const onPointerUp = (event: ReactPointerEvent) => {
+    const swipe = swipeRef.current;
+    swipeRef.current = null;
+    if (!swipe?.sideways) return;
+    setSwiping(false);
+    const width = rowRef.current?.offsetWidth ?? 320;
+    const speed = Math.abs(swipe.dx) / Math.max(1, event.timeStamp - swipe.at);
+    if (Math.abs(swipe.dx) > width * SWIPE_SHARE || speed > SWIPE_SPEED) {
+      // It slides out, then leaves the queue.
+      setLeaving(swipe.dx < 0 ? -width : width);
+      window.setTimeout(remove, 150);
+    } else {
+      setDx(0);
+    }
+  };
+  const offsetX = leaving || dx;
+
+  return (
+    <div
+      ref={rowRef}
+      data-testid="queue-row"
+      className={`group relative overflow-hidden rounded-lg ${
+        dragged ? 'bg-surface shadow-lg shadow-black/30' : ''
+      }`}
+    >
+      {offsetX !== 0 && (
+        <div
+          aria-hidden
+          className={`absolute inset-0 flex items-center bg-red-500/85 px-5 text-white ${
+            offsetX < 0 ? 'justify-end' : 'justify-start'
+          }`}
+        >
+          <Trash2 size={18} />
+        </div>
+      )}
+      <div
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          swipeRef.current = null;
+          setSwiping(false);
+          setDx(0);
+        }}
+        onClickCapture={(event) => {
+          // A swipe isn't a tap on the song.
+          if (swipedRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            swipedRef.current = false;
+          }
+        }}
+        style={offsetX ? { transform: `translateX(${offsetX}px)` } : undefined}
+        className={`hover:bg-foreground/5 relative flex touch-pan-y items-center gap-0.5 rounded-lg pr-0.5 ${
+          offsetX ? 'bg-surface' : ''
+        } ${swiping ? '' : 'transition-transform duration-150'}`}
+      >
+        <button
+          type="button"
+          aria-label={item.title}
+          onClick={play}
+          className="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-2 text-left @max-xs/panel:gap-2.5"
+        >
+          <Artwork
+            url={item.artworkUrl}
+            fallback={songCover(item)}
+            className="size-10 shrink-0 rounded-md @max-xs/panel:size-9"
+            iconSize={18}
+          />
+          <span className="title-gap flex min-w-0 flex-col">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate text-sm leading-tight font-medium">{item.title}</span>
+              {suggested && <SuggestedMark />}
+              {item.explicit && <ExplicitMark />}
+            </span>
+            {item.artist && (
+              <span className="text-muted truncate text-xs leading-tight">
+                {tidyCredit(item.artist)}
+              </span>
+            )}
+          </span>
+        </button>
+        <MenuButton
+          label={t('menu.options', { name: item.title })}
+          items={menu}
+          className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
+          iconSize={16}
+        />
+        <button
+          type="button"
+          aria-label={t('player.removeFromQueue', { title: item.title })}
+          title={t('player.removeFromQueueMenu')}
+          onClick={remove}
+          // In a narrow side panel it takes room only under the pointer or with focus.
+          className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center overflow-hidden rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 @max-xs/panel:pointer-fine:w-0 @max-xs/panel:pointer-fine:group-hover:w-9 @max-xs/panel:pointer-fine:focus-visible:w-9"
+        >
+          <X aria-hidden size={16} />
+        </button>
+        <button
+          type="button"
+          data-grip
+          aria-label={t('player.moveInQueue', { title: item.title })}
+          title={t('player.moveHint')}
+          onPointerDown={(event) => actions.grip(item, event)}
+          onPointerMove={actions.gripMove}
+          onPointerUp={() => actions.gripEnd(true)}
+          onPointerCancel={() => actions.gripEnd(false)}
+          onKeyDown={(event) => actions.gripKey(item, event)}
+          className={`text-muted hover:text-foreground grid size-9 shrink-0 touch-none place-items-center rounded-full @max-xs/panel:w-8 ${
+            dragged ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
+        >
+          <GripVertical aria-hidden size={18} />
+        </button>
+      </div>
+    </div>
+  );
+});

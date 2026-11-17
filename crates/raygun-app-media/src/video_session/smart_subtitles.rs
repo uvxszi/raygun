@@ -19,8 +19,7 @@ use super::VideoSessions;
 /// the players only while this holds; with it switched on too (`smart_subtitles_on`), tracks are
 /// compared.
 pub fn smart_subtitles_available(app: &AppHandle) -> bool {
-    let _ = app;
-    true
+    raygun_app_base::chips::enabled(app, raygun_model::ChipId::SmartSubtitles)
 }
 
 /// Whether tracks are compared now: available, and switched on
