@@ -60,11 +60,14 @@ internal class OffsetTextRenderer(inner: TextRenderer) : ForwardingRenderer(inne
 
 /**
  * The renderers: hardware decoders falling back to software, the delayable text renderer, and the
- * sound through smart audio ([SmartAudioProcessor]) before the sink's own processors.
+ * sound through smart audio ([SmartAudioProcessor]) and the title's equalizer before the sink's own
+ * processors (the speed and pitch are Media3's Sonic, in the sink).
  */
 internal class PlayerRenderers(
     context: Context,
     private val smartAudio: AudioProcessor,
+    /** The title's equalizer ([PlayerVideoSound]), after smart audio. */
+    private val equalizer: AudioProcessor,
     private val graph: VideoGraphChoice,
     private val onText: (OffsetTextRenderer) -> Unit,
 ) : DefaultRenderersFactory(context) {
@@ -95,7 +98,7 @@ internal class PlayerRenderers(
         enableAudioTrackPlaybackParams: Boolean,
     ): AudioSink =
         DefaultAudioSink.Builder(context)
-            .setAudioProcessors(arrayOf(smartAudio))
+            .setAudioProcessors(arrayOf(smartAudio, equalizer))
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
             .build()

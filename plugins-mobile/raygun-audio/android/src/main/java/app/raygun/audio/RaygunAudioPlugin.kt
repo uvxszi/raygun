@@ -315,6 +315,7 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
         mono = sound.optBoolean("mono", false),
         normalize = sound.optBoolean("normalize", false),
         targetLufs = sound.optDouble("normalizeTarget", -14.0),
+        pitch = pitchRatio(sound.optInt("pitch", 0)),
     )
 }
 

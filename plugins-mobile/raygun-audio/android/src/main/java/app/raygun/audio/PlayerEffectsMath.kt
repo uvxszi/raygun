@@ -24,11 +24,13 @@ internal data class PictureEffects(
     val denoise: Int = 0,
     /** In-between frames made from the motion ([SmoothMotionGl]). */
     val smoothMotion: Boolean = false,
+    /** The title's watermark remover ([WatermarkGl]); a box that's off changes nothing. */
+    val watermark: WatermarkRemoval = WatermarkRemoval.NONE,
 ) {
-    val neutral: Boolean get() = this == NONE
+    val neutral: Boolean get() = copy(watermark = WatermarkRemoval.NONE) == NONE && !watermark.active
 
-    /** The picture's own adjustments, smooth motion left out (presets set only these). */
-    val adjustments: PictureEffects get() = copy(smoothMotion = false)
+    /** The picture's own adjustments, smooth motion and the watermark left out (presets set only these). */
+    val adjustments: PictureEffects get() = copy(smoothMotion = false, watermark = WatermarkRemoval.NONE)
 
     /** The parts that take passes of their own or a frame's history: what a slow phone drops first. */
     val heavy: List<String>
@@ -51,6 +53,7 @@ internal data class PictureEffects(
         deflicker = deflicker.coerceIn(0, 100),
         denoise = denoise.coerceIn(0, 100),
         smoothMotion = smoothMotion,
+        watermark = watermark.clamped(),
     )
 
     /** These effects without `kind` (one of [heavy]). */
@@ -73,6 +76,7 @@ internal data class PictureEffects(
         .put("deflicker", deflicker)
         .put("denoise", denoise)
         .put("smoothMotion", smoothMotion)
+        .put("watermark", watermark.toJson())
 
     companion object {
         const val LOOK_NONE = "none"
@@ -94,6 +98,7 @@ internal data class PictureEffects(
                 deflicker = json.optInt("deflicker", 0),
                 denoise = json.optInt("denoise", 0),
                 smoothMotion = json.optBoolean("smoothMotion", false),
+                watermark = WatermarkRemoval.from(json.optJSONObject("watermark")),
             ).clamped()
         }
     }

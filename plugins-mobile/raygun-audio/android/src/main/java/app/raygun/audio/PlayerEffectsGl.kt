@@ -39,6 +39,11 @@ internal class EffectParams {
     /** Smooth motion's switch and what it follows ([SmoothMotionGl]). */
     @Volatile
     var motion: MotionParams = MotionParams()
+
+    /** The title's watermark remover and what it reports ([WatermarkGl]). */
+    @Volatile
+    var watermark: WatermarkRemoval = WatermarkRemoval.NONE
+    val watermarkState = WatermarkState()
 }
 
 /**
@@ -118,6 +123,8 @@ internal class GlPass(vertex: String, fragment: String) {
     fun set(name: String, x: Float, y: Float) = GLES20.glUniform2f(at(name), x, y)
 
     fun set(name: String, x: Float, y: Float, z: Float) = GLES20.glUniform3f(at(name), x, y, z)
+
+    fun set4(name: String, values: FloatArray) = GLES20.glUniform4f(at(name), values[0], values[1], values[2], values[3])
 
     fun matrix3(name: String, columns: FloatArray) = GLES20.glUniformMatrix3fv(at(name), 1, false, columns, 0)
 
@@ -220,6 +227,7 @@ private class PictureEffectsProgram(
     private val mean: GlPass
     private val clean: GlPass
     private val final: GlPass
+    private val watermark: WatermarkGl
     private var width = 0
     private var height = 0
 
@@ -252,6 +260,7 @@ private class PictureEffectsProgram(
             mean = GlPass(vertex, fragment("fx_stats_mean.glsl"))
             clean = GlPass(vertex, fragment("fx_clean.glsl"))
             final = GlPass(vertex, fragment("fx_final.glsl"))
+            watermark = WatermarkGl(context, params.watermarkState)
         } catch (error: Exception) {
             throw VideoFrameProcessingException(error)
         }
@@ -282,12 +291,14 @@ private class PictureEffectsProgram(
             } else {
                 0L
             }
-            var source = inputTexId
+            // The watermark goes first: the other passes see the picture without it.
+            val input = if (hdr || limited) inputTexId else watermark.apply(inputTexId, width, height, params.watermark, again)
+            var source = input
             var gainLeft = shader.deflicker && !limited
             if (!limited) {
-                if (shader.deflicker) drawLight(inputTexId, shader, again) else statsKnown = false
+                if (shader.deflicker) drawLight(input, shader, again) else statsKnown = false
                 if (shader.denoise) {
-                    source = drawClean(inputTexId, shader, again)
+                    source = drawClean(input, shader, again)
                     gainLeft = false
                 } else {
                     historyKnown = false
@@ -414,6 +425,7 @@ private class PictureEffectsProgram(
             mean.delete()
             clean.delete()
             final.delete()
+            watermark.release()
         } catch (error: GlUtil.GlException) {
             throw VideoFrameProcessingException(error)
         }

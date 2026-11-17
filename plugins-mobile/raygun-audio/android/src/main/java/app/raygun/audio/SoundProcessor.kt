@@ -42,10 +42,16 @@ data class SoundConfig(
     val mono: Boolean = false,
     val normalize: Boolean = false,
     val targetLufs: Double = -14.0,
+    /** The pitch as a frequency ratio (1: as recorded), the tempo kept (Media3's Sonic). */
+    val pitch: Float = 1f,
 ) {
     /** RiPlay's automatic headroom: the biggest boost comes off before the equalizer. */
     val headroomDb: Double
         get() = max(if (eqEnabled) max(0.0, bands.maxOrNull() ?: 0.0) else 0.0, bassDb)
+
+    /** Nothing here changes the sound (the pitch is the player's, not this processor's). */
+    val flat: Boolean
+        get() = (!eqEnabled || (bands.all { it == 0.0 } && preampDb == 0.0)) && bassDb == 0.0 && balance == 0.0 && !mono
 }
 
 /** One RBJ-cookbook biquad, transposed direct form II, one per channel. */
@@ -167,7 +173,10 @@ class LoudnessMeter {
  * fades in over a few ms too.
  */
 @UnstableApi
-class SoundProcessor : BaseAudioProcessor() {
+class SoundProcessor(
+    /** The video player's equalizer: sound passes untouched while nothing would change it. */
+    private val bypassWhenFlat: Boolean = false,
+) : BaseAudioProcessor() {
     @Volatile private var config = SoundConfig()
     private var applied: SoundConfig? = null
     private var rate = 44100
@@ -307,6 +316,10 @@ class SoundProcessor : BaseAudioProcessor() {
         if (bands.isEmpty()) useFormat(inputAudioFormat)
         applyConfig()
         val current = applied ?: config
+        if (bypassWhenFlat && current.flat && !measuring) {
+            replaceOutputBuffer(bytes).put(inputBuffer).flip()
+            return
+        }
         if (restarting) {
             restarting = false
             startSound()

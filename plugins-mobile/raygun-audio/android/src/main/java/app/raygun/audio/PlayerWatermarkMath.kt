@@ -325,9 +325,12 @@ internal class OverlayFinder {
         val still = BooleanArray(cells)
         for (row in 0 until ROWS) {
             for (col in 0 until COLS) {
-                val edge = max(
-                    abs(meanAt(col + 1, row) - meanAt(col - 1, row)),
-                    abs(meanAt(col, row + 1) - meanAt(col, row - 1)),
+                val here = meanAt(col, row)
+                val edge = maxOf(
+                    abs(meanAt(col + 1, row) - here),
+                    abs(meanAt(col - 1, row) - here),
+                    abs(meanAt(col, row + 1) - here),
+                    abs(meanAt(col, row - 1) - here),
                 )
                 val cell = row * COLS + col
                 if (deviations[cell] < typical * STILL_SHARE && edge > MIN_EDGE) still[cell] = true
@@ -365,7 +368,9 @@ internal class OverlayFinder {
             }
             groups += 1
             val area = (found[3] - found[1] + 1).toDouble() * (found[4] - found[2] + 1) / cells
-            if (found[0] >= 3 && area <= MAX_AREA && (best == null || found[0] > best[0])) best = found
+            // A line across most of the picture is a letterbox's edge, not a logo.
+            val narrow = found[3] - found[1] + 1 <= COLS * MAX_SPAN && found[4] - found[2] + 1 <= ROWS * MAX_SPAN
+            if (found[0] >= 3 && area <= MAX_AREA && narrow && (best == null || found[0] > best[0])) best = found
         }
         val box = best ?: return null
         val left = max(0, box[1] - 1)
@@ -390,5 +395,6 @@ internal class OverlayFinder {
         private const val MIN_CHANGE = 0.02
         private const val MIN_EDGE = 0.035
         private const val MAX_AREA = 0.2
+        private const val MAX_SPAN = 0.6
     }
 }

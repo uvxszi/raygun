@@ -125,9 +125,22 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             true
         }
     }
-    /** The picture's and the sound's effects, beside the speed. */
-    private val effectsButton =
-        context.iconButton(R.drawable.raygun_ic_tune, host.label("effects", "Effects")) { host.effects.open() }
+    /** The picture's and the sound's effects, beside the speed: "Fx" in place of an icon. */
+    private val effectsButton = TextView(context).apply {
+        text = host.label("fxButton", "Fx")
+        contentDescription = host.label("effects", "Effects")
+        setTextColor(Color.WHITE)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC)
+        gravity = Gravity.CENTER
+        val ripple = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true)
+        setBackgroundResource(ripple.resourceId)
+        isClickable = true
+        isFocusable = true
+        layoutParams = LinearLayout.LayoutParams(context.dp(44), context.dp(44))
+        setOnClickListener { host.effects.open() }
+    }
     private val chapterChip = context.pill("") { host.sheets.chapters() }.apply {
         maxWidth = context.dp(200)
         maxLines = 1

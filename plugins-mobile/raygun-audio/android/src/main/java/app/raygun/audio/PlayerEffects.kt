@@ -112,7 +112,16 @@ private val SMART_OPTIONS = listOf(
 internal class PlayerEffects(private val host: VideoPlayerActivity) {
     /** In the player's audio sink (`PlayerRenderers`), from the start. */
     val audio = SmartAudioProcessor()
+    /** The title's pitch and equalizer (the Effects sheet's Sound). */
+    val videoSound = PlayerVideoSound(host)
     private val params = EffectParams()
+    /** The watermark remover's reports from the GL thread ([WatermarkGl]). */
+    private val watermarks = params.watermarkState.apply {
+        onFound = { found -> host.main.post { watermarkFound(found) } }
+        onMasked = { host.main.post { if (host.sheetShown(sheet)) open() } }
+    }
+    /** The Effects sheet while it shows. */
+    private var sheet: PlayerSheet? = null
     private val status = EffectStatus()
     private val effect = PictureEffectsGl(params, status)
     private val motionStatus = MotionStatus()
@@ -153,7 +162,9 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         ownAudio = SmartAudioPrefs.from(memory?.optJSONObject("smartAudio"))
         audio.setPrefs(sound)
         audio.newProgram()
+        videoSound.onLoad(request)
         params.shader = EffectMath.shader(applied)
+        params.watermark = applied.watermark
         followMotion()
         status.reset()
         startOnPrepare = wantsPipeline()
@@ -169,6 +180,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
 
     /** Settings changed in the app while a video plays: new defaults apply at once. */
     fun onPrefs(update: JSONObject) {
+        videoSound.onPrefs(update)
         update.optJSONObject("prefs")?.let(::readDefaults) ?: return
         audio.setPrefs(sound)
         apply()
@@ -179,7 +191,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         defaultAudio = SmartAudioPrefs.from(prefs.optJSONObject("smartAudio")) ?: SmartAudioPrefs()
     }
 
-    private fun wantsPipeline(): Boolean = !applied.neutral && !pipeline && !failedThisRun
+    private fun wantsPipeline(): Boolean = (!applied.neutral || watermarks.finding) && !pipeline && !failedThisRun
 
     /**
      * Puts Media3's pipeline in. Before a prepare that's all; during a video the player stops and
@@ -204,8 +216,9 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private fun apply() {
         val effects = applied
         params.shader = EffectMath.shader(effects)
+        params.watermark = effects.watermark
         followMotion()
-        if (!effects.neutral && !pipeline && !failedThisRun && host.player.currentMediaItem != null) {
+        if ((!effects.neutral || watermarks.finding) && !pipeline && !failedThisRun && host.player.currentMediaItem != null) {
             startPipeline(prepare = true)
         }
         if (pipeline && !host.player.isPlaying) {
@@ -267,6 +280,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         Log.w(EFFECTS_TAG, "the effects pipeline failed; picture effects off for this run", error)
         failedThisRun = true
         params.shader = EffectMath.shader(PictureEffects.NONE)
+        params.watermark = WatermarkRemoval.NONE
         // Media3 keeps the pipeline in the renderer; with nothing in it, the video goes on.
         host.player.setVideoEffects(emptyList())
         host.player.prepare()
@@ -350,6 +364,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
                 String.format(Locale.ROOT, "%s off: %d of %d frames dropped, %.2f ms a frame", heaviest, drops, drops + shown, status.averageMs),
             )
             params.shader = EffectMath.shader(applied)
+            params.watermark = applied.watermark
             followMotion()
             status.reset()
             window.clear()
@@ -375,10 +390,12 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
 
     /** These become Settings → Video player → Effects; the title follows them from now on. */
     private fun makePictureDefault() {
-        defaults = picture
-        own = null
+        // The watermark's box is the title's own, never a default.
+        val kept = picture.watermark
+        defaults = picture.copy(watermark = WatermarkRemoval.NONE)
+        own = defaults.copy(watermark = kept).takeIf { kept != WatermarkRemoval.NONE }
         host.savePrefs(JSONObject().put("pictureEffects", defaults.toJson()))
-        host.remember(JSONObject().put("pictureEffects", JSONObject.NULL))
+        host.remember(JSONObject().put("pictureEffects", own?.toJson() ?: JSONObject.NULL))
         host.showHint(label("effectsMadeDefault", "Saved as the default"))
     }
 
@@ -392,6 +409,11 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
 
     /** No effects for this title (the defaults again, when they're none). */
     private fun resetPicture() {
+        val kept = picture.watermark
+        if (kept != WatermarkRemoval.NONE) {
+            setPicture(PictureEffects.NONE.copy(watermark = kept))
+            return
+        }
         if (defaults.neutral) {
             own = null
             host.remember(JSONObject().put("pictureEffects", JSONObject.NULL))
@@ -402,6 +424,11 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     }
 
     private fun useDefaultPicture() {
+        val kept = picture.watermark
+        if (kept != WatermarkRemoval.NONE) {
+            setPicture(defaults.copy(watermark = kept))
+            return
+        }
         own = null
         host.remember(JSONObject().put("pictureEffects", JSONObject.NULL))
         apply()
@@ -455,6 +482,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     /** More → Effects: presets, looks, then one slider at a time over a clear view of the picture. */
     fun open() {
         val sheet = PlayerSheet(host, label("effects", "Effects"))
+        this.sheet = sheet
         // The picture shows undimmed while it changes.
         sheet.root.setBackgroundColor(Color.TRANSPARENT)
         val effects = picture
@@ -467,7 +495,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
             // Picked again: what dropped for speed gets another try.
             dropped.clear()
             motionStatus.again()
-            setPicture(presets[picked].second.copy(smoothMotion = picture.smoothMotion))
+            setPicture(presets[picked].second.copy(smoothMotion = picture.smoothMotion, watermark = picture.watermark))
             open()
         }
         sheet.header(label("effectsLook", "Look"))
@@ -503,7 +531,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
                 makePictureDefault()
                 open()
             })
-            if (own != null && own != defaults) {
+            if (own != null && own?.copy(watermark = WatermarkRemoval.NONE) != defaults) {
                 addView(host.pill(label("effectsUseDefault", "Use the default")) {
                     useDefaultPicture()
                     open()
@@ -511,8 +539,138 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
             }
         })
         note()?.let { sheet.row(it, onClick = null) }
-        soundRows(sheet, label("effectsSound", "Sound")) { open() }
+        watermarkRows(sheet)
+        videoSound.rows(sheet) { open() }
+        soundRows(sheet, label("smartAudio", "Smart audio")) { open() }
         sheet.show()
+    }
+
+    // ---- The watermark remover ----
+
+    private fun setWatermark(next: WatermarkRemoval, keep: Boolean = true) =
+        setPicture(picture.copy(watermark = next.clamped()), keep)
+
+    /** The Effects sheet's Watermark: the switch, the box's buttons, its corrections. */
+    private fun watermarkRows(sheet: PlayerSheet) {
+        val current = picture.watermark
+        val hasBox = current.width > 0 && current.height > 0
+        sheet.header(label("effectsWatermark", "Watermark"))
+        sheet.row(
+            label("watermarkRemove", "Remove a watermark"),
+            label("watermarkHint", "Draw a box round it, or let Raygun find it"),
+            current.enabled,
+        ) {
+            val on = !picture.watermark.enabled
+            setWatermark(picture.watermark.copy(enabled = on))
+            if (on && !hasBox) drawBox() else open()
+        }
+        sheet.custom(android.widget.LinearLayout(host).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(host.dp(12), host.dp(4), host.dp(20), host.dp(4))
+            addView(host.pill(label(if (hasBox) "watermarkRedraw" else "watermarkDraw", if (hasBox) "Draw again" else "Draw a box")) {
+                drawBox()
+            })
+            addView(host.pill(label("watermarkFind", "Find it")) { findWatermark() })
+            if (hasBox) {
+                addView(host.pill(label("watermarkClear", "Remove the box")) {
+                    setWatermark(WatermarkRemoval.NONE)
+                    open()
+                })
+            }
+        })
+        when {
+            watermarks.finding -> sheet.row(label("watermarkFinding", "Looking for a watermark that stays put…"), onClick = null)
+            current.active && !watermarks.masked ->
+                sheet.row(label("watermarkLearning", "Learning the watermark as the video plays…"), onClick = null)
+        }
+        if (!current.active) return
+        sheet.custom(
+            sheetSlider(
+                host,
+                name = label("watermarkBrightness", "Brightness"),
+                steps = 200,
+                position = current.brightness + 100,
+                text = { signed(it - 100) },
+                moved = { setWatermark(picture.watermark.copy(brightness = it - 100), keep = false) },
+                released = { setWatermark(picture.watermark.copy(brightness = it - 100)) },
+            ),
+        )
+        sheet.custom(
+            sheetSlider(
+                host,
+                name = label("watermarkContrast", "Contrast"),
+                steps = 200,
+                position = current.contrast + 100,
+                text = { signed(it - 100) },
+                moved = { setWatermark(picture.watermark.copy(contrast = it - 100), keep = false) },
+                released = { setWatermark(picture.watermark.copy(contrast = it - 100)) },
+            ),
+        )
+        sheet.custom(
+            sheetSlider(
+                host,
+                name = label("watermarkFeather", "Feather"),
+                steps = 100,
+                position = current.feather,
+                text = { it.toString() },
+                moved = { setWatermark(picture.watermark.copy(feather = it), keep = false) },
+                released = { setWatermark(picture.watermark.copy(feather = it)) },
+            ),
+        )
+    }
+
+    private fun signed(value: Int): String = when {
+        value > 0 -> "+$value"
+        value < 0 -> "−${-value}"
+        else -> "0"
+    }
+
+    /** The sheet gives way to the picture, where a drag draws the box. */
+    private fun drawBox() {
+        host.closeSheet(sheet)
+        var overlay: WatermarkDrawView? = null
+        overlay = WatermarkDrawView(
+            host,
+            label("watermarkDrawHint", "Drag a box round the watermark"),
+            picture = ::pictureOnScreen,
+        ) { drawn ->
+            overlay?.let(host::hideOverlay)
+            if (drawn != null) {
+                val before = picture.watermark
+                setWatermark(drawn.copy(brightness = before.brightness, contrast = before.contrast, feather = before.feather))
+            }
+            open()
+        }
+        host.showOverlay(overlay)
+    }
+
+    /** Where the picture shows, in screen pixels. */
+    private fun pictureOnScreen(): android.graphics.RectF? {
+        val surface = host.playerView.videoSurfaceView ?: return null
+        if (surface.width == 0 || surface.height == 0) return null
+        val at = IntArray(2)
+        surface.getLocationOnScreen(at)
+        val left = at[0].toFloat()
+        val top = at[1].toFloat()
+        return android.graphics.RectF(left, top, left + surface.width, top + surface.height)
+    }
+
+    /** Finding samples the playing picture for a few seconds (the effects' pipeline goes in for it). */
+    private fun findWatermark() {
+        watermarks.finding = true
+        apply()
+        if (!host.player.isPlaying) host.player.play()
+        open()
+    }
+
+    private fun watermarkFound(found: WatermarkRemoval?) {
+        if (found == null) {
+            host.showHint(label("watermarkNotFound", "No watermark found; draw a box round it"), 3_000)
+        } else {
+            val before = picture.watermark
+            setWatermark(found.copy(enabled = true, brightness = before.brightness, contrast = before.contrast, feather = before.feather))
+        }
+        if (host.sheetShown(sheet)) open()
     }
 
     private fun presetFallback(key: String) = when (key) {

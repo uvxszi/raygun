@@ -1,0 +1,170 @@
+package app.raygun.audio
+
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import kotlin.math.abs
+
+/** The same cases and numbers as the desktop's `watermarkMath.test.ts`. */
+class PlayerWatermarkTest {
+    private class Random(seed: Long) {
+        private var state = seed
+
+        fun next(): Double {
+            state = (state * 1_103_515_245L + 12_345L) % 2_147_483_648L
+            return state / 2_147_483_648.0
+        }
+    }
+
+    private fun byte(value: Double): Byte = WatermarkMath.roundHalfUp(value * 255).toByte()
+
+    @Test
+    fun laysTheBoxAndARingOnOneGridInsideThePicture() {
+        val middle = WatermarkMath.sampleLayout(WatermarkRemoval(x = 4_000, y = 4_000, width = 1_000, height = 500), 1920, 1080)
+        assertEquals(48, middle.innerCols)
+        assertEquals(14, middle.innerRows)
+        assertEquals(24, middle.innerLeft)
+        assertEquals(7, middle.innerTop)
+        assertEquals(96, middle.cols)
+        assertEquals(28, middle.rows)
+        assertEquals(768.0 - 96, middle.rect.left, 1e-5)
+
+        val corner = WatermarkMath.sampleLayout(WatermarkRemoval(width = 1_000, height = 1_000), 1920, 1080)
+        assertEquals(0, corner.innerLeft)
+        assertEquals(0, corner.innerTop)
+        assertEquals(corner.innerCols + (corner.innerCols + 1) / 2, corner.cols)
+        assertEquals(0.0, corner.rect.left, 0.0)
+        assertEquals(0.0, corner.rect.top, 0.0)
+    }
+
+    @Test
+    fun findsTheOverlaysOpacityAndColourFromFramesThatChangeUnderIt() {
+        val layout = WatermarkMath.sampleLayout(WatermarkRemoval(x = 4_000, y = 4_000, width = 1_000, height = 1_000), 640, 360)
+        val estimator = WatermarkEstimator(layout)
+        val random = Random(7)
+        fun inLogo(col: Int, row: Int) =
+            col >= layout.innerLeft + layout.innerCols / 4.0 && col < layout.innerLeft + layout.innerCols * 3 / 4.0 &&
+                row >= layout.innerTop + layout.innerRows / 4.0 && row < layout.innerTop + layout.innerRows * 3 / 4.0
+        repeat(200) { frame ->
+            val pixels = ByteArray(layout.cols * layout.rows * 4)
+            for (cell in 0 until layout.cols * layout.rows) {
+                val video = random.next()
+                val shown = if (inLogo(cell % layout.cols, cell / layout.cols)) 0.5 + 0.5 * video else video
+                val value = byte(shown)
+                pixels[cell * 4] = value
+                pixels[cell * 4 + 1] = value
+                pixels[cell * 4 + 2] = value
+                pixels[cell * 4 + 3] = -1
+            }
+            estimator.add(pixels)
+            if (frame == WatermarkMath.MIN_SAMPLES - 2) assertNull(estimator.estimate())
+        }
+        val mask = estimator.estimate()
+        assertNotNull(mask)
+        fun at(col: Int, row: Int) = (row * layout.innerCols + col) * 4
+        val centre = at(layout.innerCols / 2, layout.innerRows / 2)
+        val alpha = (mask!!.data[centre + 3].toInt() and 0xFF) / 255.0
+        assertTrue("opacity $alpha", alpha > 0.4 && alpha < 0.6)
+        assertTrue((mask.data[centre].toInt() and 0xFF) / 255.0 > 0.85)
+        assertEquals(0, mask.data[at(0, 0) + 3].toInt())
+    }
+
+    @Test
+    fun waitsForAPictureThatChanges() {
+        val layout = WatermarkMath.sampleLayout(WatermarkRemoval(x = 4_000, y = 4_000, width = 1_000, height = 1_000), 640, 360)
+        val estimator = WatermarkEstimator(layout)
+        val still = ByteArray(layout.cols * layout.rows * 4) { 128.toByte() }
+        repeat(60) { estimator.add(still) }
+        assertNull(estimator.estimate())
+    }
+
+    @Test
+    fun findsAStillLogoInACornerOfAMovingPicture() {
+        val finder = OverlayFinder()
+        val random = Random(11)
+        fun logo(col: Int, row: Int) = col in 52..58 && row in 3..6 && (col + row) % 2 == 0
+        repeat(48) {
+            val pixels = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4)
+            for (cell in 0 until OverlayFinder.COLS * OverlayFinder.ROWS) {
+                val col = cell % OverlayFinder.COLS
+                val row = cell / OverlayFinder.COLS
+                val value = if (logo(col, row)) 240.toByte() else WatermarkMath.roundHalfUp(random.next() * 200).toByte()
+                pixels[cell * 4] = value
+                pixels[cell * 4 + 1] = value
+                pixels[cell * 4 + 2] = value
+            }
+            finder.add(pixels)
+        }
+        val box = finder.find()
+        assertNotNull(box)
+        assertEquals(WatermarkMath.roundHalfUp(51.0 / 64 * 10_000), box!!.x)
+        assertEquals(WatermarkMath.roundHalfUp(2.0 / 36 * 10_000), box.y)
+        assertEquals(WatermarkMath.roundHalfUp(60.0 / 64 * 10_000), box.x + box.width)
+        assertEquals(WatermarkMath.roundHalfUp(8.0 / 36 * 10_000), box.y + box.height)
+    }
+
+    @Test
+    fun takesALetterboxForNoLogo() {
+        val finder = OverlayFinder()
+        val random = Random(5)
+        repeat(48) {
+            val pixels = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4)
+            for (cell in 0 until OverlayFinder.COLS * OverlayFinder.ROWS) {
+                val value = if (cell < OverlayFinder.COLS * 4) 0 else WatermarkMath.roundHalfUp(random.next() * 200)
+                pixels[cell * 4] = value.toByte()
+                pixels[cell * 4 + 1] = value.toByte()
+                pixels[cell * 4 + 2] = value.toByte()
+            }
+            finder.add(pixels)
+        }
+        assertNull(finder.find())
+    }
+
+    @Test
+    fun findsNothingInAPictureThatHardlyChanges() {
+        val finder = OverlayFinder()
+        val flat = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4) { 90 }
+        repeat(48) { finder.add(flat) }
+        assertNull(finder.find())
+    }
+
+    @Test
+    fun mapsTheBoxAndControlsOntoTheShadersNumbers() {
+        assertArrayEquals(
+            floatArrayOf(0.1f, 0.7f, 0.4f, 0.8f),
+            WatermarkMath.shaderBox(WatermarkRemoval(x = 1_000, y = 2_000, width = 3_000, height = 1_000)),
+            1e-6f,
+        )
+        assertEquals(2.0, WatermarkMath.contrast(100), 0.0)
+        assertEquals(0.5, WatermarkMath.contrast(-100), 0.0)
+        assertEquals(0.25, WatermarkMath.feather(50), 0.0)
+    }
+
+    @Test
+    fun aBoxThatsOffChangesNothing() {
+        val box = WatermarkRemoval(x = 100, y = 100, width = 1_000, height = 500)
+        assertTrue(PictureEffects(watermark = box).neutral)
+        assertFalse(PictureEffects(watermark = box.copy(enabled = true)).neutral)
+        // Presets compare the adjustments alone.
+        assertEquals(PictureEffects.NONE, PictureEffects(watermark = box.copy(enabled = true)).adjustments)
+        assertEquals(WatermarkRemoval(x = 9_000, width = 1_000), WatermarkRemoval(x = 9_000, width = 5_000).clamped())
+    }
+
+    @Test
+    fun pitchMovesBySemitonesApartFromTheTempo() {
+        assertEquals(1f, pitchRatio(0), 0f)
+        assertEquals(2f, pitchRatio(120), 1e-6f)
+        assertEquals(0.5f, pitchRatio(-120), 1e-6f)
+        assertEquals(2f, pitchRatio(500), 1e-6f)
+        assertTrue(abs(pitchRatio(10) - 1.0594631f) < 1e-6f)
+        assertEquals("+1.5", VideoSoundMath.pitchText(15))
+        assertEquals("−3", VideoSoundMath.pitchText(-30))
+        assertEquals("0", VideoSoundMath.pitchText(0))
+        assertTrue(VideoSound().neutral)
+        assertFalse(VideoSound(pitch = 5).neutral)
+    }
+}

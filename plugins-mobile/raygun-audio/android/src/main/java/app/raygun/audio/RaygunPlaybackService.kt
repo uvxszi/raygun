@@ -218,6 +218,7 @@ class RaygunPlaybackService : MediaSessionService() {
                 .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ index == 0)
                 .setHandleAudioBecomingNoisy(true)
                 .build()
+            player.playbackParameters = player.playbackParameters.withPitch(RaygunSound.config.pitch)
             // Wake and Wi-Fi locks follow what plays (WakeFollower), not a fixed mode.
             player.addListener(WakeFollower(player))
             // The output picked in Devices (M46.43), for players made after it.
@@ -283,7 +284,11 @@ class RaygunPlaybackService : MediaSessionService() {
 
     /** New sound settings: every player's processor follows them, and the reverb. */
     fun applySound(config: SoundConfig, reverbPreset: Short?) {
-        for (each in decks) each.processor.setConfig(config)
+        for (each in decks) {
+            each.processor.setConfig(config)
+            // Pitch apart from the tempo: Media3's Sonic shifts it, the speed kept.
+            each.player.playbackParameters = each.player.playbackParameters.withPitch(config.pitch)
+        }
         RaygunSound.reverb = reverbPreset
         applyReverb()
     }

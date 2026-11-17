@@ -105,6 +105,20 @@ describe('the watermark remover as numbers', () => {
     expect((box?.y ?? 0) + (box?.height ?? 0)).toBe(Math.round((8 / 36) * 10_000));
   });
 
+  it('takes a letterbox for no logo', () => {
+    const finder = new OverlayFinder();
+    const next = random(5);
+    for (let frame = 0; frame < 48; frame += 1) {
+      const pixels = new Uint8Array(FIND_COLS * FIND_ROWS * 4);
+      for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
+        const byte = cell < FIND_COLS * 4 ? 0 : Math.round(next() * 200);
+        pixels.set([byte, byte, byte, 255], cell * 4);
+      }
+      finder.add(pixels);
+    }
+    expect(finder.find()).toBeNull();
+  });
+
   it('finds nothing in a picture that hardly changes', () => {
     const finder = new OverlayFinder();
     const flat = new Uint8Array(FIND_COLS * FIND_ROWS * 4).fill(90);

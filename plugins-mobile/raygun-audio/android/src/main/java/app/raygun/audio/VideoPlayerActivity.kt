@@ -371,7 +371,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         effects = PlayerEffects(this)
         // A hardware decoder that fails (some phones, the emulator at 1080p) hands over to the
         // next one, ending with the software decoders.
-        val renderers = PlayerRenderers(this, effects.audio, effects.graph) { tracks.text = it }
+        val renderers = PlayerRenderers(this, effects.audio, effects.videoSound.processor, effects.graph) { tracks.text = it }
             .setEnableDecoderFallback(true)
             .setMediaCodecSelector(codecSelector)
         player = ExoPlayer.Builder(this, renderers)
@@ -1004,7 +1004,8 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     /** Plays at `speed` without remembering it (holding for speed, a new video). */
     internal fun applySpeed(speed: Float) {
-        val pitch = if (prefs.pitchCorrection) 1f else speed
+        // The title's pitch moves it apart from the tempo (PlayerVideoSound).
+        val pitch = (if (prefs.pitchCorrection) 1f else speed) * effects.videoSound.pitch
         player.playbackParameters = PlaybackParameters(speed, pitch)
         controls.update()
     }
@@ -1967,6 +1968,13 @@ class VideoPlayerActivity : AppCompatActivity() {
         controls.bump()
         syncSystemBars()
     }
+
+    /** A view over the whole player (the watermark box being drawn), above any sheet. */
+    internal fun showOverlay(view: View) {
+        root.addView(view, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    internal fun hideOverlay(view: View) = root.removeView(view)
 
     /** Whether `sheet` is the one showing. */
     internal fun sheetShown(sheet: PlayerSheet?): Boolean = sheet != null && openSheet === sheet

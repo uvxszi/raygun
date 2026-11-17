@@ -277,6 +277,8 @@ const MIN_CHANGE = 0.02;
 const MIN_EDGE = 0.035;
 /** The largest box found, as a share of the picture. */
 const MAX_AREA = 0.2;
+/** The most of the picture's width or height a box found spans. */
+const MAX_SPAN = 0.6;
 
 /** Luma sums of the whole picture over time, to find a static overlay. */
 export class OverlayFinder {
@@ -330,9 +332,12 @@ export class OverlayFinder {
     for (let row = 0; row < FIND_ROWS; row += 1) {
       for (let col = 0; col < FIND_COLS; col += 1) {
         const cell = row * FIND_COLS + col;
+        const here = meanAt(col, row);
         const edge = Math.max(
-          Math.abs(meanAt(col + 1, row) - meanAt(col - 1, row)),
-          Math.abs(meanAt(col, row + 1) - meanAt(col, row - 1)),
+          Math.abs(meanAt(col + 1, row) - here),
+          Math.abs(meanAt(col - 1, row) - here),
+          Math.abs(meanAt(col, row + 1) - here),
+          Math.abs(meanAt(col, row - 1) - here),
         );
         if ((deviations[cell] ?? 0) < typical * STILL_SHARE && edge > MIN_EDGE) still[cell] = 1;
       }
@@ -370,7 +375,11 @@ export class OverlayFinder {
       }
       groups += 1;
       const area = ((found.right - found.left + 1) * (found.bottom - found.top + 1)) / cells;
-      if (found.count >= 3 && area <= MAX_AREA && (!best || found.count > best.count)) {
+      // A line across most of the picture is a letterbox's edge, not a logo.
+      const narrow =
+        found.right - found.left + 1 <= FIND_COLS * MAX_SPAN &&
+        found.bottom - found.top + 1 <= FIND_ROWS * MAX_SPAN;
+      if (found.count >= 3 && area <= MAX_AREA && narrow && (!best || found.count > best.count)) {
         best = found;
       }
     }
