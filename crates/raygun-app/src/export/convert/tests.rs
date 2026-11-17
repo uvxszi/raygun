@@ -5,6 +5,7 @@ use std::sync::atomic::AtomicBool;
 use super::ffmpeg::{self, Abilities, Expect, Input, Job, SubtitleFile, VideoEncoder};
 use super::pipeline::{self, iso639_2};
 use super::*;
+use crate::export::remux::{self, Target};
 
 fn video(codec: &str, plain: bool) -> VideoInfo {
     VideoInfo {
@@ -565,7 +566,8 @@ fn subtitle_languages_and_tags_suit_matroska() {
 
 #[test]
 fn the_remux_puts_subtitle_files_in_matroska() {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/export/remux/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../raygun-app-export/src/remux/fixtures");
     let source = remux::Source::of_download(&fixtures.join("ts"), "index.m3u8").unwrap();
     let texts = [remux::matroska::TextTrack {
         language: Some("eng".into()),
@@ -772,7 +774,8 @@ async fn big_buck_bunny_live() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "fetches FFmpeg"]
 async fn hls_to_mp4_live() {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/export/remux/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../raygun-app-export/src/remux/fixtures");
     let tools = live_tools().await;
     let work = tempfile::tempdir().unwrap();
     for stream in ["ts", "pair", "fmp4"] {

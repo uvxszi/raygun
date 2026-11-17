@@ -10,10 +10,10 @@ use aes::cipher::{BlockEncryptMut, KeyIvInit};
 use mp4_atom::{Atom, Codec as Entry, Moov};
 
 use super::*;
-use crate::music_downloads::transcode;
+use crate::transcode;
 
 fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("src/export/remux/fixtures")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("src/remux/fixtures")
 }
 
 fn convert(

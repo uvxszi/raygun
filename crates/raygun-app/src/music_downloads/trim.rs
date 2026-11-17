@@ -122,8 +122,8 @@ mod tests {
     #[test]
     fn a_files_stretches_are_cut_into_a_new_m4a() {
         let dir = tempfile::tempdir().unwrap();
-        let fixture =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/export/remux/fixtures/plain.mp4");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../raygun-app-export/src/remux/fixtures/plain.mp4");
         let target = dir.path().join(trimmed_name("song.m4a"));
         cut_m4a(&fixture, &[(0.0, 1.0)], &target).unwrap();
         let ms = crate::music_downloads::transcode::length_ms(&target).unwrap();

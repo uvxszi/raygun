@@ -16,8 +16,8 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Notify;
 use url::Url;
 
-use crate::export::video::{attribute, parse_iv};
 use crate::video_downloads::hls;
+use raygun_app_export::hls::{attribute, parse_iv};
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
 

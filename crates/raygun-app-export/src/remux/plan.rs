@@ -270,7 +270,7 @@ fn time(planned: &mut Planned, raw: &[RawTimes]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::export::remux::Codec;
+    use crate::remux::Codec;
 
     fn video() -> Track {
         Track::video(Codec::Vp9, 1000, 16, 16)

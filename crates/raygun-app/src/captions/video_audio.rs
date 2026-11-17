@@ -19,8 +19,8 @@ use aes::cipher::{BlockDecryptMut, KeyIvInit};
 use url::Url;
 
 use super::audio::{AudioReader, decode_all};
-use crate::export::video::{attribute, parse_iv};
 use crate::video_downloads::hls;
+use raygun_app_export::hls::{attribute, parse_iv};
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
 

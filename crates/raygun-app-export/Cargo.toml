@@ -1,0 +1,54 @@
+[package]
+name = "raygun-app-export"
+description = "Raygun's export files: the remux and converters, CBZ, EPUB, PDF, HLS joins, song transcoding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-model.workspace = true
+raygun-paths.workspace = true
+tauri-plugin-raygun-audio.workspace = true
+tauri.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+tokio = { version = "1", features = ["sync", "time", "fs", "rt", "process", "io-util", "macros"] }
+quick-xml = "0.42"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2 = "1"
+# Page images decoded for PDFs, HLS segments decrypted when joined.
+png = "0.18"
+image-webp = "0.2"
+aes = "0.8"
+cbc = "0.1"
+# MP4 boxes read and written, Matroska files read (packets are copied, never re-encoded; MPEG-TS
+# and the Matroska writer are Raygun's own).
+mp4-atom = "0.17"
+matroska-demuxer = "0.8"
+# Songs decoded to save as WAV or FLAC, and tags on saved files.
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "mkv", "flac", "ogg", "vorbis", "wav", "pcm", "opt-simd"] }
+hound = "3.5"
+flacenc = "0.5"
+lofty = "0.25"
+mp3lame-encoder = "0.2.5"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# Copying a page to the clipboard on desktop (M46.6).
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+
+[target.'cfg(windows)'.dependencies]
+# Media Foundation checks that a converted video opens and decodes in Windows' own players.
+windows = { version = "0.62", features = [
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Foundation",
+] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -560,8 +560,8 @@ fn changed() -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::export::remux::Track;
-    use crate::export::remux::plan::Sample;
+    use crate::remux::Track;
+    use crate::remux::plan::Sample;
 
     fn planned(timescale: u32, count: usize, step: i64) -> Planned {
         Planned {

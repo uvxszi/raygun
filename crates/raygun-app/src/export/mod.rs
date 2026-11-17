@@ -9,15 +9,10 @@
 //! Finished downloads are also saved outside the app when Settings → Downloads asks for it
 //! ([`save_finished_chapter`]); the app keeps its own copy for reading.
 
-pub mod book;
-pub mod cbz;
 pub mod convert;
+pub use raygun_app_export::{book, cbz, names, output, pdf, remux};
 pub mod covers;
-pub mod names;
-pub mod output;
 pub mod pages;
-pub mod pdf;
-pub mod remux;
 pub mod video;
 
 #[cfg(test)]

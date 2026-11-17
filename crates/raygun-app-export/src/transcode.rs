@@ -29,18 +29,18 @@ pub struct SongTags {
 }
 
 /// An open audio file and its decoder; captions read windows of it too (M46.32).
-pub(crate) struct Decoding {
-    pub(crate) format: Box<dyn FormatReader>,
-    pub(crate) decoder: Box<dyn AudioDecoder>,
-    pub(crate) track_id: u32,
-    pub(crate) rate: u32,
-    pub(crate) channels: usize,
-    pub(crate) time_base: Option<symphonia::core::units::TimeBase>,
+pub struct Decoding {
+    pub format: Box<dyn FormatReader>,
+    pub decoder: Box<dyn AudioDecoder>,
+    pub track_id: u32,
+    pub rate: u32,
+    pub channels: usize,
+    pub time_base: Option<symphonia::core::units::TimeBase>,
     /// The track's length, when the container says.
-    pub(crate) duration_ms: Option<u64>,
+    pub duration_ms: Option<u64>,
 }
 
-pub(crate) fn open(path: &Path) -> Result<Decoding, String> {
+pub fn open(path: &Path) -> Result<Decoding, String> {
     let file = File::open(path).map_err(|error| error.to_string())?;
     open_source(
         Box::new(file),
@@ -49,7 +49,7 @@ pub(crate) fn open(path: &Path) -> Result<Decoding, String> {
 }
 
 /// Opens audio from any source (memory, an HTTP range reader), `extension` hinting its format.
-pub(crate) fn open_source(
+pub fn open_source(
     source: Box<dyn symphonia::core::io::MediaSource>,
     extension: Option<&str>,
 ) -> Result<Decoding, String> {
@@ -105,7 +105,7 @@ pub(crate) fn open_source(
 
 impl Decoding {
     /// The next decoded piece, interleaved, at 16 bits; `None` at the end.
-    pub(crate) fn next(&mut self, samples: &mut Vec<i16>) -> Result<Option<()>, String> {
+    pub fn next(&mut self, samples: &mut Vec<i16>) -> Result<Option<()>, String> {
         loop {
             let packet = match self.format.next_packet() {
                 Ok(Some(packet)) => packet,
@@ -298,7 +298,7 @@ fn write_mp3(decoding: &mut Decoding, path: &Path, kbps: u32) -> Result<(), Stri
 }
 
 /// LAME at a constant bitrate, fed interleaved 16-bit samples (exported videos' sound too).
-pub(crate) struct Mp3Encoder {
+pub struct Mp3Encoder {
     encoder: mp3lame_encoder::Encoder,
     channels: usize,
     encoded: Vec<u8>,
@@ -310,7 +310,7 @@ fn lame_failed(error: &dyn std::fmt::Display) -> String {
 }
 
 impl Mp3Encoder {
-    pub(crate) fn new(rate: u32, channels: usize, kbps: u32) -> Result<Self, String> {
+    pub fn new(rate: u32, channels: usize, kbps: u32) -> Result<Self, String> {
         use mp3lame_encoder::{Builder, Quality};
 
         let channels = channels.max(1);
@@ -341,11 +341,7 @@ impl Mp3Encoder {
     }
 
     /// Encodes interleaved samples (as many channels as it was made with).
-    pub(crate) fn encode(
-        &mut self,
-        samples: &[i16],
-        out: &mut impl std::io::Write,
-    ) -> Result<(), String> {
+    pub fn encode(&mut self, samples: &[i16], out: &mut impl std::io::Write) -> Result<(), String> {
         use mp3lame_encoder::{InterleavedPcm, MonoPcm};
 
         self.encoded.clear();
@@ -378,7 +374,7 @@ impl Mp3Encoder {
     }
 
     /// The last frames.
-    pub(crate) fn finish(mut self, out: &mut impl std::io::Write) -> Result<(), String> {
+    pub fn finish(mut self, out: &mut impl std::io::Write) -> Result<(), String> {
         use mp3lame_encoder::FlushNoGap;
 
         self.encoded.clear();

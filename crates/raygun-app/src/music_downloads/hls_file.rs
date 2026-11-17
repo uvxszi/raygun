@@ -111,7 +111,7 @@ mod tests {
     use super::*;
 
     fn fixtures() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/export/remux/fixtures")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../raygun-app-export/src/remux/fixtures")
     }
 
     /// Serves the remux fixtures' folders over HTTP, as an HLS host would.

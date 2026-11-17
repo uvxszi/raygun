@@ -319,7 +319,7 @@ fn write_into<W: Write + Seek>(zip: &mut ZipWriter<W>, book: &Book) -> std::io::
 
 /// Writes `book` as an EPUB into `file`.
 pub fn write_epub(file: &mut File, book: &Book) -> std::io::Result<()> {
-    if super::output::seekable(file) {
+    if crate::output::seekable(file) {
         let mut zip = ZipWriter::new(&mut *file);
         write_into(&mut zip, book)?;
         zip.finish()?;

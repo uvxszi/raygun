@@ -26,7 +26,7 @@ pub mod capture;
 mod check;
 mod hls_file;
 mod known;
-pub mod transcode;
+pub use raygun_app_export::transcode;
 mod trim;
 
 use std::collections::{HashMap, HashSet};

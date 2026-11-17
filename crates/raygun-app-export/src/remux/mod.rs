@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use mp4_atom::{Avcc, Hvcc};
 
-use super::video::Join;
+use crate::hls::Join;
 
 /// A file a conversion writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,10 +375,10 @@ fn master_parts(playlist: &str) -> Option<(String, Option<String>)> {
     let mut audio = None;
     while let Some(line) = lines.next() {
         if let Some(attributes) = line.strip_prefix("#EXT-X-MEDIA:")
-            && super::video::attribute(attributes, "TYPE").as_deref() == Some("AUDIO")
+            && crate::hls::attribute(attributes, "TYPE").as_deref() == Some("AUDIO")
             && audio.is_none()
         {
-            audio = super::video::attribute(attributes, "URI");
+            audio = crate::hls::attribute(attributes, "URI");
         } else if line.starts_with("#EXT-X-STREAM-INF") && video.is_none() {
             video = lines
                 .by_ref()
@@ -617,7 +617,7 @@ impl Demux for Merge<'_> {
 /// How often long loops look at the cancel flag.
 const CANCEL_EVERY: usize = 256;
 
-pub(crate) fn check_cancel(cancel: &AtomicBool, count: usize) -> Result<()> {
+pub fn check_cancel(cancel: &AtomicBool, count: usize) -> Result<()> {
     if count % CANCEL_EVERY == 1 && cancel.load(Ordering::SeqCst) {
         return Err(Error::Cancelled);
     }

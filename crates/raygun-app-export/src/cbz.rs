@@ -106,7 +106,7 @@ fn write_into<W: Write + Seek>(
 
 /// Writes a CBZ of `pages` into `file`, in streaming form when the file can't seek.
 pub fn write(file: &mut File, pages: &[PathBuf], info: &ComicInfo) -> std::io::Result<()> {
-    if super::output::seekable(file) {
+    if crate::output::seekable(file) {
         let mut zip = ZipWriter::new(&mut *file);
         write_into(&mut zip, pages, info)?;
         zip.finish()?;

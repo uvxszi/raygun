@@ -286,7 +286,7 @@ impl Outputs {
 /// Where a place is on desktop: the user's Downloads or Pictures (in a `Raygun` folder), a
 /// picked folder's path, or `exports` when the system has no such folder.
 #[cfg(not(target_os = "android"))]
-pub(crate) fn desktop_folder(place: &Place, exports: &Path) -> PathBuf {
+pub fn desktop_folder(place: &Place, exports: &Path) -> PathBuf {
     match place {
         Place::Downloads => raygun_paths::user_downloads()
             .map(|dir| dir.join("Raygun"))
@@ -304,7 +304,7 @@ pub(crate) fn desktop_folder(place: &Place, exports: &Path) -> PathBuf {
 
 /// Shows `path` selected in the file manager. Arguments go to the program directly, no shell.
 #[cfg(not(target_os = "android"))]
-pub(crate) fn reveal(path: &Path) -> Result<(), String> {
+pub fn reveal(path: &Path) -> Result<(), String> {
     let path = path.canonicalize().map_err(|error| error.to_string())?;
     #[cfg(windows)]
     let spawned = {

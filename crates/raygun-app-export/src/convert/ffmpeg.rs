@@ -18,7 +18,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use super::{AAC_CHANNELS, AudioInfo, Decision, MediaInfo, REMUX_CODECS, Step, VideoInfo};
-use crate::export::remux::Target;
+use crate::remux::Target;
 
 /// FFmpeg's programs.
 #[derive(Debug, Clone, PartialEq, Eq)]

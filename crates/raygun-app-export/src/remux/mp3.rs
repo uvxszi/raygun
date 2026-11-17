@@ -12,7 +12,7 @@ use symphonia::core::units::{Duration, Timestamp};
 
 use super::plan::Picker;
 use super::{Codec, Error, Result, Source, check_cancel, codec};
-use crate::music_downloads::transcode::Mp3Encoder;
+use crate::transcode::Mp3Encoder;
 
 /// Decodes AAC frames and encodes what they play.
 struct Reencode {
