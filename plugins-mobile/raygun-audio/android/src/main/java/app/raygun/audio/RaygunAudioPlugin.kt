@@ -977,7 +977,10 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     /** Opens the video player (M38) with a request: url, title, headers, subtitles, startMs, id. */
     @Command
     fun videoOpen(invoke: Invoke) {
-        val request = invoke.getArgs().toString()
+        val args = invoke.getArgs()
+        // The player's views take the app's sizes as they're made.
+        PlayerSize.take(args)
+        val request = args.toString()
         activity.startActivity(
             Intent(activity, VideoPlayerActivity::class.java)
                 .putExtra(VideoPlayerActivity.EXTRA_REQUEST, request),

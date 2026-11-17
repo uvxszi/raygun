@@ -339,6 +339,12 @@ class VideoPlayerActivity : AppCompatActivity() {
         cast.permissionAnswered(granted)
     }
 
+    // The app's Interface size and Text size: every dp and sp of the player's own views follows
+    // them ([PlayerSize], taken from the request that opened it).
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(PlayerSize.wrap(newBase))
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

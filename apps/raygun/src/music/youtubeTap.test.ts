@@ -1,4 +1,4 @@
-import script from '../../../../crates/raygun-app/src/music_downloads/capture/youtube_tap.js?raw';
+import script from '../../../../crates/raygun-app-music/src/music_downloads/capture/youtube_tap.js?raw';
 
 /**
  * Raygun's tap inside YouTube's frame (M46.52), run against a stand-in for the frame: its window,
