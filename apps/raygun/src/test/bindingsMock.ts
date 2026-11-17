@@ -10,6 +10,7 @@ import type {
   CoverOption,
   DeviceState,
   EngineCommand,
+  ImportProgress,
   ExportJob,
   ExtensionInfo,
   SourceSetup,
@@ -98,6 +99,7 @@ type EventPayloads = {
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
+  importProgressEvent: ImportProgress;
   unavailableEvent: string;
   captionsEvent: string;
   lyricsTranscribedEvent: string;
@@ -385,6 +387,10 @@ export const bindingsMock = {
     importReaderReady: vi.fn(),
     importPrepareReader: vi.fn(),
     importReadScreenshots: vi.fn(),
+    importReaders: vi.fn(),
+    importSpotifySecretHint: vi.fn(),
+    importSetSpotifySecret: vi.fn(),
+    barcodeLookup: vi.fn(),
     importMatch: vi.fn(),
     trackDurations: vi.fn(),
     coverSave: vi.fn(),
@@ -937,6 +943,7 @@ export const bindingsMock = {
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
+    importProgressEvent: makeEvent('importProgressEvent'),
     unavailableEvent: makeEvent('unavailableEvent'),
     captionsEvent: makeEvent('captionsEvent'),
     lyricsTranscribedEvent: makeEvent('lyricsTranscribedEvent'),
@@ -1211,7 +1218,12 @@ export const seedBindings = () => {
       items: items ? [] : prefs.items,
     })),
   );
-  commands.importReaderReady.mockResolvedValue(true);
+  commands.importReaderReady.mockResolvedValue(ok(true));
+  commands.importReaders.mockResolvedValue(
+    ok([{ id: 'windows', kind: 'windows', name: null, ready: true, model: null, sizeBytes: null }]),
+  );
+  commands.importSpotifySecretHint.mockResolvedValue(null);
+  commands.importSetSpotifySecret.mockResolvedValue(ok(null));
   commands.importMatch.mockResolvedValue(ok([]));
   commands.trackDurations.mockResolvedValue(ok([]));
   commands.coverSave.mockResolvedValue(ok('Pictures/Raygun/Cover.png'));

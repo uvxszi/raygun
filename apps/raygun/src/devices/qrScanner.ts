@@ -5,6 +5,8 @@ import type { RefObject } from 'react';
 const SCAN_EVERY_MS = 200;
 /** Frames are read at most this wide: plenty for a QR code on another screen, and quick. */
 const SCAN_WIDTH = 640;
+/** Product barcodes are read from wider frames. */
+const BARCODE_WIDTH = 1280;
 
 export type ScannerState = 'starting' | 'scanning' | 'noCamera' | 'denied';
 
@@ -14,19 +16,46 @@ type DetectorClass = {
   getSupportedFormats?: () => Promise<string[]>;
 };
 
-/** The browser's own QR reader where it has one (Android's WebView), else jsQR (Apache-2.0). */
-const makeReader = async (): Promise<(canvas: HTMLCanvasElement) => Promise<string | null>> => {
+/** What a scanner reads: QR codes (device links), or the barcodes on CDs, records and books. */
+export type ScanKind = 'qr' | 'barcode';
+
+/** The product barcodes asked of the browser's own reader. */
+const PRODUCT_FORMATS = ['ean_13', 'upc_a', 'ean_8', 'upc_e'];
+
+type Reader = (canvas: HTMLCanvasElement) => Promise<string | null>;
+
+/** The pixels of a canvas, for the readers written in script. */
+const pixelsOf = (canvas: HTMLCanvasElement) =>
+  canvas
+    .getContext('2d', { willReadFrequently: true })
+    ?.getImageData(0, 0, canvas.width, canvas.height) ?? null;
+
+/**
+ * The browser's own reader where it has one (Android's WebView), else jsQR (Apache-2.0) for QR
+ * codes and Raygun's own EAN/UPC reader (arcode/ean.ts) for product barcodes (Windows'
+ * WebView2 has no barcode reader).
+ */
+export const makeReader = async (kind: ScanKind = 'qr'): Promise<Reader> => {
   const native = (window as unknown as { BarcodeDetector?: DetectorClass }).BarcodeDetector;
+  const wanted = kind === 'qr' ? ['qr_code'] : PRODUCT_FORMATS;
   if (native) {
     try {
-      const formats = (await native.getSupportedFormats?.()) ?? ['qr_code'];
-      if (formats.includes('qr_code')) {
-        const detector = new native({ formats: ['qr_code'] });
+      const supported = (await native.getSupportedFormats?.()) ?? ['qr_code'];
+      const formats = wanted.filter((format) => supported.includes(format));
+      if (formats.length > 0) {
+        const detector = new native({ formats });
         return async (canvas) => (await detector.detect(canvas))[0]?.rawValue ?? null;
       }
     } catch {
-      // Falls back to jsQR.
+      // Falls back to the readers in script.
     }
+  }
+  if (kind === 'barcode') {
+    const { decodeImage } = await import('../barcode/ean');
+    return async (canvas) => {
+      const image = pixelsOf(canvas);
+      return image ? decodeImage(image.data, image.width, image.height) : null;
+    };
   }
   const { default: jsQR } = await import('jsqr');
   return async (canvas) => {
@@ -47,6 +76,7 @@ const runScanner = (
   element: () => HTMLVideoElement | null,
   onState: (state: ScannerState) => void,
   onFound: (text: string) => void,
+  kind: ScanKind,
 ) => {
   let stopped = false;
   let stream: MediaStream | null = null;
@@ -76,12 +106,13 @@ const runScanner = (
     }
     video.srcObject = stream;
     await video.play().catch(() => undefined);
-    const read = await makeReader();
+    const read = await makeReader(kind);
     onState('scanning');
     const tick = async () => {
       if (stopped) return;
       if (video.videoWidth > 0) {
-        const scale = Math.min(1, SCAN_WIDTH / video.videoWidth);
+        // Barcodes' thin bars need more of the camera's width than a QR code.
+        const scale = Math.min(1, (kind === 'qr' ? SCAN_WIDTH : BARCODE_WIDTH) / video.videoWidth);
         canvas.width = Math.round(video.videoWidth * scale);
         canvas.height = Math.round(video.videoHeight * scale);
         canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -102,13 +133,15 @@ const runScanner = (
 };
 
 /**
- * Reads QR codes from the camera into `video` while `enabled`: `onFound` gets each code's text
- * (the caller decides which it wants). The camera stops when disabled or unmounted.
+ * Reads codes from the camera into `video` while `enabled`: QR codes, or with `kind` `barcode`
+ * the EAN/UPC barcodes on CDs, records and books. `onFound` gets each code's text (the caller
+ * decides which it wants). The camera stops when disabled or unmounted.
  */
 export const useQrScanner = (
   video: RefObject<HTMLVideoElement | null>,
   enabled: boolean,
   onFound: (text: string) => void,
+  kind: ScanKind = 'qr',
 ): ScannerState => {
   const [state, setState] = useState<ScannerState>('starting');
   const found = useRef(onFound);
@@ -122,8 +155,9 @@ export const useQrScanner = (
       () => video.current,
       setState,
       (text) => found.current(text),
+      kind,
     );
-  }, [enabled, video]);
+  }, [enabled, video, kind]);
 
   return state;
 };

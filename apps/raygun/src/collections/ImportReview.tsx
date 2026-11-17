@@ -24,11 +24,12 @@ import {
   CircleCheck,
   CircleDashed,
   GripVertical,
+  ImageIcon,
   LoaderCircle,
   Play,
   Plus,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -37,6 +38,10 @@ import { formatTime } from '../player/formatTime';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TextField } from '../shell/TextField';
+import { PictureInspector } from './PictureInspector';
+import { cropPicture } from './pictureCrop';
+import type { CropBox } from './pictureCrop';
+import { ReaderPicker } from './ReaderPicker';
 import { savesIn, useSavedSongs } from './savedSongs';
 import { COLLECTIONS, usePlaylists } from './useCollections';
 
@@ -53,6 +58,37 @@ type Row = {
   chosen?: string;
   /** The two screenshot rows this song was joined from (title, then artist read as a song). */
   parts?: ImportedSong[];
+  /** The screenshot it was read from (its index among the pictures). */
+  picture?: number;
+};
+
+/** What a review of screenshots can do with them: show them and read them again. */
+export type ReviewPictures = {
+  files: File[];
+  /** Reads pictures with a reader (an ImportReader id; null for the one that read them). */
+  read: (files: File[], reader: string | null) => Promise<ImportedList>;
+};
+
+/** Which picture each song of a list was first read from. */
+const pictureOfSongs = (list: ImportedList) => {
+  const found = new Map<number, number>();
+  for (const shot of list.screenshots ?? []) {
+    for (const index of shot.songs) if (!found.has(index)) found.set(index, shot.picture);
+  }
+  return found;
+};
+
+/** Rows for a list's songs, each knowing its join and its picture. */
+const rowsOf = (list: ImportedList, firstId: number, picture?: number): Row[] => {
+  const joined = new Map(list.joined.map((join) => [join.index, join.parts]));
+  const pictures = pictureOfSongs(list);
+  return list.songs.map((song, index) => ({
+    id: firstId + index,
+    song,
+    skipped: false,
+    parts: joined.get(index),
+    picture: picture ?? pictures.get(index),
+  }));
 };
 
 const pendingOf = (song: ImportedSong): MatchedSong => ({
@@ -108,7 +144,10 @@ const ReviewRow: FC<{
   onChange: (row: Row, rematch: boolean) => void;
   onMove: (from: number, to: number) => void;
   onSplit: (row: Row) => void;
-}> = ({ row, index, count, already, onChange, onMove, onSplit }) => {
+  /** The row's screenshot, for its thumbnail when it has no cover. */
+  shot?: string;
+  onInspect: (row: Row) => void;
+}> = ({ row, index, count, already, onChange, onMove, onSplit, shot, onInspect }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -144,6 +183,25 @@ const ReviewRow: FC<{
           onChange={() => onChange({ ...row, skipped: !row.skipped }, false)}
           className="accent-primary"
         />
+        {(result?.song.artworkUrl ?? row.song.artworkUrl ?? shot) && (
+          <button
+            type="button"
+            aria-label={t('import.inspect', { title: row.song.title })}
+            onClick={() => onInspect(row)}
+            className="bg-background grid size-9 shrink-0 place-items-center overflow-hidden rounded"
+          >
+            {(result?.song.artworkUrl ?? row.song.artworkUrl) ? (
+              <img
+                src={result?.song.artworkUrl ?? row.song.artworkUrl ?? ''}
+                alt=""
+                loading="lazy"
+                className="size-full object-cover"
+              />
+            ) : (
+              <ImageIcon aria-hidden size={16} className="text-muted" />
+            )}
+          </button>
+        )}
         <span className="flex min-w-0 flex-1 flex-col">
           <input
             aria-label={t('import.songTitle')}
@@ -299,10 +357,14 @@ const ReviewRow: FC<{
  * The songs read (M46.31): names to fix, songs to add, an order to drag, other sources to try,
  * and Import at any time: Rust keeps matching what's left and fills the playlist in.
  */
-export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
-  list,
-  onClose,
-}) => {
+export const ImportReview: FC<{
+  list: ImportedList;
+  onClose: () => void;
+  /** The screenshots it was read from, to look at, crop and read again. */
+  pictures?: ReviewPictures;
+  /** Every screenshot read again by another reader: the review starts over with its list. */
+  onReread?: (list: ImportedList) => void;
+}> = ({ list, onClose, pictures, onReread }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -310,12 +372,55 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
   // Where the songs go (M46.45): 'new', 'favorites' or a playlist's id.
   const [destination, setDestination] = useState('new');
   const playlists = usePlaylists();
-  const [rows, setRows] = useState<Row[]>(() => {
-    const joined = new Map(list.joined.map((join) => [join.index, join.parts]));
-    return list.songs.map((song, id) => ({ id, song, skipped: false, parts: joined.get(id) }));
-  });
+  const [rows, setRows] = useState<Row[]>(() => rowsOf(list, 0));
   const [adding, setAdding] = useState({ title: '', artist: '' });
   const nextId = useRef(list.songs.length);
+  // The screenshots as they are now (a cropped one replaces its picture).
+  const [shots, setShots] = useState<File[]>(() => pictures?.files ?? []);
+  const shotUrls = useMemo(() => shots.map((file) => URL.createObjectURL(file)), [shots]);
+  useEffect(() => () => shotUrls.forEach((url) => URL.revokeObjectURL(url)), [shotUrls]);
+  // The picture open to look at: a cover, or a screenshot (which can be cropped).
+  const [inspecting, setInspecting] = useState<
+    { kind: 'cover'; src: string; title: string } | { kind: 'shot'; picture: number } | null
+  >(null);
+  const inspect = (row: Row) => {
+    const cover = row.result?.song.artworkUrl ?? row.song.artworkUrl;
+    if (cover) setInspecting({ kind: 'cover', src: cover, title: row.song.title });
+    else if (row.picture !== undefined) setInspecting({ kind: 'shot', picture: row.picture });
+  };
+  // A cropped screenshot is read again; its rows take the place of the picture's rows.
+  const reread = useMutation({
+    mutationFn: async ({ picture, box }: { picture: number; box: CropBox }) => {
+      const source = shots[picture];
+      if (!source || !pictures) throw new Error(t('import.noPicture'));
+      const cropped = await cropPicture(source, box, source.name);
+      const read = await pictures.read([cropped], list.reader ?? null);
+      return { picture, cropped, read };
+    },
+    onSuccess: ({ picture, cropped, read }) => {
+      setShots((current) => current.map((file, at) => (at === picture ? cropped : file)));
+      const fresh = rowsOf(read, nextId.current, picture);
+      nextId.current += fresh.length;
+      setRows((current) => {
+        const at = current.findIndex((row) => row.picture === picture);
+        const rest = current.filter((row) => row.picture !== picture);
+        const place =
+          at < 0
+            ? rest.length
+            : current.slice(0, at).filter((row) => row.picture !== picture).length;
+        return [...rest.slice(0, place), ...fresh, ...rest.slice(place)];
+      });
+      setInspecting(null);
+    },
+  });
+  // Every screenshot read again by another reader.
+  const another = useMutation({
+    mutationFn: (reader: string) => {
+      if (!pictures) throw new Error(t('import.noPicture'));
+      return pictures.read(shots, reader);
+    },
+    onSuccess: (read) => onReread?.(read),
+  });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   // Matches rows waiting for it, a few at a time; a failed call leaves them unmatched.
@@ -460,6 +565,29 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
           inputClassName="py-3 text-sm"
         />
       )}
+      {pictures && shots.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto">
+            {shotUrls.map((url, at) => (
+              <button
+                key={url}
+                type="button"
+                aria-label={t('import.inspectShot', { number: at + 1 })}
+                onClick={() => setInspecting({ kind: 'shot', picture: at })}
+                className="bg-background h-14 w-9 shrink-0 overflow-hidden rounded"
+              >
+                <img src={url} alt="" className="size-full object-cover object-top" />
+              </button>
+            ))}
+          </div>
+          <ReaderPicker
+            current={list.reader ?? null}
+            busy={another.isPending}
+            onPick={(reader) => another.mutate(reader)}
+          />
+          {another.error && <SourceIssue>{another.error.message}</SourceIssue>}
+        </div>
+      )}
       <p role="status" className="text-muted text-sm">
         {done
           ? found === rows.length
@@ -481,6 +609,8 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
                 onChange={change}
                 onMove={move}
                 onSplit={split}
+                shot={row.picture === undefined ? undefined : shotUrls[row.picture]}
+                onInspect={inspect}
               />
             ))}
           </ul>
@@ -519,6 +649,25 @@ export const ImportReview: FC<{ list: ImportedList; onClose: () => void }> = ({
         </button>
       </form>
       {!done && <p className="text-muted text-xs">{t('import.keepsLooking')}</p>}
+      {reread.error && <SourceIssue>{reread.error.message}</SourceIssue>}
+      {inspecting?.kind === 'cover' && (
+        <PictureInspector
+          src={inspecting.src}
+          title={inspecting.title}
+          onClose={() => setInspecting(null)}
+        />
+      )}
+      {inspecting?.kind === 'shot' && shotUrls[inspecting.picture] && (
+        <PictureInspector
+          src={shotUrls[inspecting.picture] ?? ''}
+          title={t('import.shotTitle', { number: inspecting.picture + 1 })}
+          onClose={() => setInspecting(null)}
+          onCrop={
+            pictures ? (box) => reread.mutate({ picture: inspecting.picture, box }) : undefined
+          }
+          reading={reread.isPending}
+        />
+      )}
       {save.error && <SourceIssue>{save.error.message}</SourceIssue>}
       {asking ? (
         <div role="alertdialog" aria-labelledby="import-already" className="flex flex-col gap-2">

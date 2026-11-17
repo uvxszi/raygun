@@ -23,6 +23,8 @@ use crate::startup::AppDb;
 const SECRETS_KEY: &str = "ai.secretsKey";
 /// `local_meta` key of the translator list (JSON).
 const PROVIDERS: &str = "ai.providers";
+/// The person's own Spotify app's secret in the secrets store (importing long playlists).
+const SPOTIFY_SECRET: &str = "import:spotify";
 /// What "Test" translates.
 const SAMPLE: &str = "Good morning! Three new chapters are waiting in your library.";
 /// Progress events are sent at most this often (in bytes received).
@@ -134,6 +136,58 @@ impl AiService {
         self.vault
             .set(&format!("server:{id}"), secret)
             .map_err(|error| error.to_string())
+    }
+
+    /// The secret of the person's own Spotify app (Settings → Import), for long playlists.
+    pub fn spotify_secret(&self) -> Option<String> {
+        self.vault.get(SPOTIFY_SECRET)
+    }
+
+    /// Keeps, or with `None` or an empty one forgets, the Spotify app's secret.
+    pub fn set_spotify_secret(&self, secret: Option<&str>) -> Result<(), String> {
+        let secret = secret.map(str::trim).filter(|secret| !secret.is_empty());
+        self.vault
+            .set(SPOTIFY_SECRET, secret)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Whether the Spotify app's secret is kept, and its last characters.
+    pub fn spotify_secret_hint(&self) -> Option<String> {
+        self.vault
+            .contains(SPOTIFY_SECRET)
+            .then(|| self.vault.hint(SPOTIFY_SECRET).unwrap_or_default())
+    }
+
+    // ---- Reading pictures (importing songs from screenshots) ----
+
+    /// The providers that may read pictures (Claude, OpenAI-compatible with a model): id and name.
+    pub async fn picture_readers(&self) -> Vec<(String, String)> {
+        self.stored_providers()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(raygun_ai::vision::reads_pictures)
+            .map(|provider| (provider.id, provider.name))
+            .collect()
+    }
+
+    /// The songs a screenshot shows, read by the provider `id`'s vision model.
+    pub async fn read_song_rows(
+        &self,
+        id: &str,
+        picture: &[u8],
+        media_type: &str,
+    ) -> Result<Vec<raygun_ai::vision::SongRow>, String> {
+        let provider = self
+            .stored_providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or_else(|| "This provider was removed in Settings → AI".to_owned())?;
+        let key = self.vault.get(&secret_name(id));
+        raygun_ai::vision::song_rows(&self.client, &provider, key.as_deref(), picture, media_type)
+            .await
+            .map_err(|error| format!("{} couldn't read the picture: {error}", provider.name))
     }
 
     // ---- Translators ----

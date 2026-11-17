@@ -1,9 +1,10 @@
 //! Reading the text lines of a picture (M46.21: songs from screenshots). Windows has an OCR engine
-//! of its own (`Windows.Media.Ocr`), which is used there; elsewhere (Android) it's ocrs, an open
-//! source engine whose two models (12 MB) are downloaded once through the model catalogue
-//! (`ocrs-latin`, SHA-256-checked) and kept in `models/`.
+//! of its own (`Windows.Media.Ocr`); everywhere there's ocrs, an open source engine whose two
+//! models (12 MB) are downloaded once through the model catalogue (`ocrs-latin`, SHA-256-checked)
+//! and kept in `models/`, and PaddleOCR's PP-OCRv5 mobile models (`paddle`). Every read loads the
+//! models it uses from their files, so a reader works as soon as its install is done.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::parse::TextLine;
 
@@ -21,8 +22,9 @@ const SMALL_WIDTH: u32 = 1600;
 const DARK: u64 = 110;
 
 /// Readies a picture for reading: grey, dark themes turned light (both engines read dark text on a
-/// light background best), and small pictures doubled.
-fn prepare(bytes: &[u8]) -> Result<image::GrayImage, String> {
+/// light background best), and small pictures doubled when enlarge (ocrs and Windows' reader;
+/// PaddleOCR's detector sizes pictures itself, and lines run together when they're doubled).
+fn prepare(bytes: &[u8], enlarge: bool) -> Result<image::GrayImage, String> {
     let mut grey = image::load_from_memory(bytes)
         .map_err(|_| "That isn't a picture Raygun can open".to_owned())?
         .into_luma8();
@@ -38,7 +40,7 @@ fn prepare(bytes: &[u8]) -> Result<image::GrayImage, String> {
     if mean < DARK {
         image::imageops::invert(&mut grey);
     }
-    if grey.width() < SMALL_WIDTH && grey.height() * 2 <= 10_000 {
+    if enlarge && grey.width() < SMALL_WIDTH && grey.height() * 2 <= 10_000 {
         grey = image::imageops::resize(
             &grey,
             grey.width() * 2,
@@ -51,27 +53,89 @@ fn prepare(bytes: &[u8]) -> Result<image::GrayImage, String> {
 
 /// A line the engine read: where its first word starts, its tallest word, the box around all its
 /// words (left, top, right, bottom), in the read picture's pixels.
-struct ReadLine {
-    x: f32,
-    y: f32,
-    height: f32,
-    bounds: [f32; 4],
-    text: String,
+pub(crate) struct ReadLine {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) height: f32,
+    pub(crate) bounds: [f32; 4],
+    pub(crate) text: String,
 }
 
-/// The text lines of an image (PNG, JPEG, WebP or GIF bytes), in reading order. `models` is the
-/// installed `ocrs-latin` folder where Windows' engine isn't used.
+/// An on-device text reader and where its models are.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Engine {
+    /// Windows' own (`Windows.Media.Ocr`); nothing to download.
+    Windows,
+    /// ocrs, from an installed `ocrs-latin` folder.
+    Ocrs(PathBuf),
+    /// PaddleOCR PP-OCRv5 mobile, from an installed `ppocr-v5-mobile` folder.
+    Paddle(PathBuf),
+}
+
+/// An engine with its models loaded, for reading several pictures.
+pub enum Loaded {
+    #[cfg(windows)]
+    Windows,
+    Ocrs(Box<ocrs::OcrEngine>),
+    Paddle(Box<super::paddle::Paddle>),
+}
+
+impl Engine {
+    /// This device's usual reader: Windows' own, else ocrs from `models`.
+    fn usual(models: Option<&Path>) -> Result<Self, String> {
+        if built_in() {
+            return Ok(Engine::Windows);
+        }
+        models
+            .map(|folder| Engine::Ocrs(folder.to_path_buf()))
+            .ok_or_else(|| "The text reader isn't downloaded yet".to_owned())
+    }
+
+    /// Loads the engine's models from their files (read whole, never a handle kept from before).
+    pub fn load(&self) -> Result<Loaded, String> {
+        match self {
+            #[cfg(windows)]
+            Engine::Windows => Ok(Loaded::Windows),
+            #[cfg(not(windows))]
+            Engine::Windows => Err("Windows' text reader is only on Windows".into()),
+            Engine::Ocrs(folder) => load_ocrs(folder).map(|engine| Loaded::Ocrs(Box::new(engine))),
+            Engine::Paddle(folder) => {
+                super::paddle::Paddle::load(folder).map(|paddle| Loaded::Paddle(Box::new(paddle)))
+            }
+        }
+    }
+}
+
+impl Loaded {
+    /// The text lines of an image (PNG, JPEG, WebP or GIF bytes), in reading order.
+    pub fn read(&self, bytes: &[u8]) -> Result<Vec<TextLine>, String> {
+        let picture = prepare(bytes, !matches!(self, Loaded::Paddle(_)))?;
+        Ok(self
+            .lines(&picture)?
+            .into_iter()
+            .map(|line| TextLine {
+                x: line.x,
+                y: line.y,
+                height: line.height,
+                text: line.text,
+            })
+            .collect())
+    }
+
+    fn lines(&self, picture: &image::GrayImage) -> Result<Vec<ReadLine>, String> {
+        match self {
+            #[cfg(windows)]
+            Loaded::Windows => windows_ocr(picture),
+            Loaded::Ocrs(engine) => ocrs_lines(engine, picture),
+            Loaded::Paddle(paddle) => paddle.read(picture),
+        }
+    }
+}
+
+/// The text lines of an image (PNG, JPEG, WebP or GIF bytes), in reading order, by this device's
+/// usual reader. `models` is the installed `ocrs-latin` folder where Windows' engine isn't used.
 pub fn read(bytes: &[u8], models: Option<&Path>) -> Result<Vec<TextLine>, String> {
-    let picture = prepare(bytes)?;
-    Ok(read_lines(&picture, models)?
-        .into_iter()
-        .map(|line| TextLine {
-            x: line.x,
-            y: line.y,
-            height: line.height,
-            text: line.text,
-        })
-        .collect())
+    Engine::usual(models)?.load()?.read(bytes)
 }
 
 /// A line of text on a picture, its box in fractions of the picture's width and height.
@@ -87,7 +151,7 @@ pub struct TextBox {
 /// The text lines of an image with the boxes around them (the readers' translation layers), in
 /// reading order.
 pub fn read_boxes(bytes: &[u8], models: Option<&Path>) -> Result<Vec<TextBox>, String> {
-    let picture = prepare(bytes)?;
+    let picture = prepare(bytes, true)?;
     let (width, height) = (picture.width() as f32, picture.height() as f32);
     Ok(read_lines(&picture, models)?
         .into_iter()
@@ -102,16 +166,7 @@ pub fn read_boxes(bytes: &[u8], models: Option<&Path>) -> Result<Vec<TextBox>, S
 }
 
 fn read_lines(picture: &image::GrayImage, models: Option<&Path>) -> Result<Vec<ReadLine>, String> {
-    #[cfg(windows)]
-    {
-        let _ = models;
-        windows_ocr(picture)
-    }
-    #[cfg(not(windows))]
-    {
-        let models = models.ok_or("The text reader isn't downloaded yet")?;
-        ocrs_read(picture, models)
-    }
+    Engine::usual(models)?.load()?.lines(picture)
 }
 
 #[cfg(windows)]
@@ -187,23 +242,30 @@ fn windows_ocr(picture: &image::GrayImage) -> Result<Vec<ReadLine>, String> {
     Ok(lines)
 }
 
-#[cfg(not(windows))]
-fn ocrs_read(picture: &image::GrayImage, models: &Path) -> Result<Vec<ReadLine>, String> {
-    use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
+fn load_ocrs(models: &Path) -> Result<ocrs::OcrEngine, String> {
+    use ocrs::{OcrEngine, OcrEngineParams};
     use rten::Model;
-    use rten_imageproc::BoundingRect;
 
-    let image = image::DynamicImage::ImageLuma8(picture.clone()).into_rgb8();
     let detection = Model::load_file(models.join("text-detection.onnx"))
         .map_err(|error| format!("The text reader couldn't start ({error})"))?;
     let recognition = Model::load_file(models.join("text-recognition.onnx"))
         .map_err(|error| format!("The text reader couldn't start ({error})"))?;
-    let engine = OcrEngine::new(OcrEngineParams {
+    OcrEngine::new(OcrEngineParams {
         detection_model: Some(detection),
         recognition_model: Some(recognition),
         ..Default::default()
     })
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.to_string())
+}
+
+fn ocrs_lines(
+    engine: &ocrs::OcrEngine,
+    picture: &image::GrayImage,
+) -> Result<Vec<ReadLine>, String> {
+    use ocrs::ImageSource;
+    use rten_imageproc::BoundingRect;
+
+    let image = image::DynamicImage::ImageLuma8(picture.clone()).into_rgb8();
     let source = ImageSource::from_bytes(image.as_raw(), image.dimensions())
         .map_err(|error| error.to_string())?;
     let input = engine

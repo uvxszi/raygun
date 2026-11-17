@@ -693,6 +693,10 @@
         "title": "AI",
         "summary": "Translation, transcription, text reading, providers, models"
       },
+      "import": {
+        "title": "Import",
+        "summary": "Reading screenshots, your Spotify app for long playlists"
+      },
       "data": {
         "title": "Data and backup",
         "summary": "Privacy and incognito, back up and restore, import from Mihon, storage and caches"
@@ -4727,13 +4731,14 @@
       "screenshots": "Screenshots"
     },
     "linkLabel": "Playlist, album or song link",
-    "linkHint": "A playlist, album or song link (Share → Copy link). Public playlists read up to their first 100 songs.",
+    "linkHint": "A playlist, album or song link (Share → Copy link). Without a Spotify app of your own, a link shows at most 100 songs.",
+    "spotifyKeysLink": "Add your Spotify app",
     "textLabel": "Songs, one per line",
     "textPlaceholder": "Artist - Title\nArtist - Title",
     "textHint": "One song per line (Artist - Title), or a CSV export such as Exportify's.",
     "openCsv": "Open a file",
     "screenshotsHint": "Pictures of a song list from any music app: Raygun reads the titles and artists.",
-    "downloadReader": "Download the text reader (12 MB)",
+    "downloadReader": "Download the text reader ({{size}} MB)",
     "downloadingReader": "Downloading the text reader…",
     "cancelReader": "Cancel",
     "chooseScreenshots": "Choose screenshots",
@@ -4742,7 +4747,7 @@
     "matching": "Finding the songs in your sources: {{done}} of {{count}}",
     "matched": "Found {{found}} of {{count}} in your sources; the rest are looked for when they play.",
     "matchedAll": "Found all {{count}} in your sources.",
-    "capped": "The link shares only a playlist's first 100 songs; import a CSV for the rest.",
+    "capped": "Spotify's link shows only the first 100 songs. For all of them, add your own Spotify app's Client ID and secret in Settings → Import, or import the playlist as a CSV from Exportify (exportify.app).",
     "foundOn": "Found on {{source}}",
     "notFound": "Not found yet",
     "create_one": "Make a playlist of {{count}} song",
@@ -4783,7 +4788,67 @@
     "already_one": "{{count}} song is already in {{name}}",
     "already_other": "{{count}} songs are already in {{name}}",
     "addNew": "Add new ones",
-    "addAll": "Add all"
+    "addAll": "Add all",
+    "reader": "Text reader",
+    "readerToDownload": "{{name}} (download, {{size}} MB)",
+    "readers": {
+      "windows": "Windows' text reader",
+      "ocrs": "ocrs",
+      "paddle": "PaddleOCR",
+      "ai": "AI provider"
+    },
+    "progress": {
+      "preparing": "Screenshot {{number}} of {{count}}: getting it ready",
+      "reading": "Screenshot {{number}} of {{count}}: reading the text",
+      "rows": "Screenshot {{number}} of {{count}}: {{rows}} songs found",
+      "done_one": "Read all screenshots: {{count}} song",
+      "done_other": "Read all screenshots: {{count}} songs"
+    },
+    "leaveQuestion": "Leave without importing? The songs read so far are lost.",
+    "keepReviewing": "Keep reviewing",
+    "leave": "Leave",
+    "tryAnother": "Try another reader",
+    "readAgain": "Read again",
+    "inspect": "Look at the picture of {{title}}",
+    "inspectShot": "Look at screenshot {{number}}",
+    "shotTitle": "Screenshot {{number}}",
+    "noPicture": "The screenshot isn't here any more",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "crop": "Crop",
+    "cropHint": "Drag over the part with the songs",
+    "readCrop": "Read this part",
+    "settings": {
+      "readers": "Reading screenshots",
+      "readersHint": "AI providers read song lists best; PaddleOCR reads Chinese and Japanese too and runs on this device.",
+      "auto": "The best one ready",
+      "downloadFirst": "Downloads first ({{size}} MB)",
+      "spotify": "Spotify",
+      "spotifyHint": "Make an app at developer.spotify.com and paste its Client ID and secret here: links then read whole playlists through Spotify's Web API, not just their first 100 songs. Spotify's own playlists stay limited to 100.",
+      "clientId": "Client ID",
+      "clientSecret": "Client secret",
+      "notSet": "Not set",
+      "secretKept": "Saved (ends in {{end}})",
+      "badId": "A Client ID is letters and digits"
+    }
+  },
+  "barcode": {
+    "scan": "Scan a barcode",
+    "title": "Scan a barcode",
+    "hint": "Point the camera at a CD's, record's or book's barcode.",
+    "fromPicture": "Choose a picture",
+    "noCode": "No barcode was found in that picture",
+    "looking": "Looking up {{code}}…",
+    "notFound": "Nothing is known about {{code}}",
+    "searchNumber": "Search for {{code}}",
+    "album": "{{title}} by {{artist}}",
+    "openAlbum": "Open the album",
+    "searchAlbum": "Search for the album",
+    "book": "{{title}}",
+    "findBook": "Find the book in your sources",
+    "scanAgain": "Scan another",
+    "typed": "Or type the number",
+    "look": "Look up"
   },
   "sourcePicker": {
     "title": "Choose a source",

@@ -86,11 +86,12 @@ ttf-parser = { version = "0.25", default-features = false, features = ["std", "v
 # Copying pages on desktop (M46.6) and reading screenshots with ocrs (M46.21).
 image ={ version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
-# Reading screenshots where Windows' own OCR isn't there (M46.21): ocrs over rten.
-[target.'cfg(not(windows))'.dependencies]
+# Reading screenshots where Windows' own OCR isn't there (M46.21): ocrs over rten.# Reading screenshots with ocrs and PaddleOCR's models (M46.21, v2.0.0), on every platform: rten
+# runs both models' ONNX files.
 ocrs = { version = "0.13", default-features = false, features = ["onnx"] }
 rten = "0.26"
 rten-imageproc = "0.26"
+rten-tensor = "0.26"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd.workspace = true

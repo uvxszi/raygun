@@ -4,6 +4,7 @@ import {
   Compass,
   Database,
   Download,
+  FileInput,
   Info,
   LibraryBig,
   Music,
@@ -30,6 +31,7 @@ import { AiSettings } from './screens/AiSettings';
 import { AppearanceSettings } from './screens/AppearanceSettings';
 import { BrowseSettings } from './screens/BrowseSettings';
 import { DataSettings } from './screens/DataSettings';
+import { ImportSettings } from './screens/ImportSettings';
 import { LibrarySettings } from './screens/LibrarySettings';
 import { MusicPlayerSettings } from './screens/MusicPlayerSettings';
 import { NotificationSettings } from './screens/NotificationSettings';
@@ -225,6 +227,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
   { id: 'devices', icon: Smartphone, to: '/settings/devices' },
   // Providers and models are what's on this device, not settings: they stay.
   { id: 'ai', icon: Sparkles, screen: AiSettings, reset: resetKeys('transcription', 'readerAi') },
+  { id: 'import', icon: FileInput, screen: ImportSettings, reset: resetKeys('import') },
   {
     id: 'data',
     icon: Database,
@@ -248,6 +251,7 @@ export type SettingsSectionId =
   | 'network'
   | 'permissions'
   | 'ai'
+  | 'import'
   | 'data';
 
 /** The category screens, routed at `/settings/<id>`. */

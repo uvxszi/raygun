@@ -600,6 +600,10 @@
     "inAll": true,
     "online": true
   },
+  "import": {
+    "reader": "auto",
+    "spotifyClientId": ""
+  },
   "failingSourcesLast": true,
   "browseStartTab": "discover",
   "searchFilter": {

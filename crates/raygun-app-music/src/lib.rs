@@ -4,6 +4,7 @@ pub mod aniskip;
 pub mod answer_words;
 pub mod artist_profiles;
 pub mod background;
+pub mod barcode;
 pub mod captions;
 pub mod collections;
 pub mod cover_fallback;

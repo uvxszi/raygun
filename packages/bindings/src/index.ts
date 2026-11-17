@@ -476,15 +476,33 @@ export const commands = {
 	importReadLink: (link: string) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_link", { link })),
 	/**  Songs in a CSV export or pasted lines (M46.21). */
 	importReadText: (text: string, name: string | null) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_text", { text, name })),
-	/**  Whether screenshots can be read now (the text reader is built in or downloaded) (M46.21). */
-	importReaderReady: () => __TAURI_INVOKE<boolean>("import_reader_ready"),
-	/**  Downloads the text reader for screenshots where it isn't built in (M46.21). */
-	importPrepareReader: () => typedError<null, string>(__TAURI_INVOKE("import_prepare_reader")),
 	/**
-	 *  Songs in uploaded screenshots of song lists (M46.21); `join_split` joins artist lines read as
-	 *  rows of their own back to their songs.
+	 *  Whether screenshots can be read now by `reader` (an `ImportReader` id; `None` for Settings →
+	 *  Import's choice) (M46.21).
 	 */
-	importReadScreenshots: (uploadIds: string[], joinSplit: boolean) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_screenshots", { uploadIds, joinSplit })),
+	importReaderReady: (reader: string | null) => typedError<boolean, string>(__TAURI_INVOKE("import_reader_ready", { reader })),
+	/**  Downloads `reader`'s models where it isn't built in (M46.21). */
+	importPrepareReader: (reader: string | null) => typedError<null, string>(__TAURI_INVOKE("import_prepare_reader", { reader })),
+	/**
+	 *  Songs in uploaded screenshots of song lists (M46.21), read by `reader` (`None` for Settings →
+	 *  Import's choice); `join_split` joins artist lines read as rows of their own back to their
+	 *  songs. Progress comes as `ImportProgressEvent`s.
+	 */
+	importReadScreenshots: (uploadIds: string[], joinSplit: boolean, reader: string | null) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_screenshots", { uploadIds, joinSplit, reader })),
+	/**  The ways screenshots can be read here, best first, each saying whether it's ready (v2.0.0). */
+	importReaders: () => typedError<ImportReader[], string>(__TAURI_INVOKE("import_readers")),
+	/**
+	 *  Whether the person's Spotify app's secret is kept (Settings → Import), and its last
+	 *  characters; `None` when there's none.
+	 */
+	importSpotifySecretHint: () => __TAURI_INVOKE<string | null>("import_spotify_secret_hint"),
+	/**  Keeps the Spotify app's secret, or forgets it when empty. */
+	importSetSpotifySecret: (secret: string) => typedError<null, string>(__TAURI_INVOKE("import_set_spotify_secret", { secret })),
+	/**
+	 *  What a scanned barcode is (v2.0.0): an album with the music sources' matches, a book, or
+	 *  unknown.
+	 */
+	barcodeLookup: (code: string) => typedError<BarcodeFind_Serialize, string>(__TAURI_INVOKE("barcode_lookup", { code })),
 	/**  Matches imported songs against the music sources (M46.21). */
 	importMatch: (songs: ImportedSong[]) => typedError<MatchedSong[], string>(__TAURI_INVOKE("import_match", { songs })),
 	/**
@@ -1512,6 +1530,8 @@ export const commands = {
 	dictionary?: DictionaryPrefs,
 	/**  Answers to questions and calculations in Search. */
 	answers?: AnswersPrefs,
+	/**  Importing songs: the reader for screenshots, the Spotify app for long playlists. */
+	import?: ImportPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**
@@ -2011,6 +2031,7 @@ export const events = {
 	extensionInstallsEvent: makeEvent<ExtensionInstallsEvent>("extension-installs-event"),
 	extensionsChangedEvent: makeEvent<ExtensionsChangedEvent_Deserialize>("extensions-changed-event"),
 	importEvent: makeEvent<ImportEvent>("import-event"),
+	importProgressEvent: makeEvent<ImportProgressEvent>("import-progress-event"),
 	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
@@ -2681,6 +2702,31 @@ export type BackupSection = {
 	category: DataCategory,
 	counts: DataCount[],
 };
+
+/**
+ *  What a scanned barcode (EAN-13, UPC-A, ISBN) is (v2.0.0): a CD's or record's release from
+ *  MusicBrainz with the music sources' albums that match it, a book from Open Library, or nothing
+ *  known (the number itself can still be searched).
+ */
+export type BarcodeFind = BarcodeFind_Serialize | BarcodeFind_Deserialize;
+
+/**
+ *  What a scanned barcode (EAN-13, UPC-A, ISBN) is (v2.0.0): a CD's or record's release from
+ *  MusicBrainz with the music sources' albums that match it, a book from Open Library, or nothing
+ *  known (the number itself can still be searched).
+ */
+export type BarcodeFind_Deserialize = ({ kind: "album"; code: string; title: string; artist: string | null; year: number | null; 
+/**  The sources' albums that match it, best first. */
+matches: MusicAlbum_Deserialize[] }) & { authors?: never; coverUrl?: never } | ({ kind: "book"; code: string; title: string; authors: string[]; coverUrl: string | null }) & { artist?: never; matches?: never; year?: never } | ({ kind: "unknown"; code: string }) & { artist?: never; authors?: never; coverUrl?: never; matches?: never; title?: never; year?: never };
+
+/**
+ *  What a scanned barcode (EAN-13, UPC-A, ISBN) is (v2.0.0): a CD's or record's release from
+ *  MusicBrainz with the music sources' albums that match it, a book from Open Library, or nothing
+ *  known (the number itself can still be searched).
+ */
+export type BarcodeFind_Serialize = ({ kind: "album"; code: string; title: string; artist: string | null; year: number | null; 
+/**  The sources' albums that match it, best first. */
+matches: MusicAlbum_Serialize[] }) & { authors?: never; coverUrl?: never } | ({ kind: "book"; code: string; title: string; authors: string[]; coverUrl: string | null }) & { artist?: never; matches?: never; year?: never } | ({ kind: "unknown"; code: string }) & { artist?: never; authors?: never; coverUrl?: never; matches?: never; title?: never; year?: never };
 
 /**  The list of ad and tracker domains the built-in browser blocks. */
 export type Blocklist = 
@@ -4155,6 +4201,49 @@ export type ImageFileFormat = "png" | "jpeg" | "webp" |
 export type ImportEvent = string;
 
 /**
+ *  Importing songs: which reader reads screenshots (an `ImportReader` id; `auto` = the best one
+ *  ready here: an AI provider that reads pictures, then PaddleOCR, Windows' own, ocrs), and the
+ *  Client ID of the person's own Spotify app for lists longer than the embed's 100 songs (its
+ *  secret is kept in the secrets store).
+ */
+export type ImportPrefs = {
+	reader?: string,
+	spotifyClientId?: string,
+};
+
+/**
+ *  Where reading screenshots stands: picture `picture` (from 1) of `pictures` is at `stage`;
+ *  `rows` songs found in it so far.
+ */
+export type ImportProgress = {
+	picture: number,
+	pictures: number,
+	stage: ImportStage,
+	rows: number,
+};
+
+/**  Reading screenshots for an import went on: which picture, at what stage, rows found (v2.0.0). */
+export type ImportProgressEvent = ImportProgress;
+
+/**  A way of reading screenshots of song lists. */
+export type ImportReader = {
+	/**  `windows`, `ocrs`, `paddle`, or `ai:<provider id>`. */
+	id: string,
+	kind: ImportReaderKind,
+	/**  The provider's name for an AI reader. */
+	name: string | null,
+	/**  It reads now (built in, downloaded, or a provider set up). */
+	ready: boolean,
+	/**  The catalogue model to download first, when it isn't ready. */
+	model: string | null,
+	sizeBytes: number | null,
+};
+
+export type ImportReaderKind = "windows" | "ocrs" | "paddle" | "ai";
+
+export type ImportStage = "preparing" | "reading" | "rows" | "done";
+
+/**
  *  A song after matching it against the music sources: what the best match added to it, which
  *  source that was, and its stream when the source plays it directly.
  *  Where imported songs go (M46.45): a new playlist, one the user has, or Favorites.
@@ -4172,10 +4261,17 @@ export type ImportedList = {
 	name: string,
 	artworkUrl: string | null,
 	songs: ImportedSong[],
-	/**  The source shared only part of the list (Spotify's embed stops at 100 songs). */
+	/**
+	 *  The source shared only part of the list (Spotify's embed stops at 100 songs; the whole list
+	 *  comes through Spotify's Web API with the person's own app keys, Settings → Import).
+	 */
 	capped: boolean,
 	/**  Songs made by joining a screenshot row with the artist line read as a row of its own. */
 	joined: JoinedSong[],
+	/**  For screenshots: which songs each picture gave, in the pictures' order. */
+	screenshots?: ScreenshotSongs[],
+	/**  The reader that read the screenshots (an `ImportReader` id). */
+	reader?: string | null,
 };
 
 /**  A song read from a link, a file, pasted text or a screenshot. */
@@ -6391,6 +6487,15 @@ export type SavedTrack = {
 export type ScanPhase = "discovering" | "reading" | "done" | "failed";
 
 /**
+ *  The songs one screenshot gave: indexes into `ImportedList::songs` (a song read on two
+ *  screenshots is listed under both).
+ */
+export type ScreenshotSongs = {
+	picture: number,
+	songs: number[],
+};
+
+/**
  *  Scrollbars (M46.7): thin over a clear track by default, the system's width, none at all
  *  (scrolling still works), or thin ones shown only while scrolling.
  */
@@ -6591,7 +6696,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "videoCards"; value: VideoCardPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "answers"; value: AnswersPrefs } | { key: "youtube"; value: YouTubePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "videoCards"; value: VideoCardPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "answers"; value: AnswersPrefs } | { key: "import"; value: ImportPrefs } | { key: "youtube"; value: YouTubePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -6726,6 +6831,8 @@ export type Settings = {
 	dictionary?: DictionaryPrefs,
 	/**  Answers to questions and calculations in Search. */
 	answers?: AnswersPrefs,
+	/**  Importing songs: the reader for screenshots, the Spotify app for long playlists. */
+	import?: ImportPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**
