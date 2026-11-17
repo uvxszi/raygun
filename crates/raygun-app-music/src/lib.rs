@@ -31,6 +31,7 @@ pub mod quick_access;
 pub mod reader_ai;
 pub mod resolution;
 pub mod resolver;
+pub mod smart_shuffle;
 pub mod song_memory;
 pub mod sound;
 pub mod sponsorblock;

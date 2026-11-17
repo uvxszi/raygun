@@ -708,6 +708,10 @@
       "about": {
         "title": "About",
         "summary": "Version and updates"
+      },
+      "chips": {
+        "title": "Smart Chips",
+        "summary": "Smart Shuffle, Smooth Motion, Smart Subtitles"
       }
     },
     "display": "Display",
@@ -874,6 +878,10 @@
       "showFailedSources": "Show sources that failed",
       "showFailedSourcesHint": "In the player's Sources, with why they failed",
       "showEmptySources": "Show sources with no videos",
+      "leaveOutTrailers": "Leave out trailers",
+      "leaveOutTrailersHint": "Links named as trailers, teasers or samples don't play by themselves",
+      "leaveOutShort": "Leave out short videos",
+      "leaveOutShortHint": "Links far shorter than the others or the title's runtime are passed over",
       "display": "Display",
       "orientation": "Orientation",
       "orientationHint": "How the player turns when it opens",
@@ -1398,7 +1406,11 @@
       "openSource": "Open on {{source}}"
     },
     "nowPlayingMark": "Playing now",
-    "pausedMark": "Paused"
+    "pausedMark": "Paused",
+    "smartShuffle": "Smart Shuffle",
+    "suggested": "Suggested by Smart Shuffle",
+    "addToThisPlaylist": "Add to this playlist",
+    "notForMe": "Not for me"
   },
   "common": {
     "adult": "18+",
@@ -2955,6 +2967,23 @@
     "needsTorrentApp": "Needs a torrent app",
     "noSourceWorked": "No source could play this. Pick another in Sources.",
     "onlyThisLink": "Only this link",
+    "leaveOutTrailers": "Leave out trailers",
+    "leaveOutShort": "Leave out short videos",
+    "leaveOutShortHint": "Links far shorter than the others: placeholders, trailers, samples",
+    "leftOutOff": "Off for this title",
+    "leftOutTrailer": "Trailer or sample",
+    "leftOutShort": "Shorter than the title",
+    "linkTooShort": "Far shorter than the title: a trailer, sample or placeholder",
+    "sourceSettings": "{{n}}: settings",
+    "sourceOffHere": "Off for this title",
+    "sourceOffTitle": "Turn off for this title",
+    "sourceOnHere": "Turn on for this title",
+    "sourceOffEverywhere": "Turn off everywhere",
+    "sourceOpenSettings": "Source settings",
+    "smartSubtitles": "Smart Subtitles",
+    "smartSubtitlesHint": "Compares tracks in one language and lists the most alike first",
+    "smartMatching": "Matching",
+    "smartMightNotMatch": "Might not match",
     "otherSources": "Other sources",
     "tryingSource": "Trying source {{n}} of {{of}}",
     "sourcesChecked_one": "{{n}} of {{of}} source checked",
@@ -4992,8 +5021,31 @@
   },
   "smartChips": {
     "label": "Smart Chips",
-    "soon": "Smart Chips are coming soon",
-    "what": "Small AI models that work with your Raygun in the background: sorting your library, transcribing, and finding songs you'd like."
+    "what": "Optional features you install like extensions: each one downloads once, then turns on or off here.",
+    "loading": "Loading…",
+    "size": "Size: {{size}}",
+    "install": "Install",
+    "update": "Update",
+    "remove": "Remove",
+    "removeConfirm": "Remove {{name}}",
+    "turnOn": "{{name}} on",
+    "downloading": "Downloading {{name}}",
+    "failed": "Couldn't install it: {{message}}",
+    "inSettings": "Smart Chips in Settings",
+    "chips": {
+      "smartShuffle": {
+        "name": "Smart Shuffle",
+        "description": "Shuffle with recommended songs mixed in, about one for every three of the list's own. The shuffle button gets a third state."
+      },
+      "smoothMotion": {
+        "name": "Smooth Motion",
+        "description": "In-between frames for smoother movement in the video player, made on this device's graphics chip. Adds Smooth motion to the player's Effects."
+      },
+      "smartSubtitles": {
+        "name": "Smart Subtitles",
+        "description": "Compares subtitle and audio tracks from different sources: the ones that agree come first, marked Matching."
+      }
+    }
   },
   "forYou": {
     "title": "Made for You",

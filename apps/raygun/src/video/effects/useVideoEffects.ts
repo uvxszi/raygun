@@ -30,6 +30,8 @@ type Options = {
   remember: (change: Record<string, unknown>) => void;
   /** Saves a change to the player's settings (`prefs`). */
   savePrefs: (change: Record<string, unknown>) => void;
+  /** The Smooth Motion chip is installed and on, its shaders read: smooth motion can play. */
+  smoothMotion?: boolean;
 };
 
 export type VideoEffects = {
@@ -45,6 +47,8 @@ export type VideoEffects = {
   dropped: HeavyKind[];
   /** WebGL 2 isn't there: no picture effects. */
   unavailable: boolean;
+  /** Smooth motion's chip is there: the Effects panel offers it. */
+  smoothMotionAvailable: boolean;
   /** Live, kept for the title once it settles. */
   setPicture: (next: Effects) => void;
   /** No effects for this title (the settings' again, when they're none). */
@@ -74,6 +78,7 @@ export const useVideoEffects = ({
   defaults,
   remember,
   savePrefs,
+  smoothMotion = false,
 }: Options): VideoEffects => {
   // A watermark is a title's own, never the settings'.
   const savedPicture = withoutWatermark(withEffectDefaults(defaults.pictureEffects));
@@ -119,8 +124,10 @@ export const useVideoEffects = ({
   // The same objects while the values stay (the layer and the audio graph follow them).
   const pictureKey = JSON.stringify(own ?? pictureDefaults);
   const picture = useMemo(() => JSON.parse(pictureKey) as Effects, [pictureKey]);
+  // Without its chip, smooth motion waits (the title keeps asking for it).
+  const playable = smoothMotion ? picture : { ...picture, smoothMotion: false };
   const appliedKey = JSON.stringify(
-    unavailable ? NO_EFFECTS : dropped.length ? without(picture, dropped) : picture,
+    unavailable ? NO_EFFECTS : dropped.length ? without(playable, dropped) : playable,
   );
   const applied = useMemo(() => JSON.parse(appliedKey) as Effects, [appliedKey]);
   const audioKey = JSON.stringify(ownAudio ?? audioDefaults);
@@ -151,6 +158,7 @@ export const useVideoEffects = ({
     ownAudio: ownAudio !== null && audioKey !== JSON.stringify(audioDefaults),
     dropped,
     unavailable,
+    smoothMotionAvailable: smoothMotion,
     setPicture: (next) => {
       setOwn(next);
       // Asked for again: what dropped for speed gets another try.

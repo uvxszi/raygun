@@ -208,6 +208,34 @@ describe('The desktop app bar', () => {
     expect(await screen.findByTestId('mascot-soon')).toHaveTextContent('Mascots are coming soon');
   });
 
+  it("has Smart Chips' button, which lists the chips to install", async () => {
+    const user = userEvent.setup();
+    commands.chipsList.mockResolvedValue([
+      {
+        id: 'smartShuffle',
+        name: 'Smart Shuffle',
+        description: '',
+        kind: 'feature',
+        version: '1.0.0',
+        size: 300,
+        installed: false,
+        outdated: false,
+        on: true,
+        progress: { kind: 'idle' },
+      },
+    ]);
+    await AppShellWrapper.mount('/');
+    const bar = await screen.findByTestId('app-bar');
+    await user.click(within(bar).getByRole('button', { name: 'Smart Chips' }));
+    const list = await screen.findByTestId('smart-chips-list');
+    const row = await within(list).findByTestId('chip-smartShuffle');
+    expect(within(row).getByRole('button', { name: 'Install' })).toBeInTheDocument();
+    expect(within(list).getByRole('link', { name: 'Smart Chips in Settings' })).toHaveAttribute(
+      'href',
+      '/settings/chips',
+    );
+  });
+
   it('offers the frame and zoom in Settings → Appearance', async () => {
     const user = userEvent.setup();
     withSettings(DEFAULT_SETTINGS);

@@ -5,13 +5,6 @@ import meanSource from './glsl/fx_stats_mean.glsl?raw';
 import blocksSource from './glsl/fx_stats_blocks.glsl?raw';
 import vertexSource from './glsl/fx_vertex.glsl?raw';
 import watermarkSource from './glsl/fx_watermark.glsl?raw';
-import motionCommonSource from './glsl/fx_motion_common.glsl?raw';
-import motionCopySource from './glsl/fx_motion_copy.glsl?raw';
-import motionErrorSource from './glsl/fx_motion_error.glsl?raw';
-import motionLumaSource from './glsl/fx_motion_luma.glsl?raw';
-import motionSearchSource from './glsl/fx_motion_search.glsl?raw';
-import motionSmoothSource from './glsl/fx_motion_smooth.glsl?raw';
-import motionWarpSource from './glsl/fx_motion_warp.glsl?raw';
 import { columns } from './effectParams';
 import type { ShaderParams } from './effectParams';
 import { flowSize, LEVELS, RADII } from './motionMath';
@@ -48,20 +41,31 @@ export const VERTEX_SOURCE = vertexSource;
 /** The watermark remover's pass (linked when first used). */
 export const WATERMARK_PASS = fragmentSource(watermarkSource);
 
-/** A smooth motion pass's fragment shader: the shared parts first, then its own. */
-export const motionSource = (pass: string) => `${commonSource}\n${motionCommonSource}\n${pass}`;
+/**
+ * Smooth motion's own shaders (`fx_motion_*.glsl`), which come with the Smooth Motion chip
+ * (`motionSources.ts`), not with the app.
+ */
+export type MotionSources = {
+  common: string;
+  copy: string;
+  luma: string;
+  search: string;
+  smooth: string;
+  error: string;
+  warp: string;
+};
 
-export const MOTION_PASSES = {
-  copy: motionSource(motionCopySource),
-  luma: motionSource(motionLumaSource),
-  search: motionSource(motionSearchSource),
-  smooth: motionSource(motionSmoothSource),
-  error: motionSource(motionErrorSource),
-  warp: motionSource(motionWarpSource),
-} as const;
+type MotionPassName = Exclude<keyof MotionSources, 'common'>;
+
+const MOTION_PASS_NAMES: MotionPassName[] = ['copy', 'luma', 'search', 'smooth', 'error', 'warp'];
+
+/** Each smooth motion pass's fragment shader: the shared parts first, then its own. */
+export const motionPasses = (sources: MotionSources): Record<MotionPassName, string> =>
+  Object.fromEntries(
+    MOTION_PASS_NAMES.map((name) => [name, `${commonSource}\n${sources.common}\n${sources[name]}`]),
+  ) as Record<MotionPassName, string>;
 
 type PassName = keyof typeof PASSES;
-type MotionPassName = keyof typeof MOTION_PASSES;
 
 type Pass = {
   program: WebGLProgram;
@@ -158,7 +162,11 @@ export class EffectsRenderer {
   private latest = 0;
   private keptCount = 0;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  /** `motion`: smooth motion's shaders, when its chip is there (without, `keep` can't run). */
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly motionSources: MotionSources | null = null,
+  ) {
     const gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
@@ -358,13 +366,15 @@ export class EffectsRenderer {
   private motionPassesOf() {
     if (!this.motionPasses) {
       const { gl } = this;
+      if (!this.motionSources) throw new Error('Smooth motion needs its chip');
+      const sources = motionPasses(this.motionSources);
       this.motionPasses = {
-        copy: link(gl, MOTION_PASSES.copy),
-        luma: link(gl, MOTION_PASSES.luma),
-        search: link(gl, MOTION_PASSES.search),
-        smooth: link(gl, MOTION_PASSES.smooth),
-        error: link(gl, MOTION_PASSES.error),
-        warp: link(gl, MOTION_PASSES.warp),
+        copy: link(gl, sources.copy),
+        luma: link(gl, sources.luma),
+        search: link(gl, sources.search),
+        smooth: link(gl, sources.smooth),
+        error: link(gl, sources.error),
+        warp: link(gl, sources.warp),
       };
     }
     return this.motionPasses;

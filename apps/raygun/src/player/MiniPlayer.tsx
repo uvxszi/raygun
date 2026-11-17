@@ -20,6 +20,7 @@ import type { FC, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ExplicitMark } from '../music/ExplicitMark';
+import { SuggestedButton } from './SuggestedMark';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ConnectButton } from '../devices/ConnectButton';
 import { Artwork } from '../library/Artwork';
@@ -308,6 +309,7 @@ const TrackText: FC<BarProps> = ({ item }) => {
           text={item.title}
           className="min-w-0 text-sm leading-tight font-medium"
         />
+        <SuggestedButton itemId={item.id} />
         {item.explicit && <ExplicitMark />}
       </span>
       {note && note.kind !== 'via' ? (

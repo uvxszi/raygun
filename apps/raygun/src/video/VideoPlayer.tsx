@@ -48,7 +48,7 @@ import { useExternalAudio } from './useExternalAudio';
 import { LiveBadge, LiveDelayPrompt } from './LiveControls';
 import { DVR_MIN_MS, HOLD_STEP_MS, readLive, useLiveStream } from './liveStream';
 import type { LiveView } from './liveStream';
-import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
+import { attachMedia, engineKind } from './mediaEngine';
 import type { MediaEngine, StreamProblem } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { QualityPanel } from './QualityPanel';
@@ -71,7 +71,10 @@ import { useVideoEffects } from './effects/useVideoEffects';
 import { VideoEffectsLayer } from './effects/VideoEffectsLayer';
 import { appliedEq, useVideoSound } from './effects/videoSound';
 import { WatermarkDraw } from './effects/WatermarkDraw';
+import { useMotionSources } from './effects/motionSources';
+import { useChipEnabled } from '../chips/useChips';
 import type { CueEdit, CueEdits } from './cueEdits';
+import { embeddedLinesAt, subtitleTimeMs, useSubtitleClock } from './subtitleClock';
 import { cuesAt, latestCueAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import {
@@ -364,6 +367,9 @@ type StageProps = {
   onClose: () => void;
 };
 
+/** No lines (a stable empty list for the subtitle clock). */
+const NO_CUES: Cue[] = [];
+
 /** A subtitle file's cues, fetched once (through the proxy's `/subtitle/` route) and kept. */
 const loadSubtitleFile = (cache: Map<string, Cue[]>, subtitle: VideoSubtitle): Promise<Cue[]> => {
   const cached = cache.get(subtitle.url);
@@ -420,6 +426,14 @@ const VideoStage: FC<StageProps> = ({
   const looping = useVideoPlayerStore((state) => state.looping);
   // Intros are skipped in series; a film in a session is its only episode.
   const series = useVideoPlayerStore((state) => state.episodes.length > 1);
+  // Subtitle files that came after the video loaded join its own.
+  const addedSubtitles = useVideoPlayerStore((state) => state.addedSubtitles);
+  const subtitleRanks = useVideoPlayerStore((state) => state.subtitleRanks);
+  const smartAvailable = useVideoPlayerStore((state) => state.smartSubtitlesAvailable);
+  const fileTracks = useMemo(
+    () => [...(request.subtitles ?? []), ...addedSubtitles],
+    [request.subtitles, addedSubtitles],
+  );
 
   const id = request.id;
   const titleState: TitleState = request.titleState ?? {};
@@ -575,8 +589,10 @@ const VideoStage: FC<StageProps> = ({
   );
 
   // ---- What can be chosen ----
-  const fileOptions: SubtitleOption[] = (request.subtitles ?? []).map((subtitle, index) => {
+  const fileOptions: SubtitleOption[] = fileTracks.map((subtitle, index) => {
     const label = subtitle.label || subtitle.lang || t('videoPlayer.track', { n: index + 1 });
+    // Smart Subtitles' place among its language's and its mark, while it's on.
+    const ranked = subtitleRanks.find((entry) => entry.url === subtitle.url);
     return {
       key: `file:${index}`,
       label,
@@ -584,6 +600,7 @@ const VideoStage: FC<StageProps> = ({
       forced: /forced/i.test(label),
       // The addon that found it, or its file's name: under its name in the list.
       source: subtitle.source ?? null,
+      ...(ranked ? { rank: ranked.rank, fit: ranked.fit } : {}),
     };
   });
   const subtitleOptions = (current: MediaEngine | null): SubtitleOption[] => [
@@ -601,8 +618,7 @@ const VideoStage: FC<StageProps> = ({
       (option, index) =>
         !(
           aiOptions.length > 0 &&
-          (isAiFile(request.subtitles?.[index]?.url ?? '') ||
-            option.label === t('desktopPlayer.ai.track'))
+          (isAiFile(fileTracks[index]?.url ?? '') || option.label === t('desktopPlayer.ai.track'))
         ),
     ),
     ...aiOptions,
@@ -616,7 +632,15 @@ const VideoStage: FC<StageProps> = ({
   const savePrefs = (change: Record<string, unknown>) =>
     sendRequest(id, 'prefs', positionOf(videoRef.current).positionMs, { change });
   // The picture's effects and smart audio (`effects/`): the title's own, else the settings'.
-  const effects = useVideoEffects({ titleState, defaults: prefs, remember, savePrefs });
+  // Smooth motion comes with its Smart Chip: its shaders are read from it.
+  const motion = useMotionSources(useChipEnabled('smoothMotion'));
+  const effects = useVideoEffects({
+    titleState,
+    defaults: prefs,
+    remember,
+    savePrefs,
+    smoothMotion: motion !== null,
+  });
   // The title's pitch and equalizer (its own, or the music player's).
   const videoSound = useVideoSound(titleState.videoSound, remember);
   const musicEq = useVideoPlayerStore((state) => state.musicEq);
@@ -700,6 +724,10 @@ const VideoStage: FC<StageProps> = ({
   const changeDelay = (next: number) => {
     setDelayMs(next);
     remember({ subtitleDelayMs: next });
+    // The stream's own lines move at once too, also while paused.
+    const video = videoRef.current;
+    if (video && subtitleKey?.startsWith('embedded:'))
+      setEmbeddedLines(embeddedLinesAt(video, subtitleTimeMs(video.currentTime * 1000, next)));
   };
   /** Positive plays the sound later than the picture; kept for the title. */
   const changeAudioDelay = (next: number) => {
@@ -766,7 +794,7 @@ const VideoStage: FC<StageProps> = ({
       {
         url: request.url ?? '',
         title: heading,
-        subtitles: (request.subtitles ?? []).map((subtitle) => subtitle.url),
+        subtitles: fileTracks.map((subtitle) => subtitle.url),
         startMs: positionOf(video).positionMs,
       },
       player,
@@ -819,6 +847,17 @@ const VideoStage: FC<StageProps> = ({
     );
     selectSubtitle(chosen?.key ?? null, false);
   };
+
+  // Subtitle files that came after the video loaded (slow subtitle addons): with nothing on and
+  // nothing chosen for the title, they're picked from as at the start.
+  const onAddedSubtitles = useEffectEvent(() => {
+    if (subtitleKey !== null || titleState.subtitle || !flags.current.picked) return;
+    flags.current.picked = false;
+    pickTracks();
+  });
+  useEffect(() => {
+    if (addedSubtitles.length > 0) onAddedSubtitles();
+  }, [addedSubtitles]);
 
   // ---- The stream ----
   /** The stream's own sizes and the one playing go to Rust, for the Quality menu: their own
@@ -957,7 +996,8 @@ const VideoStage: FC<StageProps> = ({
     setTimeMs(now);
     setLiveView(readLive(video, engineRef.current, Boolean(request.live)));
     liveStream.keepUp();
-    if (subtitleKey?.startsWith('embedded:')) setEmbeddedLines(embeddedCueLines(video));
+    if (subtitleKey?.startsWith('embedded:'))
+      setEmbeddedLines(embeddedLinesAt(video, subtitleTimeMs(now, delayMs)));
     const chapter = skippableAt(chapters, now, durationMs);
     if (prefs.autoSkip && chapter && !skipped.current.has(chapter.startMs)) {
       skipped.current.add(chapter.startMs);
@@ -1172,7 +1212,7 @@ const VideoStage: FC<StageProps> = ({
   // A chosen subtitle file is fetched once (through the proxy's `/subtitle/` route).
   useEffect(() => {
     if (!subtitleKey?.startsWith('file:')) return;
-    const subtitle = request.subtitles?.[Number(subtitleKey.slice(5))];
+    const subtitle = fileTracks[Number(subtitleKey.slice(5))];
     if (!subtitle) return;
     let cancelled = false;
     void loadSubtitleFile(subtitleFiles.current, subtitle).then((cues) => {
@@ -1181,10 +1221,10 @@ const VideoStage: FC<StageProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [subtitleKey, request.subtitles]);
+  }, [subtitleKey, fileTracks]);
   useEffect(() => {
     if (!secondKey?.startsWith('file:')) return;
-    const subtitle = request.subtitles?.[Number(secondKey.slice(5))];
+    const subtitle = fileTracks[Number(secondKey.slice(5))];
     if (!subtitle) return;
     let cancelled = false;
     void loadSubtitleFile(subtitleFiles.current, subtitle).then((cues) => {
@@ -1193,7 +1233,7 @@ const VideoStage: FC<StageProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [secondKey, request.subtitles]);
+  }, [secondKey, fileTracks]);
 
   // ---- Keys ----
   const onKey = useEffectEvent((event: KeyboardEvent) => {
@@ -1327,18 +1367,22 @@ const VideoStage: FC<StageProps> = ({
     setCueEdits(next);
     remember({ subtitleEdits: next });
   };
+  // The subtitle clock: the playhead less the delay, read every frame while playing, so lines
+  // change on their own times at any speed, after seeks and as the delay changes.
+  const secondCues = secondKey ? cuesOf(secondKey, secondLoaded) : NO_CUES;
+  const subtitleNowMs = useSubtitleClock(videoRef, currentCues, secondCues, delayMs);
   // AI subtitles and translations show one cue at a time (`latestCueAt`): a stretch heard again
   // would otherwise show twice, one line under the other.
   const linesOf = (key: string, cues: Cue[]) =>
     key === 'ai' || key.startsWith('translated:')
-      ? latestCueAt(cues, timeMs - delayMs)
-      : cuesAt(cues, timeMs - delayMs);
+      ? latestCueAt(cues, subtitleNowMs)
+      : cuesAt(cues, subtitleNowMs);
   const lines = !subtitleKey
     ? []
     : subtitleKey.startsWith('embedded:')
       ? embeddedLines
       : linesOf(subtitleKey, currentCues);
-  const secondLines = secondKey ? linesOf(secondKey, cuesOf(secondKey, secondLoaded)) : [];
+  const secondLines = secondKey ? linesOf(secondKey, secondCues) : [];
   // Translating the main subtitles: their lines as shown (with edits), or the AI subtitles,
   // which Rust follows as they grow. The video's own tracks can't be read as text.
   const translateSource = (): SubtitleSource | null => {
@@ -1454,6 +1498,7 @@ const VideoStage: FC<StageProps> = ({
         videoRef={videoRef}
         fit={FIT[aspect]}
         effects={effects.applied}
+        motion={motion}
         onTooSlow={(kind) => {
           effects.drop(kind);
           showHint(t('videoPlayer.effectsDropped', { n: t(HEAVY_LABEL[kind]) }));
@@ -1867,6 +1912,21 @@ const VideoStage: FC<StageProps> = ({
               onShow: (translation) => selectSubtitle(`translated:${translation}`, false),
             }}
             find={<FindSubtitles videoKey={id} onPick={addCues} />}
+            smart={
+              smartAvailable
+                ? {
+                    on: prefs.smartSubtitles,
+                    onToggle: () => {
+                      const on = !prefs.smartSubtitles;
+                      useVideoPlayerStore.setState({
+                        prefs: { ...prefs, smartSubtitles: on },
+                        ...(on ? {} : { subtitleRanks: [] }),
+                      });
+                      savePrefs({ smartSubtitles: on });
+                    },
+                  }
+                : null
+            }
             editor={
               subtitleKey && (
                 <>

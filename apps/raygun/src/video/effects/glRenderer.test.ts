@@ -2,11 +2,12 @@ import { shaderParams, withEffectDefaults } from './effectParams';
 import { canvasWith, fakeGl } from './fakeGl';
 import {
   EffectsRenderer,
-  MOTION_PASSES,
+  motionPasses,
   PASSES,
   VERTEX_SOURCE,
   WATERMARK_PASS,
 } from './glRenderer';
+import { IN_APP_MOTION } from './motion/inApp';
 import { NO_WATERMARK } from './watermarkMath';
 
 const video = (width = 320, height = 180) => {
@@ -27,7 +28,7 @@ describe('the effect passes', () => {
     expect(VERTEX_SOURCE).toContain('attribute vec4 aFramePosition;');
     expect(PASSES.final).toContain('uniform mat3 uColour;');
     expect(PASSES.clean).toContain('uniform sampler2D uHistory;');
-    for (const source of Object.values(MOTION_PASSES)) {
+    for (const source of Object.values(motionPasses(IN_APP_MOTION))) {
       expect(source.startsWith('// Put in front of each effect pass')).toBe(true);
       expect(source).toContain('vec2 decodeFlow(vec4 stored)');
       // ES 1.00 reserves `half`.
@@ -124,7 +125,7 @@ describe('the effect passes', () => {
 
   it('keeps finished frames for smooth motion and draws between them', () => {
     const { gl, draws } = fakeGl();
-    const renderer = new EffectsRenderer(canvasWith(gl));
+    const renderer = new EffectsRenderer(canvasWith(gl), IN_APP_MOTION);
     const params = shaderParams(withEffectDefaults({ smoothMotion: true, contrast: 20 }));
     const element = video(1920, 1080);
 
@@ -194,6 +195,13 @@ describe('the effect passes', () => {
     renderer.keep(element, params, 30);
     expect(renderer.hasPair).toBe(false);
     expect(draws.some((draw) => draw.pass === 'motionSearch')).toBe(false);
+  });
+
+  it("can't keep frames for smooth motion without its chip's shaders", () => {
+    const { gl } = fakeGl();
+    const renderer = new EffectsRenderer(canvasWith(gl));
+    const params = shaderParams(withEffectDefaults({ smoothMotion: true }));
+    expect(() => renderer.keep(video(), params, 1)).toThrow('Smooth motion needs its chip');
   });
 
   it('says so when there is no WebGL 2', () => {

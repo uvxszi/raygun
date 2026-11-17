@@ -2614,12 +2614,17 @@ fn addon_subtitles(found: Vec<protocol::Subtitle>) -> Vec<VideoSubtitle> {
         .collect()
 }
 
-/// A direct stream as a player request: its own subtitles first, then `extra`.
+/// A direct stream as a player request: its own subtitles first, then `extra` (each up to
+/// [`MAX_SUBTITLES`]: a stream with many of its own still gets the subtitle addons').
 fn direct_request(request: &StremioPlayRequest, extra: &[VideoSubtitle]) -> VideoRequest {
     let stream = &request.stream;
     let mut subtitles: Vec<VideoSubtitle> = stream.subtitles.clone();
-    subtitles.extend(extra.iter().cloned());
     subtitles.truncate(MAX_SUBTITLES);
+    for subtitle in extra.iter().take(MAX_SUBTITLES) {
+        if !subtitles.iter().any(|had| had.url == subtitle.url) {
+            subtitles.push(subtitle.clone());
+        }
+    }
     let lower = stream.target.to_lowercase();
     let path = lower.split(['?', '#']).next().unwrap_or(&lower);
     // A torrent's magnet link (`infoHash`, `fileIdx` and trackers): the torrent engine plays it.

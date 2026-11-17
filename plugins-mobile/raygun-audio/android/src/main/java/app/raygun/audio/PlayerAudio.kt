@@ -34,6 +34,8 @@ internal data class AudioOffer(
     val url: String,
     val headers: Map<String, String>,
     val format: String?,
+    /** Smart Subtitles: its stream lasts as long as the video (`matching`) or not (`mightNotMatch`). */
+    val fit: String? = null,
 ) {
     companion object {
         fun list(items: JSONArray?): List<AudioOffer> {
@@ -56,6 +58,7 @@ internal data class AudioOffer(
                     url = url,
                     headers = headers,
                     format = item.text("format"),
+                    fit = item.text("fit"),
                 )
             }
         }
@@ -412,7 +415,17 @@ internal class PlayerAudio(private val host: VideoPlayerActivity) {
                 val loading = loaded && track == null
                 sheet.row(
                     nameOf(offer),
-                    offerDetail(offer, label("audioLoading", "Loading…").takeIf { loading }),
+                    offerDetail(
+                        offer,
+                        listOfNotNull(
+                            when (offer.fit) {
+                                "matching" -> label("smartMatching", "Matching")
+                                "mightNotMatch" -> label("smartMightNotMatch", "Might not match")
+                                else -> null
+                            },
+                            label("audioLoading", "Loading…").takeIf { loading },
+                        ).joinToString(" · ").ifBlank { null },
+                    ),
                     selected = playing || loading,
                 ) {
                     sheet.dismiss()

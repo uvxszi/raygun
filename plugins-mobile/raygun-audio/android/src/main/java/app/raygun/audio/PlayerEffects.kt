@@ -148,7 +148,13 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     val sound: SmartAudioPrefs get() = ownAudio ?: defaultAudio
 
     /** What plays: the picture's effects without the ones dropped for speed. */
-    private val applied: PictureEffects get() = dropped.fold(picture) { effects, kind -> effects.without(kind) }
+    private val applied: PictureEffects
+        get() = dropped.fold(picture) { effects, kind -> effects.without(kind) }
+            // Smooth motion needs its chip (installed and on); without it the title's choice waits.
+            .let { if (motionDir == null) it.copy(smoothMotion = false) else it }
+
+    /** The Smooth Motion chip's folder (`smoothMotionDir` in the player's settings). */
+    private var motionDir: String? = null
 
     private fun label(key: String, fallback: String, value: String? = null) = host.label(key, fallback, value)
 
@@ -189,6 +195,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private fun readDefaults(prefs: JSONObject) {
         defaults = PictureEffects.from(prefs.optJSONObject("pictureEffects")) ?: PictureEffects.NONE
         defaultAudio = SmartAudioPrefs.from(prefs.optJSONObject("smartAudio")) ?: SmartAudioPrefs()
+        motionDir = prefs.optString("smoothMotionDir").takeIf { !prefs.isNull("smoothMotionDir") && it.isNotEmpty() }
     }
 
     private fun wantsPipeline(): Boolean = (!applied.neutral || watermarks.finding) && !pipeline && !failedThisRun
@@ -259,7 +266,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private fun followMotion() {
         val player = host.player
         val hz = host.window?.decorView?.display?.refreshRate ?: 60f
-        params.motion = MotionParams(on = applied.smoothMotion, displayHz = hz, speed = player.playbackParameters.speed)
+        params.motion = MotionParams(on = applied.smoothMotion, displayHz = hz, speed = player.playbackParameters.speed, dir = motionDir)
         if (!listening) {
             listening = true
             player.addListener(object : Player.Listener {
@@ -505,20 +512,23 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         }
         sheet.header(label("effectsAdjust", "Adjust"))
         adjuster(sheet)
-        sheet.header(label("effectsMotion", "Motion"))
-        sheet.row(
-            label("effectSmoothMotion", "Smooth motion"),
-            label("effectSmoothMotionHint", "In-between frames for smoother movement"),
-            effects.smoothMotion,
-        ) {
-            val on = !picture.smoothMotion
-            if (on) {
-                // Asked for again: it gets another try.
-                dropped.remove(PictureEffects.SMOOTH_MOTION)
-                motionStatus.again()
+        // Smooth motion is a Smart Chip: shown only while it's installed and on.
+        if (motionDir != null) {
+            sheet.header(label("effectsMotion", "Motion"))
+            sheet.row(
+                label("effectSmoothMotion", "Smooth motion"),
+                label("effectSmoothMotionHint", "In-between frames for smoother movement"),
+                effects.smoothMotion,
+            ) {
+                val on = !picture.smoothMotion
+                if (on) {
+                    // Asked for again: it gets another try.
+                    dropped.remove(PictureEffects.SMOOTH_MOTION)
+                    motionStatus.again()
+                }
+                setPicture(picture.copy(smoothMotion = on))
+                open()
             }
-            setPicture(picture.copy(smoothMotion = on))
-            open()
         }
         sheet.custom(LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL

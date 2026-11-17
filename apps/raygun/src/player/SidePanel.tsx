@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
 import { ExplicitMark } from '../music/ExplicitMark';
+import { SuggestedButton } from './SuggestedMark';
 import { songCover } from '../library/coverTargets';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { tidyCredit } from '../music/artists';
@@ -375,6 +376,7 @@ const NextRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = f
             >
               {item.title}
             </span>
+            <SuggestedButton itemId={item.id} />
             {item.explicit && <ExplicitMark />}
           </span>
           {item.artist && (

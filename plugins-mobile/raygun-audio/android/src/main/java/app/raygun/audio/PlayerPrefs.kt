@@ -141,6 +141,9 @@ internal class PlayerPrefs(json: JSONObject) {
     val externalPackage: String = json.optString("externalPackage")
     val showFailedSources: Boolean = json.optBoolean("showFailedSources", true)
     val showEmptySources: Boolean = json.optBoolean("showEmptySources", true)
+    /** Smart Subtitles: switched on, and whether its switch shows (its Smart Chip is on). */
+    var smartSubtitles: Boolean = json.optBoolean("smartSubtitles", false)
+    val smartSubtitlesAvailable: Boolean = json.optBoolean("smartSubtitlesAvailable", false)
 
     /** The largest picture height automatic quality may use ("1080p" → 1080); null for the highest. */
     val maxHeight: Int? get() = preferredResolution.let { value ->

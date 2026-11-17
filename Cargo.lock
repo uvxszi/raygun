@@ -7535,6 +7535,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "specta",
+ "tar",
  "tauri",
  "tauri-plugin-notification",
  "tauri-plugin-raygun-audio",
@@ -7542,6 +7543,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -8071,6 +8073,8 @@ name = "raygun-net"
 version = "1.9.7"
 dependencies = [
  "axum",
+ "encoding_rs",
+ "flate2",
  "futures-util",
  "hayro",
  "image",

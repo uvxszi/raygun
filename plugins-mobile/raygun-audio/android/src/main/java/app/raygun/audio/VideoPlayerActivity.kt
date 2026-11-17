@@ -170,6 +170,13 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** The picture's effects and smart audio ([PlayerEffects]). */
     internal lateinit var effects: PlayerEffects
     internal lateinit var second: SecondSubtitles
+    /** The main subtitles drawn from their file here, with the delay applied exactly. */
+    internal lateinit var subtitleClock: SubtitleClock
+    /** Smart Subtitles' order and marks for the subtitle files, by address ([SmartRanks]). */
+    internal var smartRanks = SmartRanks.NONE
+    /** The Sources toggles, as Rust has them. */
+    internal var leaveOutTrailers = true
+    internal var leaveOutShort = true
     /** AI subtitles and translations made as the video plays. */
     internal lateinit var liveTracks: LiveSubtitles
     /** Live streams: their clock, the LIVE badge, holding the picture behind for AI subtitles. */
@@ -405,6 +412,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         mainCues = StyledCues(subtitleView)
         secondCues = StyledCues(secondView)
         second = SecondSubtitles(this, secondCues)
+        subtitleClock = SubtitleClock(this)
         dim = View(this).apply {
             setBackgroundColor(Color.BLACK)
             alpha = 0f
@@ -617,6 +625,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            subtitleClock.refresh()
             if (!isPlaying) report("progress")
             updateWaiting()
             controls.update()
@@ -630,6 +639,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             reason: Int,
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK) seekedAt = SystemClock.elapsedRealtime()
+            // Subtitles drawn here follow the playhead at once.
+            subtitleClock.refresh()
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && looping) wrapped()
         }
 
@@ -693,6 +704,8 @@ class VideoPlayerActivity : AppCompatActivity() {
                 tracksPicked = true
                 choices.pick(state, prefs, languages)
             }
+            // A subtitle file chosen is drawn from here, with the delay applied exactly.
+            subtitleClock.onTracks()
             // Another source's sound just added plays; Audio has it, the delay, the files and
             // smart audio.
             audio.onTracksChanged()
@@ -718,7 +731,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
         override fun onCues(cueGroup: CueGroup) {
             // A live track shows instead while it's the main one.
-            if (liveTracks.primary == null) mainCues.set(cueGroup.cues)
+            if (liveTracks.primary == null) subtitleClock.fromMedia3(cueGroup.cues)
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -809,6 +822,8 @@ class VideoPlayerActivity : AppCompatActivity() {
                 linkSession = update.optBoolean("link")
                 sourcesAlone = update.optBoolean("alone")
                 sourcesFallback = update.optBoolean("fallback", true)
+                leaveOutTrailers = update.optBoolean("leaveOutTrailers", leaveOutTrailers)
+                leaveOutShort = update.optBoolean("leaveOutShort", leaveOutShort)
                 sourcesSheet.refresh()
                 // What the wait is for, as the sources answer (a failure's reason stays meanwhile).
                 if (loading.finding) {
@@ -833,6 +848,13 @@ class VideoPlayerActivity : AppCompatActivity() {
                 liveTracks.onUpdate(update)
             }
             "prefs" -> settingsChanged(update)
+            // Subtitle files that came after the video loaded (slow subtitle addons).
+            "subtitlesAdded" -> if (update.optString("id") == videoId) addSubtitles(update.optJSONArray("items"))
+            // Smart Subtitles' order and marks for the files.
+            "subtitleRanks" -> if (update.optString("id") == videoId) {
+                smartRanks = SmartRanks.from(update)
+                sheets.tracksChanged()
+            }
             "chapters" -> if (update.optString("id") == videoId) {
                 // AniSkip's, beside any the source gave.
                 val found = Chapter.list(update.optJSONArray("items")).filter { new ->
@@ -885,21 +907,11 @@ class VideoPlayerActivity : AppCompatActivity() {
         mainCues.set(null)
 
         sidecars.clear()
+        subtitleClock.reset()
+        smartRanks = SmartRanks.NONE
         request.optJSONArray("subtitles")?.let { list ->
             for (index in 0 until list.length()) {
-                val track = list.optJSONObject(index) ?: continue
-                val url = track.text("url") ?: continue
-                val language = track.text("lang")
-                val label = track.text("label")
-                sidecars += Sidecar(
-                    Uri.parse(url),
-                    subtitleMime(track.text("format").orEmpty(), url),
-                    // "English" as a language reads as `en`, so Media3 and the sheets agree.
-                    Languages.code(language) ?: language,
-                    label ?: language,
-                    // The addon that found it, or its file's name: under its name in the sheets.
-                    track.text("source"),
-                )
+                list.optJSONObject(index)?.let { sidecarOf(it) }?.let { sidecars += it }
             }
         }
         sidecars += added
@@ -1477,14 +1489,22 @@ class VideoPlayerActivity : AppCompatActivity() {
         vignette.shown = controls.visible && !controls.locked
     }
 
-    /** Positive delays show subtitles later. Changing it re-reads cues from the same spot. */
+    /**
+     * Positive delays show subtitles later. A subtitle file is drawn here ([SubtitleClock]): its
+     * lines move at once. The video's own tracks are drawn by Media3's renderer, which reads its
+     * cues from the same spot again (a seek in place, once the typing stops).
+     */
     internal fun setSubtitleDelay(ms: Long) {
         val delay = ms.coerceIn(-600_000L, 600_000L)
         state.subtitleDelayMs = delay
         tracks.text.delayUs = delay * 1000
         remember(JSONObject().put("subtitleDelayMs", delay))
         main.removeCallbacks(resyncSubtitles)
-        main.postDelayed(resyncSubtitles, 700)
+        if (subtitleClock.drawing) {
+            subtitleClock.refresh()
+        } else {
+            main.postDelayed(resyncSubtitles, 150)
+        }
     }
 
     internal fun loadSecond(sidecar: Sidecar) {
@@ -1527,6 +1547,45 @@ class VideoPlayerActivity : AppCompatActivity() {
         val playing = player.playWhenReady
         reload(player.currentPosition)
         player.playWhenReady = playing
+    }
+
+    /** A subtitle file the request lists, as a sidecar; null without an address. */
+    private fun sidecarOf(track: JSONObject): Sidecar? {
+        val url = track.text("url") ?: return null
+        val language = track.text("lang")
+        val label = track.text("label")
+        return Sidecar(
+            Uri.parse(url),
+            subtitleMime(track.text("format").orEmpty(), url),
+            // "English" as a language reads as `en`, so Media3 and the sheets agree.
+            Languages.code(language) ?: language,
+            label ?: language,
+            // The addon that found it, or its file's name: under its name in the sheets.
+            track.text("source"),
+        )
+    }
+
+    /**
+     * Subtitle files that came after the video loaded join its tracks, after its own and before
+     * any added here (so indices into the request's `subtitles` stay right), and the video is
+     * built again where it is. With no subtitles chosen yet for the title, they're picked from.
+     */
+    private fun addSubtitles(items: JSONArray?) {
+        items ?: return
+        val listed = current.optJSONArray("subtitles") ?: JSONArray().also { current.put("subtitles", it) }
+        val known = sidecars.map { it.uri.toString() }.toMutableSet()
+        val fresh = mutableListOf<Sidecar>()
+        for (index in 0 until items.length()) {
+            val track = items.optJSONObject(index) ?: continue
+            val sidecar = sidecarOf(track) ?: continue
+            if (!known.add(sidecar.uri.toString())) continue
+            listed.put(track)
+            fresh += sidecar
+        }
+        if (fresh.isEmpty()) return
+        sidecars.addAll((sidecars.size - added.size).coerceAtLeast(0), fresh)
+        if (state.subtitle == null && !state.subtitleOff) tracksPicked = false
+        reloadKeepingPlace()
     }
 
     /** A subtitle file chosen on the device joins the video's tracks and plays. */
@@ -1636,17 +1695,18 @@ class VideoPlayerActivity : AppCompatActivity() {
      * Settings → Video player in the app: the video pauses in its small window (tapping it comes
      * back), and the app opens the screen.
      */
-    internal fun openAppSettings() {
+    internal fun openAppSettings(action: String = "openSettings", extra: JSONObject = JSONObject()) {
         player.pause()
         // The app comes forward only once the video is in its small window: opened first, it
         // would stop this window before the small one began, leaving that black.
         settingsAfterPip = true
+        settingsRequest = action to extra
         enterPip()
         if (!isInPip()) {
             main.postDelayed({
                 if (settingsAfterPip) {
                     settingsAfterPip = false
-                    request("openSettings")
+                    askForSettings()
                 }
             }, PIP_SETTINGS_WAIT_MS)
         }
@@ -1654,6 +1714,14 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     /** "More settings" waits for the small window before the app shows Settings. */
     private var settingsAfterPip = false
+
+    /** What the app is asked to show then: Settings → Video player, or a source's settings. */
+    private var settingsRequest: Pair<String, JSONObject> = "openSettings" to JSONObject()
+
+    private fun askForSettings() {
+        val (action, extra) = settingsRequest
+        request(action, extra)
+    }
 
     // ---- The paused frame ----
 
@@ -1902,7 +1970,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         Log.d("RaygunPip", "small window $isInPictureInPictureMode, paused ${!player.playWhenReady}")
         if (isInPictureInPictureMode && settingsAfterPip) {
             settingsAfterPip = false
-            request("openSettings")
+            askForSettings()
         }
         // The picture's frame lays out at the window's new size, keeping its aspect, and a paused
         // video draws its frame again there (else the small window stays black, and coming back

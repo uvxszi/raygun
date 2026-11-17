@@ -249,6 +249,10 @@ impl Group {
 
 mod audio;
 mod memory;
+pub mod picking;
+pub mod smart_subtitles;
+
+use picking::{LeftOut, Picking};
 
 use memory::WORKED_AFTER_MS;
 pub use memory::{
@@ -280,6 +284,9 @@ struct Arriving {
     subtitles_until: Option<i64>,
     /// The subtitle addons' tracks, given to every link that comes.
     extra_subtitles: Option<Vec<raygun_model::VideoSubtitle>>,
+    /// The subtitle files the link playing was loaded with, by address: tracks that come later
+    /// are sent to the player as they come (`subtitlesAdded`).
+    loaded_subtitles: HashSet<String>,
 }
 
 /// How often a source's measured speed is saved while it plays.
@@ -352,6 +359,8 @@ struct Session {
     /// when none plays after all, it's told so.
     player_waits: bool,
     arriving: Arriving,
+    /// Lengths, the Sources toggles and sources turned off for this title (`picking`).
+    picking: Picking,
 }
 
 impl Session {
@@ -456,9 +465,45 @@ impl Session {
         (!(patient && better_pending)).then_some((best.0, best.1))
     }
 
+    /// The sizes the session's links name, to tell a sample by.
+    fn sizes(&self) -> Vec<u64> {
+        self.groups
+            .iter()
+            .flat_map(|group| group.links.iter())
+            .filter_map(|link| link.size)
+            .collect()
+    }
+
+    /// Why a link isn't played by itself (`picking`): its source is off for this title, it's a
+    /// trailer or far shorter than the title. A download, a link played on its own and links
+    /// picked by hand are never left out.
+    fn left_out(&self, group: &Group, link: &Link, sizes: &[u64]) -> Option<LeftOut> {
+        if group.id == DOWNLOAD_GROUP || own_group(self.link.is_some(), group) {
+            return None;
+        }
+        self.picking.left_out(
+            &group.name,
+            &link.label,
+            &link.request.url,
+            link.size,
+            sizes,
+        )
+    }
+
     /// The best untried link of the sources that answered, with its rank ([`Self::next_candidate`]
-    /// without waiting for anyone).
+    /// without waiting for anyone). Links left out (`picking`) aren't played by themselves; a link
+    /// left for a better one while it played comes back only when no other is left.
     fn best_candidate(&self, ranking: &Ranking) -> Option<(usize, usize, memory::RankKey)> {
+        self.best_of(ranking, false)
+            .or_else(|| self.best_of(ranking, true))
+    }
+
+    fn best_of(
+        &self,
+        ranking: &Ranking,
+        left_ones: bool,
+    ) -> Option<(usize, usize, memory::RankKey)> {
+        let sizes = self.sizes();
         let unwanted = |link: &Link| {
             self.wanted.map(|wanted| {
                 let facts = link.facts();
@@ -480,10 +525,17 @@ impl Session {
                     .enumerate()
                     .map(move |(link_index, link)| (group_index, link_index, group, link))
             })
-            .filter(|(group_index, link_index, _, link)| {
+            .filter(|(group_index, link_index, group, link)| {
+                let at = (*group_index, *link_index);
+                let fresh = if left_ones {
+                    self.picking.left.contains(&at)
+                } else {
+                    !self.tried.contains(&at)
+                };
                 link.failed.is_none()
                     && !self.dead_urls.contains(&link.request.url)
-                    && !self.tried.contains(&(*group_index, *link_index))
+                    && fresh
+                    && self.left_out(group, link, &sizes).is_none()
             })
             .min_by_key(|(group_index, link_index, group, link)| {
                 (
@@ -527,13 +579,30 @@ impl Session {
         }
         let ranking = self.ranking(now);
         let playing_key = ranking.link_key(&playing_group.name, playing);
-        let (group, link, key) = self.best_candidate(&ranking)?;
+        // The link that played this title before stays: it works.
+        if playing_key.1 == memory::Standing::LastPlayed {
+            return None;
+        }
+        let (group, link, key) = self.best_of(&ranking, false)?;
         let candidate = &self.groups[group].links[link];
         let request = &candidate.request;
         let switchable = !raygun_torrent::is_torrent(&request.url, request.format.as_deref())
             && !request.url.starts_with(crate::video::YOUTUBE_LINK)
             && !crate::video::is_page(request);
-        (switchable && clearly_better(key, playing_key)).then_some((group, link))
+        let length_off = self.length_off(&playing.request.url);
+        (switchable && (length_off && key.1 <= playing_key.1 || clearly_better(key, playing_key)))
+            .then_some((group, link))
+    }
+
+    /// Whether the link at `url` measured a length unlike the title's (a different cut, a
+    /// recap), short of being left out as far shorter: any link standing as well beats it.
+    fn length_off(&self, url: &str) -> bool {
+        let Some((_, length)) = self.picking.lengths.get(url) else {
+            return false;
+        };
+        self.picking
+            .expected(Some(url))
+            .is_some_and(|expected| picking::length_differs(expected, *length))
     }
 
     /// The links the Quality menu can play, with their steps and their place in the order the
@@ -658,6 +727,7 @@ fn quality_name(key: QualityKey) -> String {
 /// list shows the sources in ([`source_order`]).
 fn sources_update(session: &Session, now: i64) -> Value {
     let ranking = session.ranking(now);
+    let sizes = session.sizes();
     // "Playing from <source>" once the current link has played a while.
     let playing_from = session
         .watching
@@ -709,6 +779,10 @@ fn sources_update(session: &Session, now: i64) -> Value {
                         // A torrent, with the seeds its source names when it does.
                         "torrent": raygun_torrent::is_torrent(&link.request.url, link.request.format.as_deref())
                             .then(|| json!({ "seeds": raygun_torrent::seeds_in(&link.label) })),
+                        // What the player measured it lasting, and why it isn't played by
+                        // itself (`off`, `trailer`, `short`).
+                        "lengthMs": session.picking.lengths.get(&link.request.url).map(|(_, ms)| ms),
+                        "leftOut": session.left_out(group, link, &sizes).map(LeftOut::key),
                     })
                 })
                 .collect();
@@ -724,12 +798,18 @@ fn sources_update(session: &Session, now: i64) -> Value {
                 "options": group.links.iter().filter(|link| usable(link)).count(),
                 "speedKbps": session.speed_of(&group.name),
                 "links": links,
+                // Its button: turned off for this title, and what its settings are.
+                "off": session.picking.off_here.contains(&group.name),
+                "kind": source_kind(session, group),
             })
         })
         .collect();
     json!({
         "type": "sources",
         "playingFrom": playing_from,
+        // The Sources toggles (`VideoPlayerPrefs::leave_out_trailers`/`leave_out_short`).
+        "leaveOutTrailers": session.picking.prefs.leave_out_trailers,
+        "leaveOutShort": session.picking.prefs.leave_out_short,
         "groups": groups,
         "order": source_order(session, &ranking),
         // A link played on its own: its own links come first, and with nothing else to switch
@@ -753,12 +833,66 @@ fn add_subtitles(links: &mut [Link], extra: &[raygun_model::VideoSubtitle]) {
         if request.url.starts_with(crate::video::YOUTUBE_LINK) || crate::video::is_page(request) {
             continue;
         }
+        // The stream's own tracks don't take the subtitle addons' room: each has as many.
+        let extra_urls: HashSet<&str> =
+            extra.iter().map(|subtitle| subtitle.url.as_str()).collect();
+        let present = request
+            .subtitles
+            .iter()
+            .filter(|had| extra_urls.contains(had.url.as_str()))
+            .count();
+        let mut room = crate::stremio::MAX_SUBTITLES.saturating_sub(present);
         for subtitle in extra {
+            if room == 0 {
+                break;
+            }
             if !request.subtitles.iter().any(|had| had.url == subtitle.url) {
                 request.subtitles.push(subtitle.clone());
+                room -= 1;
             }
         }
-        request.subtitles.truncate(crate::stremio::MAX_SUBTITLES);
+    }
+}
+
+/// Where the sources turned off for a title are kept.
+fn off_key(origin: &Origin) -> String {
+    format!("video.sourcesOff.{}", origin.group_key())
+}
+
+/// An extension's page, for a source id (`<extension>/<provider>`) or an extension id.
+fn extension_route(source: &str) -> String {
+    let extension = source
+        .split_once('/')
+        .map_or(source, |(extension, _)| extension);
+    let encoded: String = extension
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect();
+    format!("/extensions/detail?id={encoded}")
+}
+
+/// What a source is, for its button in Sources: `addon` (a Stremio addon: off everywhere turns
+/// the addon off, its settings are the addon's), `provider` (a stream provider: an extension's
+/// source), `server` (a video source's server: the source and its extension), or `none` (a
+/// download, a link's own files, a placeholder) without a button.
+fn source_kind(session: &Session, group: &Group) -> &'static str {
+    if group.id == DOWNLOAD_GROUP
+        || group.id == MATCH_GROUP
+        || group.id == "addons"
+        || group.id == "source"
+        || own_group(session.link.is_some(), group)
+    {
+        return "none";
+    }
+    match &session.origin {
+        Origin::Source { .. } => "server",
+        _ if group.id.contains('/') => "provider",
+        _ => "addon",
     }
 }
 
@@ -995,9 +1129,11 @@ impl VideoSessions {
         .unwrap_or_default();
         let health = self.health().await;
         let resolution = self.resolution().await;
+        let picking = self.picking_for(&origin, &memory, &title).await;
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
         let label = episodes[index].label.clone();
         *self.session.lock().expect("session poisoned") = Some(Session {
+            picking,
             generation,
             origin,
             title: title.clone(),
@@ -1063,6 +1199,7 @@ impl VideoSessions {
         let memory = self.recall(&origin.memory_key()).await.unwrap_or_default();
         let health = self.health().await;
         let resolution = self.resolution().await;
+        let picking = self.picking_for(&origin, &memory, &request.title).await;
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
         let title = request.title.clone();
         let subtitle = request.subtitle.clone().unwrap_or_default();
@@ -1109,6 +1246,7 @@ impl VideoSessions {
             link_error: None,
             player_waits: false,
             arriving: Arriving::default(),
+            picking,
         });
         let mut shell = crate::video::session_shell(&self.app, &title, &subtitle).await;
         // A torrent's details come from peers first.
@@ -1216,10 +1354,101 @@ impl VideoSessions {
         }
     }
 
+    /// Keeps the length the player measured for the link playing; when it's far shorter than the
+    /// title (a placeholder clip, a trailer, a sample: `picking`), the session's generation, for
+    /// the link to be passed over. A link picked by hand, a download and a link played on its own
+    /// play whatever they last.
+    fn note_length(&self, key: &str, heard: Heard) -> Option<u64> {
+        let mut guard = self.session.lock().expect("session poisoned");
+        let session = guard.as_mut()?;
+        if session.episode().key != key || heard.live {
+            return None;
+        }
+        let length = heard.duration_ms?;
+        let (group, link) = session.current?;
+        let entry = session.groups.get(group)?;
+        let chosen = entry.links.get(link)?;
+        let url = chosen.request.url.clone();
+        session
+            .picking
+            .lengths
+            .insert(url.clone(), (entry.name.clone(), length));
+        let short = session.picking.prefs.leave_out_short
+            && !session.arriving.picked
+            && entry.id != DOWNLOAD_GROUP
+            && !own_group(session.link.is_some(), entry)
+            && session.picking.measured_short(&url);
+        if short {
+            tracing::info!(
+                source = %entry.name,
+                length,
+                expected = ?session.picking.expected(Some(&url)),
+                "a link far shorter than the title: passed over"
+            );
+        }
+        short.then_some(session.generation)
+    }
+
+    /// The link playing is far shorter than the title: it's marked so (not tried again, and not
+    /// first for this title next time; its source isn't blamed) and the next one plays from where
+    /// this one started.
+    async fn pass_over(&self, generation: u64) {
+        let reason = self.label(
+            "linkTooShort",
+            "Far shorter than the title: a trailer, sample or placeholder",
+        );
+        let remembered = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard
+                .as_mut()
+                .filter(|session| session.generation == generation)
+            else {
+                return;
+            };
+            let watching = session.watching.take();
+            let Some((group, link)) = session.current.take() else {
+                return;
+            };
+            if let Some(from) = watching.map(|watching| watching.from).filter(|at| *at > 0) {
+                session.start_at = Some(from);
+            }
+            let now = now_ms();
+            let Some(entry) = session.groups.get_mut(group) else {
+                return;
+            };
+            let name = entry.name.clone();
+            let Some(chosen) = entry.links.get_mut(link) else {
+                return;
+            };
+            chosen.failed = Some(reason);
+            session.dead_urls.insert(chosen.request.url.clone());
+            let chosen = chosen.clone();
+            session.memory.failed(&name, &chosen, now);
+            let keys: Vec<String> = [
+                Some(session.origin.memory_key()),
+                session.show_memory.clone(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            (session.memory.clone(), keys)
+        };
+        let (memory, keys) = remembered;
+        for key in &keys {
+            self.remember(key, &memory).await;
+        }
+        self.push_sources().await;
+        self.try_play(generation).await;
+    }
+
     /// The link loaded last has played [`WORKED_AFTER_MS`] (or to its end): it's the one this
     /// title starts from next time, and its source counts as working.
     async fn on_progress(&self, key: &str, position: i64, ended: bool, heard: Heard) {
         self.note_heard(key, heard).await;
+        if let Some(generation) = self.note_length(key, heard) {
+            self.pass_over(generation).await;
+            return;
+        }
         let worked = {
             let mut guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_mut() else {
@@ -1240,6 +1469,11 @@ impl VideoSessions {
                 watching.from
             };
             let played = position - from >= WORKED_AFTER_MS;
+            // A clip that ends within a minute hasn't played the title.
+            let ended = ended
+                && session
+                    .duration_ms
+                    .is_none_or(|length| length >= picking::SHORTEST_TITLE_MS);
             if watching.confirmed || session.current != Some(watching.at) || !(played || ended) {
                 return;
             }
@@ -1260,6 +1494,13 @@ impl VideoSessions {
             let name = entry.name.clone();
             let chosen = chosen.clone();
             session.memory.worked(&name, &chosen, now);
+            // What it lasted is what links are measured against next time (a length unlike the
+            // title's isn't kept).
+            if let Some(length) = session.duration_ms.filter(|_| !heard.live)
+                && !session.picking.measured_short(&chosen.request.url)
+            {
+                session.memory.length_ms = Some(length);
+            }
             session.health.worked(&name, now);
             let memory: Vec<String> = [
                 Some(session.origin.memory_key()),
@@ -1311,6 +1552,23 @@ impl VideoSessions {
                     Some(key) => self.choose_quality(key, position).await,
                     // Automatic: the session picks by itself again.
                     None => self.forget_quality().await,
+                }
+                return;
+            }
+            // A source's button: off for this title (`scope` `title`), everywhere, or on again.
+            "sourceOff" => {
+                if let Some(group) = report.get("group").and_then(Value::as_u64) {
+                    let scope = report
+                        .get("scope")
+                        .and_then(Value::as_str)
+                        .unwrap_or("title");
+                    self.set_source_off(group as usize, scope).await;
+                }
+                return;
+            }
+            "sourceSettings" => {
+                if let Some(group) = report.get("group").and_then(Value::as_u64) {
+                    self.open_source_settings(group as usize).await;
                 }
                 return;
             }
@@ -1390,6 +1648,8 @@ impl VideoSessions {
             session.groups.clear();
             session.current = None;
             session.tried.clear();
+            session.picking.left.clear();
+            session.picking.lengths.clear();
             session.start_at = None;
             session.watching = None;
             session.resolving_since = now_ms();
@@ -1642,6 +1902,178 @@ impl VideoSessions {
     ) -> (Remembered, SourceHealth, VideoResolution) {
         let memory = self.recall(&origin.memory_key()).await.unwrap_or_default();
         (memory, self.health().await, self.resolution().await)
+    }
+
+    /// What a new session judges links by (`picking`): the Sources toggles, the title's runtime
+    /// from its details, the length of what played before, and the sources turned off for it.
+    async fn picking_for(&self, origin: &Origin, memory: &Remembered, title: &str) -> Picking {
+        let prefs = crate::settings::load(&self.db())
+            .await
+            .map(|settings| picking::PickPrefs::of(&settings.video_player))
+            .unwrap_or_default();
+        let runtime_ms = match origin {
+            Origin::Stremio { kind, id } => self
+                .app
+                .state::<std::sync::Arc<StremioService>>()
+                .meta(kind, id)
+                .await
+                .ok()
+                .and_then(|meta| meta.runtime.as_deref().and_then(picking::parse_runtime)),
+            _ => None,
+        };
+        let off_here = raygun_db::local_value(&self.db(), &off_key(origin))
+            .await
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str::<HashSet<String>>(&text).ok())
+            .unwrap_or_default();
+        Picking {
+            prefs,
+            runtime_ms,
+            remembered_ms: memory.length_ms,
+            off_here,
+            smart: smart_subtitles::smart_subtitles_on(&self.app).await,
+            title: title.to_owned(),
+            ..Picking::default()
+        }
+    }
+
+    /// The Sources toggles changed (in the sheet or Settings): the session judges links by them
+    /// at once.
+    pub async fn pick_prefs_changed(&self, prefs: picking::PickPrefs) {
+        let generation = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_mut() else {
+                return;
+            };
+            if session.picking.prefs == prefs {
+                return;
+            }
+            session.picking.prefs = prefs;
+            session.generation
+        };
+        self.push_sources().await;
+        self.try_play(generation).await;
+    }
+
+    /// A source's button in Sources: turned off for this title (or on again), or everywhere
+    /// (a Stremio addon turned off; an extension's source among the disabled sources).
+    async fn set_source_off(&self, group: usize, scope: &str) {
+        let found = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_mut() else {
+                return;
+            };
+            let Some(entry) = session.groups.get(group) else {
+                return;
+            };
+            let (name, id, kind) = (
+                entry.name.clone(),
+                entry.id.clone(),
+                source_kind(session, entry),
+            );
+            match scope {
+                "on" => {
+                    session.picking.off_here.remove(&name);
+                }
+                _ => {
+                    session.picking.off_here.insert(name.clone());
+                }
+            }
+            let source_id = match &session.origin {
+                Origin::Source { title_id } => Some(title_id.clone()),
+                _ => None,
+            };
+            (
+                off_key(&session.origin),
+                session.picking.off_here.clone(),
+                session.generation,
+                id,
+                kind,
+                source_id,
+            )
+        };
+        let (key, off_here, generation, id, kind, title_id) = found;
+        if let Ok(text) = serde_json::to_string(&off_here)
+            && let Err(error) = raygun_db::set_local_value(&self.db(), &key, &text).await
+        {
+            tracing::warn!(%error, "could not keep the sources turned off for a title");
+        }
+        if scope == "everywhere" {
+            let result = match kind {
+                "addon" => {
+                    self.app
+                        .state::<std::sync::Arc<StremioService>>()
+                        .set_enabled(&id, false)
+                        .await
+                }
+                "provider" => self.disable_source(&id).await,
+                "server" => match title_id {
+                    Some(title_id) => match titles::title(&self.db(), &title_id).await {
+                        Ok(Some(row)) => self.disable_source(&row.fields.source_id).await,
+                        _ => Err("This title is no longer stored".into()),
+                    },
+                    None => Ok(()),
+                },
+                _ => Ok(()),
+            };
+            if let Err(error) = result {
+                tracing::warn!(%error, "could not turn a source off");
+            }
+        }
+        self.push_sources().await;
+        self.try_play(generation).await;
+    }
+
+    /// Adds a source (`<extension>/<provider>`) to the disabled sources and puts it into effect.
+    async fn disable_source(&self, id: &str) -> Result<(), String> {
+        let db = self.db();
+        let settings = crate::settings::load(&db)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut ids = settings.disabled_sources.clone();
+        if ids.iter().any(|known| known == id) {
+            return Ok(());
+        }
+        ids.push(id.to_owned());
+        let settings = crate::settings::update(&db, SettingChange::DisabledSources(ids))
+            .await
+            .map_err(|error| error.to_string())?;
+        crate::settings::apply_live(&self.app, &settings, Some(&["disabledSources"])).await;
+        let _ = crate::events::SettingsChangedEvent("disabledSources".into()).emit(&self.app);
+        Ok(())
+    }
+
+    /// A source's settings, opened in the app: a Stremio addon's in Sources → Addons, an
+    /// extension's on its page.
+    async fn open_source_settings(&self, group: usize) {
+        let (kind, id, title_id) = {
+            let guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_ref() else {
+                return;
+            };
+            let Some(entry) = session.groups.get(group) else {
+                return;
+            };
+            let title_id = match &session.origin {
+                Origin::Source { title_id } => Some(title_id.clone()),
+                _ => None,
+            };
+            (source_kind(session, entry), entry.id.clone(), title_id)
+        };
+        let route = match (kind, title_id) {
+            ("addon", _) => "/sources?type=addons".to_owned(),
+            ("provider", _) => extension_route(&id),
+            // A video source's server: its source's extension.
+            ("server", Some(title_id)) => match titles::title(&self.db(), &title_id).await {
+                Ok(Some(row)) => extension_route(&row.fields.source_id),
+                _ => return,
+            },
+            _ => return,
+        };
+        if let Err(error) = crate::events::OpenRouteEvent(route).emit(&self.app) {
+            tracing::warn!(%error, "could not open a source's settings");
+        }
     }
 
     /// The picture size links are ordered by (`VideoPlayerPrefs::preferred_resolution`).
@@ -2077,6 +2509,7 @@ impl VideoSessions {
             }
             session.groups = groups;
             session.tried.clear();
+            session.picking.left.clear();
             session.current = None;
         }
         self.push_sources().await;
@@ -2209,7 +2642,59 @@ impl VideoSessions {
             }
             session.arriving.extra_subtitles = Some(extra);
         }
+        // A link already playing (the subtitle addons answered after it started) gets them too.
+        self.push_new_subtitles(generation);
         self.try_play(generation).await;
+    }
+
+    /// Sends the player the subtitle files the link playing has now but wasn't loaded with (the
+    /// subtitle addons answering after it started): they join its tracks where it is.
+    fn push_new_subtitles(&self, generation: u64) {
+        let added = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard
+                .as_mut()
+                .filter(|session| session.generation == generation)
+            else {
+                return;
+            };
+            let Some(watching) = session
+                .watching
+                .filter(|watching| Some(watching.at) == session.current)
+            else {
+                return;
+            };
+            let Some(link) = session
+                .groups
+                .get(watching.at.0)
+                .and_then(|group| group.links.get(watching.at.1))
+            else {
+                return;
+            };
+            let new: Vec<raygun_model::VideoSubtitle> = link
+                .request
+                .subtitles
+                .iter()
+                .filter(|subtitle| !session.arriving.loaded_subtitles.contains(&subtitle.url))
+                .cloned()
+                .collect();
+            if new.is_empty() {
+                return;
+            }
+            session
+                .arriving
+                .loaded_subtitles
+                .extend(new.iter().map(|subtitle| subtitle.url.clone()));
+            (link.request.key.clone(), new)
+        };
+        let (key, new) = added;
+        let items = crate::video::proxied_subtitles(&self.app, &new);
+        tracing::info!(count = items.len(), "subtitles joined the video playing");
+        let _ = crate::video::update_player(
+            &self.app,
+            &json!({ "type": "subtitlesAdded", "id": key, "items": items }),
+        );
+        self.compare_subtitles(generation);
     }
 
     /// Plays the best untried link when nothing plays; says so when every link has failed.
@@ -2236,8 +2721,9 @@ impl VideoSessions {
                 let Some(better) = session.upgrade(now_ms()) else {
                     return;
                 };
-                // The one playing stays a fallback: it worked.
-                session.tried.remove(&playing);
+                // The one playing is left, never gone back to while another can play; it worked,
+                // so it comes back when nothing else is left.
+                session.picking.left.insert(playing);
                 session.tried.insert(better);
                 session.current = Some(better);
                 session.watching = None;
@@ -2440,6 +2926,11 @@ impl VideoSessions {
                 {
                     session.arriving.position = None;
                     session.arriving.live = false;
+                    session.arriving.loaded_subtitles = request
+                        .subtitles
+                        .iter()
+                        .map(|subtitle| subtitle.url.clone())
+                        .collect();
                     session.watching = Some(Watching {
                         at: (group, link),
                         from,
@@ -2448,6 +2939,9 @@ impl VideoSessions {
                     });
                 }
                 self.push_episodes().await;
+                // Tracks that came while it was being prepared join it now.
+                self.push_new_subtitles(generation);
+                self.compare_subtitles(generation);
             }
             Err(error) => {
                 tracing::warn!(%error, "a link couldn't be prepared");
@@ -2960,6 +3454,7 @@ mod tests {
             link_error: None,
             player_waits: false,
             arriving: Arriving::default(),
+            picking: Picking::default(),
         }
     }
 
@@ -4249,5 +4744,167 @@ mod tests {
                 .iter()
                 .all(|offer| offer.source != "Downloaded")
         );
+    }
+
+    // ---- Picking by length and name (`picking`) ----
+
+    const MIN: i64 = 60_000;
+
+    fn three_sources() -> Session {
+        session(
+            vec![
+                Group::finished(
+                    "a".into(),
+                    "Alpha".into(),
+                    vec![link("Alpha 1080p", None)],
+                    None,
+                ),
+                Group::finished(
+                    "b".into(),
+                    "Beta".into(),
+                    vec![link("Beta 1080p", None)],
+                    None,
+                ),
+                Group::finished(
+                    "c".into(),
+                    "Gamma".into(),
+                    vec![link("Gamma 1080p", None)],
+                    None,
+                ),
+            ],
+            vec![episode("e1", None)],
+        )
+    }
+
+    fn measure(state: &mut Session, at: (usize, usize), length: i64) {
+        let group = &state.groups[at.0];
+        let url = group.links[at.1].request.url.clone();
+        state
+            .picking
+            .lengths
+            .insert(url, (group.name.clone(), length));
+    }
+
+    #[test]
+    fn trailers_are_passed_over_unless_the_switch_is_off() {
+        let mut state = session(
+            vec![
+                Group::finished(
+                    "a".into(),
+                    "Alpha".into(),
+                    vec![link("Official Trailer 1080p", None)],
+                    None,
+                ),
+                Group::finished(
+                    "b".into(),
+                    "Beta".into(),
+                    vec![link("Beta 720p", None)],
+                    None,
+                ),
+            ],
+            vec![episode("e1", None)],
+        );
+        assert_eq!(state.next_candidate(NOW), Some((1, 0)));
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["groups"][0]["links"][0]["leftOut"], "trailer");
+        assert_eq!(update["leaveOutTrailers"], true);
+        state.picking.prefs.leave_out_trailers = false;
+        assert_eq!(state.next_candidate(NOW), Some((0, 0)));
+    }
+
+    #[test]
+    fn a_link_far_shorter_than_what_sources_agree_on_is_left_out() {
+        let mut state = three_sources();
+        // Alpha's link turned out a two-minute clip; Beta's and Gamma's played the film.
+        measure(&mut state, (0, 0), 2 * MIN);
+        measure(&mut state, (1, 0), 92 * MIN);
+        assert!(
+            !state
+                .picking
+                .measured_short(&state.groups[0].links[0].request.url)
+        );
+        measure(&mut state, (2, 0), 91 * MIN);
+        assert!(
+            state
+                .picking
+                .measured_short(&state.groups[0].links[0].request.url)
+        );
+        assert_eq!(state.next_candidate(NOW), Some((1, 0)));
+        // With the switch off, length doesn't matter.
+        state.picking.prefs.leave_out_short = false;
+        assert_eq!(state.next_candidate(NOW), Some((0, 0)));
+    }
+
+    #[test]
+    fn a_runtime_or_what_played_before_judges_a_lone_clip() {
+        let mut state = three_sources();
+        measure(&mut state, (0, 0), MIN / 4);
+        assert!(
+            !state
+                .picking
+                .measured_short(&state.groups[0].links[0].request.url)
+        );
+        state.picking.runtime_ms = Some(45 * MIN);
+        assert!(
+            state
+                .picking
+                .measured_short(&state.groups[0].links[0].request.url)
+        );
+        state.picking.runtime_ms = None;
+        state.picking.remembered_ms = Some(44 * MIN);
+        assert!(
+            state
+                .picking
+                .measured_short(&state.groups[0].links[0].request.url)
+        );
+    }
+
+    #[test]
+    fn sources_turned_off_here_are_passed_over() {
+        let mut state = three_sources();
+        state.picking.off_here.insert("Alpha".into());
+        assert_eq!(state.next_candidate(NOW), Some((1, 0)));
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["groups"][0]["off"], true);
+        assert_eq!(update["groups"][0]["links"][0]["leftOut"], "off");
+        assert_eq!(update["groups"][0]["kind"], "addon");
+    }
+
+    #[test]
+    fn after_a_failed_pick_the_session_goes_on_and_never_back() {
+        let mut state = three_sources();
+        // Alpha plays; Beta, which played this title before, answers and takes over.
+        state.memory = worked_memory("Beta", "Beta 2160p", None);
+        load(&mut state, (0, 0), 0);
+        assert_eq!(state.upgrade(NOW), Some((1, 0)));
+        // As `try_play` switches: Alpha is left.
+        state.picking.left.insert((0, 0));
+        load(&mut state, (1, 0), 0);
+        // Beta fails: Gamma plays next, not Alpha, which was left.
+        state.groups[1].links[0].failed = Some("gone".into());
+        state.current = None;
+        assert_eq!(state.next_candidate(NOW), Some((2, 0)));
+        // Gamma fails too: Alpha, which worked, comes back last.
+        load(&mut state, (2, 0), 0);
+        state.groups[2].links[0].failed = Some("gone".into());
+        state.current = None;
+        assert_eq!(state.next_candidate(NOW), Some((0, 0)));
+    }
+
+    #[test]
+    fn the_link_that_played_before_stays_and_one_unlike_the_title_gives_way() {
+        let mut state = three_sources();
+        state.memory = worked_memory("Alpha", "Alpha 1080p", None);
+        load(&mut state, (0, 0), 0);
+        assert_eq!(state.upgrade(NOW), None, "what played before stays");
+
+        let mut state = three_sources();
+        load(&mut state, (0, 0), 0);
+        assert_eq!(state.upgrade(NOW), None, "no better one");
+        // What played before lasted 90 minutes; this one lasts 60 (another cut): another
+        // standing as well takes over early.
+        state.picking.remembered_ms = Some(90 * MIN);
+        measure(&mut state, (0, 0), 60 * MIN);
+        assert_eq!(state.upgrade(NOW), Some((1, 0)));
     }
 }

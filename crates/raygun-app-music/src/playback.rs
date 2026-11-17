@@ -120,6 +120,9 @@ pub struct PlaybackService {
     /// Queued songs without a cover whose cover found elsewhere was looked for, by item id
     /// ([`Self::find_covers`]).
     covers_asked: Mutex<HashSet<String>>,
+    /// Bumped whenever Smart Shuffle's songs are asked for again: an answer for an earlier ask
+    /// (another list, Smart Shuffle turned off and on) is dropped.
+    smart_asks: AtomicU64,
 }
 
 /// Everything to emit once the core lock is released.
@@ -207,6 +210,7 @@ impl PlaybackService {
             clock: Instant::now(),
             webview: std::sync::atomic::AtomicBool::new(true),
             covers_asked: Mutex::new(HashSet::new()),
+            smart_asks: AtomicU64::new(0),
         }
     }
 
@@ -331,6 +335,7 @@ impl PlaybackService {
                 .map(|url| images.cover(&url, &Default::default())),
             ..context
         });
+        let smart_chip = raygun_app_base::chips::enabled(app, raygun_model::ChipId::SmartShuffle);
         let effects_ran = {
             let mut inner = self.lock();
             if !inner.core.queue().items.is_empty() {
@@ -343,6 +348,11 @@ impl PlaybackService {
                 last.position_ms,
                 last.shuffle,
                 last.repeat,
+            );
+            effects.extend(
+                inner
+                    .core
+                    .mark_suggested(&last.suggested, last.smart_shuffle && smart_chip),
             );
             effects.extend(inner.core.set_context(context));
             self.resolve(&mut inner, effects, Cause::Chosen)
@@ -536,6 +546,8 @@ impl PlaybackService {
                 context,
                 order: Some(order),
                 repeat,
+                suggested,
+                smart_shuffle,
             } => {
                 self.run(|core| {
                     let repeat = repeat.unwrap_or(core.state().repeat);
@@ -547,6 +559,13 @@ impl PlaybackService {
                         shuffle,
                         repeat,
                     );
+                    // Smart Shuffle's songs stay apart on the device the player moved to.
+                    let suggested: Vec<usize> = suggested
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|index| index as usize)
+                        .collect();
+                    effects.extend(core.mark_suggested(&suggested, smart_shuffle.unwrap_or(false)));
                     effects.extend(core.set_context(context));
                     effects
                 });
@@ -563,6 +582,7 @@ impl PlaybackService {
                 context,
                 order: None,
                 repeat,
+                ..
             } => {
                 self.run(|core| {
                     let mut effects = core.replace_at(
@@ -580,6 +600,7 @@ impl PlaybackService {
                     }
                     effects
                 });
+                self.refill_if_smart();
             }
             ConnectCommand::Enqueue { items, play_now } => {
                 self.run(|core| core.enqueue(items, play_now));
@@ -723,6 +744,8 @@ impl PlaybackService {
                 context,
                 order: None,
                 repeat: None,
+                suggested: None,
+                smart_shuffle: None,
             });
         }
         self.run(|core| {
@@ -730,6 +753,7 @@ impl PlaybackService {
             effects.extend(core.set_context(context));
             effects
         });
+        self.refill_if_smart();
     }
 
     /// Replaces the queue and starts its first item at `start_ms` (a podcast episode resuming).
@@ -746,6 +770,8 @@ impl PlaybackService {
                 context,
                 order: None,
                 repeat: None,
+                suggested: None,
+                smart_shuffle: None,
             });
         }
         self.run(|core| {
@@ -779,7 +805,20 @@ impl PlaybackService {
                 return;
             }
         }
+        let smart = match control {
+            PlaybackControl::SetSmartShuffle { enabled } => Some(enabled),
+            _ => None,
+        };
+        // Smart Shuffle needs its chip; off always works.
+        if smart == Some(true)
+            && !raygun_app_base::chips::enabled(&self.app, raygun_model::ChipId::SmartShuffle)
+        {
+            return;
+        }
         self.control_core(control);
+        if smart == Some(true) {
+            self.refill_if_smart();
+        }
         if resumes {
             // Pressing play must start something (M46.16), or the next stream gets its turn. A
             // file on this device says it plays at once: it's held to that the same way.
@@ -812,6 +851,7 @@ impl PlaybackService {
             PlaybackControl::SetVolume { volume } => core.set_volume(volume),
             PlaybackControl::SetRepeat { mode } => core.set_repeat(mode),
             PlaybackControl::SetShuffle { enabled } => core.set_shuffle(enabled),
+            PlaybackControl::SetSmartShuffle { enabled } => core.set_smart_shuffle(enabled),
             PlaybackControl::PlayItem { item_id } => core.play_item(&item_id),
             PlaybackControl::Remove { item_id } => core.remove(&item_id),
             PlaybackControl::Clear => core.clear(),
@@ -823,6 +863,70 @@ impl PlaybackService {
             PlaybackControl::SetRate { rate } => core.set_rate(rate),
             PlaybackControl::SetSleepTimer { timer } => self.sleep_timer(core, timer),
         });
+    }
+
+    /// Smart Shuffle is on: its songs for the list now playing are asked for (in place of any it
+    /// added before). The answer comes later; one for an older ask is dropped.
+    fn refill_if_smart(&self) {
+        let (own, context, room) = {
+            let inner = self.lock();
+            if !inner.core.smart_shuffle() {
+                return;
+            }
+            let own: Vec<QueueItem> = inner.core.own_items().into_iter().cloned().collect();
+            (
+                own,
+                inner.core.context().cloned(),
+                inner.core.suggestion_room(),
+            )
+        };
+        let ask = self.smart_asks.fetch_add(1, Ordering::SeqCst) + 1;
+        if room == 0 {
+            return;
+        }
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let found = crate::smart_shuffle::suggestions(&app, &own, context.as_ref(), room).await;
+            tracing::info!(found = found.len(), room, "Smart Shuffle's songs");
+            app.state::<PlaybackService>().add_suggestions(ask, found);
+        });
+    }
+
+    /// Smart Shuffle's songs for ask `ask`, mixed into the songs to come while it's the latest.
+    fn add_suggestions(&self, ask: u64, items: Vec<QueueItemInput>) {
+        if self.smart_asks.load(Ordering::SeqCst) != ask || items.is_empty() {
+            return;
+        }
+        let items = self.with_details(items);
+        self.run(|core| core.add_suggestions(items));
+    }
+
+    /// A song Smart Shuffle added, with where the queue plays from.
+    pub fn suggested_item(&self, item_id: &str) -> Option<(QueueItem, Option<PlayContext>)> {
+        let inner = self.lock();
+        if !inner.core.is_suggested(item_id) {
+            return None;
+        }
+        let item = inner
+            .core
+            .queue()
+            .items
+            .into_iter()
+            .find(|item| item.id == item_id)?;
+        Some((item, inner.core.context().cloned()))
+    }
+
+    /// A song Smart Shuffle added is the list's own from now on.
+    pub fn keep_suggested(&self, item_id: &str) {
+        self.run(|core| core.keep_suggested(item_id));
+    }
+
+    /// The Smart Shuffle chip went off (removed or switched off): its songs leave the queue.
+    pub fn smart_shuffle_unavailable(&self) {
+        let on = self.lock().core.smart_shuffle();
+        if on {
+            self.control_here(PlaybackControl::SetSmartShuffle { enabled: false });
+        }
     }
 
     /// Queues items right after the current one (Play next, M46.8).
@@ -2175,6 +2279,7 @@ mod tests {
             looking_for_source: false,
             skipped_item_id: None,
             waiting: false,
+            smart_shuffle: false,
         }
     }
 

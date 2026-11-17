@@ -4,6 +4,7 @@
 
 pub mod app_hooks;
 pub mod books;
+pub mod chips;
 pub mod device_state;
 pub mod events;
 pub mod extension_access;

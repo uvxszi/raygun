@@ -133,7 +133,10 @@
     "externalPackage": "",
     "titleTrailers": true,
     "showFailedSources": true,
-    "showEmptySources": true
+    "showEmptySources": true,
+    "leaveOutTrailers": true,
+    "leaveOutShort": true,
+    "smartSubtitles": false
   },
   "libraryDisplay": {
     "mode": "compactGrid",
@@ -725,5 +728,8 @@
       "trimDownloads": false
     },
     "originalAudio": true
+  },
+  "chips": {
+    "off": []
   }
 }

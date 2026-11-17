@@ -240,6 +240,9 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   titleTrailers: true,
   showFailedSources: true,
   showEmptySources: true,
+  leaveOutTrailers: true,
+  leaveOutShort: true,
+  smartSubtitles: false,
 };
 
 /** Whether the seek bar seeks only by dragging: the setting, else on for phones, off on desktop. */

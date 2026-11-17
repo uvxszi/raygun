@@ -137,7 +137,14 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val sidecar = host.sidecarOf(track.format)
         val source = if (sidecar == null) label("inTheVideo", "In the video") else sidecar.source
         val facts = host.tracks.facts(track, ordinal, source)
-        return if (facts.detail == null && sidecar != null) facts.copy(detail = label("subtitleFile", "Subtitle file")) else facts
+        val named = if (facts.detail == null && sidecar != null) facts.copy(detail = label("subtitleFile", "Subtitle file")) else facts
+        // Smart Subtitles' mark before where it comes from.
+        val mark = when (sidecar?.let { host.smartRanks.fit(it.uri.toString()) }) {
+            SubtitleFit.MATCHING -> label("smartMatching", "Matching")
+            SubtitleFit.MIGHT_NOT_MATCH -> label("smartMightNotMatch", "Might not match")
+            null -> null
+        }
+        return if (mark == null) named else named.copy(detail = listOfNotNull(mark, named.detail).joinToString(" · "))
     }
 
     /**
@@ -150,7 +157,12 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val tracks = host.tracks.list(C.TRACK_TYPE_TEXT).mapIndexedNotNull { index, track ->
             if (live.hides(track)) null else track to textFacts(track, index + 1)
         }
-        val listed = byLanguages(tracks, host.languages.listed) { it.first.language }
+        // Smart Subtitles puts each language's files most like the others first.
+        val listed = smartOrder(
+            byLanguages(tracks, host.languages.listed) { it.first.language },
+            { it.first.language },
+            { entry -> host.sidecarOf(entry.first.format)?.let { host.smartRanks.rank(it.uri.toString()) } },
+        )
         val shown = distinctTracks(listed.map { it.second }, ::numbered)
         return listed.mapIndexed { index, (track, _) -> track to shown[index] }
     }
@@ -187,6 +199,20 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.styleCard(host, host.prefs.style) { style() }
 
         sheet.header(label("subtitles", "Subtitles"))
+        // Smart Subtitles' switch, while its Smart Chip is on.
+        if (host.prefs.smartSubtitlesAvailable) {
+            val on = host.prefs.smartSubtitles
+            sheet.row(
+                label("smartSubtitles", "Smart Subtitles"),
+                label("smartSubtitlesHint", "Compares tracks in one language and lists the most alike first"),
+                selected = on,
+            ) {
+                host.prefs.smartSubtitles = !on
+                if (on) host.smartRanks = SmartRanks.NONE
+                host.savePrefs(JSONObject().put("smartSubtitles", !on))
+                drawSubtitles()
+            }
+        }
         val off = host.tracks.textOff() && live.primary == null
         sheet.row(label("off", "Off"), selected = off) {
             live.show(null)
