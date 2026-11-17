@@ -98,6 +98,18 @@ export const VideoPlayerSettings: FC<Props> = ({ openPage }) => {
           checked={prefs.showEmptySources}
           onChange={(showEmptySources) => setPlayer({ showEmptySources })}
         />
+        <PrefSwitch
+          title={t('settings.player.leaveOutTrailers')}
+          summary={t('settings.player.leaveOutTrailersHint')}
+          checked={prefs.leaveOutTrailers}
+          onChange={(leaveOutTrailers) => setPlayer({ leaveOutTrailers })}
+        />
+        <PrefSwitch
+          title={t('settings.player.leaveOutShort')}
+          summary={t('settings.player.leaveOutShortHint')}
+          checked={prefs.leaveOutShort}
+          onChange={(leaveOutShort) => setPlayer({ leaveOutShort })}
+        />
       </PrefGroup>
       <TorrentSettings />
       {/* YouTube's videos follow the music player's YouTube settings (not from inside a player). */}

@@ -13,6 +13,7 @@ pub mod page_cache;
 pub mod pdf;
 mod proxy;
 pub mod server_auth;
+pub mod subtitle_text;
 pub mod subtitles;
 
 use std::sync::{Arc, RwLock};

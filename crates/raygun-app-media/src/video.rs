@@ -456,7 +456,7 @@ pub async fn prepare(
     let anime = request.anime.as_ref().filter(|_| {
         player.aniskip && !(player.aniskip_unless_chapters && !request.chapters.is_empty())
     });
-    let settings = player_settings(&db, &prefs).await;
+    let settings = player_settings(app, &db, &prefs).await;
     // Music and video don't play over each other, unless the settings say they may.
     crate::playback::other_media_started(app).await;
     let payload = serde_json::json!({
@@ -522,7 +522,7 @@ fn playable_address(app: &AppHandle, url: &str) -> Result<String, String> {
 pub async fn session_shell(app: &AppHandle, title: &str, subtitle: &str) -> serde_json::Value {
     let db = app.state::<AppDb>().0.clone();
     let prefs = player_prefs(&db).await;
-    let settings = player_settings(&db, &prefs).await;
+    let settings = player_settings(app, &db, &prefs).await;
     let shell = serde_json::json!({
         "session": true,
         "prefs": settings,
@@ -542,7 +542,14 @@ pub async fn session_shell(app: &AppHandle, title: &str, subtitle: &str) -> serd
 pub async fn settings_changed(app: &AppHandle) {
     let db = app.state::<AppDb>().0.clone();
     let prefs = player_prefs(&db).await;
-    let settings = player_settings(&db, &prefs).await;
+    let sessions = app.state::<VideoSessions>();
+    sessions
+        .pick_prefs_changed(crate::video_session::picking::PickPrefs::of(
+            &prefs.video_player,
+        ))
+        .await;
+    sessions.smart_subtitles_changed().await;
+    let settings = player_settings(app, &db, &prefs).await;
     if let Err(error) = update_player(app, &prefs_update(settings, &prefs)) {
         tracing::debug!(%error, "no player to follow the settings");
     }
@@ -554,8 +561,11 @@ fn prefs_update(settings: Value, prefs: &PlayerPrefs) -> Value {
 }
 
 /// The player's settings as it reads them, with the brightness to restore when it's remembered.
-async fn player_settings(db: &raygun_db::Db, prefs: &PlayerPrefs) -> Value {
+async fn player_settings(app: &AppHandle, db: &raygun_db::Db, prefs: &PlayerPrefs) -> Value {
     let mut value = serde_json::to_value(&prefs.video_player).unwrap_or_default();
+    // Smart Subtitles' switch shows only while it can be used (its Smart Chip).
+    value["smartSubtitlesAvailable"] =
+        json!(crate::video_session::smart_subtitles::smart_subtitles_available(app));
     if prefs.video_player.remember_brightness
         && let Ok(Some(saved)) = raygun_db::local_value(db, BRIGHTNESS_KEY).await
         && let Ok(level) = saved.parse::<f64>()
@@ -689,8 +699,16 @@ async fn player_request(app: &AppHandle, action: &str, raw: &Value) {
                     .map_err(|error| error.to_string())
             };
             match saved.await {
-                Ok(_) => {
+                Ok(settings) => {
                     let _ = SettingsChangedEvent("videoPlayer".into()).emit(app);
+                    // The Sources toggles and Smart Subtitles apply to the session at once.
+                    let sessions = app.state::<VideoSessions>();
+                    sessions
+                        .pick_prefs_changed(crate::video_session::picking::PickPrefs::of(
+                            &settings.video_player,
+                        ))
+                        .await;
+                    sessions.smart_subtitles_changed().await;
                 }
                 Err(error) => tracing::warn!(%error, "could not save a player setting"),
             }
@@ -797,13 +815,25 @@ pub fn proxied_subtitles(app: &AppHandle, subtitles: &[VideoSubtitle]) -> Vec<Vi
         .filter(|subtitle| {
             subtitle.url.starts_with("https://") || subtitle.url.starts_with("http://")
         })
-        .map(|subtitle| VideoSubtitle {
-            url: links.subtitle(&subtitle.url, &Default::default()),
-            format: subtitle
+        .map(|subtitle| {
+            // A file whose address doesn't say its format is told to be SubRip, and the proxy
+            // writes it so whatever it holds (WebVTT, ASS); SubRip and WebVTT files are written
+            // in what they're said to be (`raygun_net::subtitle_text`).
+            let format = subtitle
                 .format
                 .clone()
-                .or_else(|| subtitle_format(&subtitle.url)),
-            ..subtitle.clone()
+                .or_else(|| subtitle_format(&subtitle.url))
+                .unwrap_or_else(|| "srt".to_owned());
+            let proxied = links.subtitle(&subtitle.url, &Default::default());
+            let url = match format.as_str() {
+                "srt" | "vtt" | "webvtt" => format!("{proxied}?as={format}"),
+                _ => proxied,
+            };
+            VideoSubtitle {
+                url,
+                format: Some(format),
+                ..subtitle.clone()
+            }
         })
         .collect()
 }

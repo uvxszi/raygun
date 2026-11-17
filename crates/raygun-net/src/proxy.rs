@@ -828,7 +828,18 @@ fn cover_response(served: Served) -> Response {
         .into_response()
 }
 
-async fn serve_subtitle(State(state): State<ProxyState>, Path(token): Path<String>) -> Response {
+async fn serve_subtitle(
+    State(state): State<ProxyState>,
+    Path(token): Path<String>,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+) -> Response {
+    // The format the player was told (`?as=srt`).
+    let wanted = query.as_deref().and_then(|query| {
+        query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("as="))
+            .map(str::to_owned)
+    });
     let link = state
         .images
         .lock()
@@ -840,7 +851,8 @@ async fn serve_subtitle(State(state): State<ProxyState>, Path(token): Path<Strin
         return with_cors(StatusCode::NOT_FOUND.into_response());
     };
     let body = match fetch_subtitle(&state.client, &url, &headers).await {
-        Ok(bytes) => bytes,
+        // Unpacked, in UTF-8 and the format the player was told (`as`).
+        Ok(bytes) => crate::subtitle_text::normalize(&bytes, wanted.as_deref()),
         Err(error) => {
             tracing::warn!(%error, "subtitle request failed");
             EMPTY_SUBTITLES.as_bytes().to_vec()

@@ -56,6 +56,21 @@ internal fun orderedSources(count: Int, order: List<Int>, visible: (Int) -> Bool
     return (listed + (0 until count).filter { it !in listed }).filter(visible)
 }
 
+/**
+ * Why a link isn't played by itself (`leftOut`: its source is off for this title, it's a trailer
+ * or far shorter than the title) and how long it measured, for its line in Sources.
+ */
+internal fun leftOutText(leftOut: String?, lengthMs: Long?, label: (String, String) -> String): String? =
+    listOfNotNull(
+        when (leftOut) {
+            "off" -> label("leftOutOff", "Off for this title")
+            "trailer" -> label("leftOutTrailer", "Trailer or sample")
+            "short" -> label("leftOutShort", "Shorter than the title")
+            else -> null
+        },
+        lengthMs?.takeIf { it > 0 }?.let { formatTime(it) },
+    ).joinToString(" · ").ifBlank { null }
+
 /** "25 Mb/s", "800 kb/s". */
 internal fun speedText(kbps: Long): String = if (kbps >= 1_000) {
     String.format(Locale.ROOT, "%.1f", kbps / 1000.0).removeSuffix(".0") + " Mb/s"
@@ -87,6 +102,8 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
     /** Portrait: the picked source's options show instead of the list. */
     private var options = false
     private var sheet: PlayerSheet? = null
+    /** The source whose button was tapped: its settings show atop the list. */
+    private var settingsOf: Int? = null
     /** Landscape's panes, whose places are kept when new sources come in. */
     private var sourcePane: ScrollView? = null
     private var optionPane: ScrollView? = null
@@ -94,6 +111,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
 
     fun open() {
         raw = false
+        settingsOf = null
         picked = null
         options = false
         sourcePane = null
@@ -140,8 +158,52 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             build()
         }
         host.playingFrom?.let { sheet.header(label("playingFrom", "Playing from {n}", it)) }
+        toggles(sheet)
+        sourceSettings(sheet)
         if (raw) rawList(sheet) else cleanList(sheet)
         sheet.show()
+    }
+
+    /** Leave out trailers, Leave out short videos: shown at once, saved as the settings they are. */
+    private fun toggles(sheet: PlayerSheet) {
+        sheet.row(label("leaveOutTrailers", "Leave out trailers"), selected = host.leaveOutTrailers) {
+            host.leaveOutTrailers = !host.leaveOutTrailers
+            host.savePrefs(JSONObject().put("leaveOutTrailers", host.leaveOutTrailers))
+            build()
+        }
+        sheet.row(
+            label("leaveOutShort", "Leave out short videos"),
+            label("leaveOutShortHint", "Links far shorter than the others: placeholders, trailers, samples"),
+            selected = host.leaveOutShort,
+        ) {
+            host.leaveOutShort = !host.leaveOutShort
+            host.savePrefs(JSONObject().put("leaveOutShort", host.leaveOutShort))
+            build()
+        }
+    }
+
+    /** A source's button: off for this title (or on again), off everywhere, its settings. */
+    private fun sourceSettings(sheet: PlayerSheet) {
+        val group = settingsOf ?: return
+        val server = groups.optJSONObject(group) ?: return
+        sheet.header(server.optString("name"))
+        fun act(scope: String) {
+            settingsOf = null
+            host.request("sourceOff", JSONObject().put("group", group).put("scope", scope))
+            build()
+        }
+        if (server.optBoolean("off")) {
+            sheet.row(label("sourceOnHere", "Turn on for this title")) { act("on") }
+        } else {
+            sheet.row(label("sourceOffTitle", "Turn off for this title")) { act("title") }
+        }
+        sheet.row(label("sourceOffEverywhere", "Turn off everywhere")) { act("everywhere") }
+        sheet.row(label("sourceOpenSettings", "Source settings")) {
+            settingsOf = null
+            sheet.dismiss()
+            // The app shows them while the video waits in its small window.
+            host.openAppSettings("sourceSettings", JSONObject().put("group", group))
+        }
     }
 
     // ---- Raw details: the sources and their links as named ----
@@ -162,7 +224,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
                 val note = when {
                     entry.optBoolean("failed") -> label("failed", "failed")
                     entry.optBoolean("worked") -> label("workedLastTime", "worked last time")
-                    else -> null
+                    else -> leftOutText(entry.text("leftOut"), entry.number("lengthMs"), ::label)
                 }
                 val row = sheet.row(entry.optString("label"), note, current) { choose(group, link, current) }
                 if (current) sheet.reveal(row)
@@ -274,11 +336,29 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         shown.forEach { group ->
             val server = groups.optJSONObject(group) ?: return@forEach
             val links = server.optJSONArray("links")?.length() ?: 0
-            val detail = if (links == 0) stateText(server) else sourceDetail(server, group == playing)
-            list.addView(paneRow(server.optString("name"), detail, selected = group == chosen, playing = group == playing) {
+            val state = if (links == 0) stateText(server) else sourceDetail(server, group == playing)
+            val detail = if (server.optBoolean("off")) label("sourceOffHere", "Off for this title") + " · " + state else state
+            val row = paneRow(server.optString("name"), detail, selected = group == chosen, playing = group == playing) {
                 picked = group
                 options = true
                 build()
+            }
+            val kind = server.optString("kind", "none")
+            if (kind == "none" || kind.isBlank()) {
+                list.addView(row)
+                return@forEach
+            }
+            // Its button: the source's settings atop the sheet.
+            row.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+            list.addView(LinearLayout(host).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(row)
+                addView(host.iconButton(R.drawable.raygun_ic_tune, label("sourceSettings", "{n}: settings", server.optString("name"))) {
+                    settingsOf = group
+                    build()
+                })
+                layoutParams = LinearLayout.LayoutParams(-1, -2)
             })
         }
     }
@@ -362,6 +442,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             else -> null
         }
         return listOfNotNull(
+            leftOutText(link.text("leftOut"), link.number("lengthMs"), ::label),
             codec,
             link.optJSONObject("torrent")?.let { torrent ->
                 torrent.number("seeds")?.toInt()?.let { seeds ->

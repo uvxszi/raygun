@@ -8071,6 +8071,8 @@ name = "raygun-net"
 version = "1.9.7"
 dependencies = [
  "axum",
+ "encoding_rs",
+ "flate2",
  "futures-util",
  "hayro",
  "image",

@@ -2991,7 +2991,20 @@ pub struct VideoPlayerPrefs {
     /// The player's Sources list shows servers that failed or had nothing.
     pub show_failed_sources: bool,
     pub show_empty_sources: bool,
+    /// Links named as trailers, teasers or samples aren't played by themselves (they can still be
+    /// picked in Sources).
+    pub leave_out_trailers: bool,
+    /// Links far shorter than the others (under [`SHORT_VIDEO_SHARE`] of their median length, or
+    /// of the title's runtime) are passed over: placeholder clips, trailers, samples.
+    pub leave_out_short: bool,
+    /// Smart Subtitles: subtitle and audio tracks are compared with the others of their language
+    /// from other sources, the most alike first ("Matching"), ones unlike all others marked.
+    pub smart_subtitles: bool,
 }
+
+/// A link counts as short when it lasts under this share of the median of the others' lengths
+/// (`VideoPlayerPrefs::leave_out_short`).
+pub const SHORT_VIDEO_SHARE: f64 = 0.4;
 
 impl Default for VideoPlayerPrefs {
     fn default() -> Self {
@@ -3042,6 +3055,9 @@ impl Default for VideoPlayerPrefs {
             title_trailers: true,
             show_failed_sources: true,
             show_empty_sources: true,
+            leave_out_trailers: true,
+            leave_out_short: true,
+            smart_subtitles: false,
         }
     }
 }

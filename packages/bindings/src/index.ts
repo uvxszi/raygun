@@ -8940,6 +8940,21 @@ export type VideoPlayerPrefs = {
 	/**  The player's Sources list shows servers that failed or had nothing. */
 	showFailedSources?: boolean,
 	showEmptySources?: boolean,
+	/**
+	 *  Links named as trailers, teasers or samples aren't played by themselves (they can still be
+	 *  picked in Sources).
+	 */
+	leaveOutTrailers?: boolean,
+	/**
+	 *  Links far shorter than the others (under [`SHORT_VIDEO_SHARE`] of their median length, or
+	 *  of the title's runtime) are passed over: placeholder clips, trailers, samples.
+	 */
+	leaveOutShort?: boolean,
+	/**
+	 *  Smart Subtitles: subtitle and audio tracks are compared with the others of their language
+	 *  from other sources, the most alike first ("Matching"), ones unlike all others marked.
+	 */
+	smartSubtitles?: boolean,
 };
 
 /**  Muted previews (a title's trailer) in video cards. */

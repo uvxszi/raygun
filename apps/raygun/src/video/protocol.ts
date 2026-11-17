@@ -73,7 +73,23 @@ export type AudioOffer = {
   url: string;
   headers?: Record<string, string>;
   format: string | null;
+  /** Smart Subtitles: its stream lasts as long as the video playing, or not. */
+  fit?: SubtitleFit;
 };
+
+/** What Smart Subtitles says of a track (`video_session::smart_subtitles`). */
+export type SubtitleFit = 'matching' | 'mightNotMatch';
+
+/** A subtitle file's place among those of its language and its mark, by the address the player
+ * loads it from. */
+export type SubtitleRank = { url: string; rank: number; fit: SubtitleFit | null };
+
+/** Why a link isn't played by itself: its source is off for this title, it's a trailer, or far
+ * shorter than the title. */
+export type LeftOut = 'off' | 'trailer' | 'short';
+
+/** What a source is, for its button in Sources (`video_session::source_kind`). */
+export type SourceKind = 'addon' | 'provider' | 'server' | 'none';
 
 /** A request (`prepare` in `video.rs`), or a session's shell before its first video. */
 export type PlayerRequest = {
@@ -174,6 +190,10 @@ export type SourceLink = {
   speedKbps?: number | null;
   /** A torrent, with the seeds its source names. */
   torrent?: { seeds: number | null } | null;
+  /** What the player measured it lasting, ms. */
+  lengthMs?: number | null;
+  /** Why it isn't played by itself (it can still be picked). */
+  leftOut?: LeftOut | null;
 };
 
 /** How the torrent playing is doing (Rust's `torrents`): peers, speed, what's here. */
@@ -203,6 +223,10 @@ export type SourceGroup = {
   speedKbps?: number | null;
   /** A link played on its own: its own group, shown whatever its state. */
   own?: boolean;
+  /** Turned off for this title. */
+  off?: boolean;
+  /** What it is, for its button: `none` has none. */
+  kind?: SourceKind;
 };
 
 export type PlayerUpdate =
@@ -230,7 +254,15 @@ export type PlayerUpdate =
       link?: boolean;
       alone?: boolean;
       fallback?: boolean;
+      /** The Sources toggles. */
+      leaveOutTrailers?: boolean;
+      leaveOutShort?: boolean;
     }
+  /** Subtitle files that came after the video was loaded (slow subtitle addons): they join its
+   * tracks. */
+  | { type: 'subtitlesAdded'; id: string; items: VideoSubtitle[] }
+  /** Smart Subtitles' order and marks for the video's subtitle files; empty while it's off. */
+  | { type: 'subtitleRanks'; id: string; on: boolean; items: SubtitleRank[] }
   | { type: 'chapters'; id: string; items: VideoChapter[] }
   /** The torrent playing, once a second. */
   | ({ type: 'transfer'; id: string } & TorrentTransfer)
