@@ -201,6 +201,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::local_network::LocalNetwork::new(
         app.handle().clone(),
     ));
+    app.manage::<raygun_app_net::cast::player::Player>(std::sync::Arc::new(
+        crate::video::CastPlayer(app.handle().clone()),
+    ));
     app.manage(crate::cast::CastService::new(app.handle().clone()));
     app.manage(std::sync::Arc::new(crate::stremio::StremioService::new(
         app.handle().clone(),

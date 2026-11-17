@@ -7437,6 +7437,7 @@ dependencies = [
  "raygun-app-answers",
  "raygun-app-base",
  "raygun-app-export",
+ "raygun-app-net",
  "raygun-app-reading",
  "raygun-db",
  "raygun-ext-host",
@@ -7570,6 +7571,34 @@ dependencies = [
  "uuid",
  "windows",
  "zip",
+]
+
+[[package]]
+name = "raygun-app-net"
+version = "1.9.7"
+dependencies = [
+ "axum",
+ "futures-util",
+ "if-addrs",
+ "prost",
+ "quick-xml 0.42.0",
+ "raygun-app-base",
+ "raygun-db",
+ "raygun-model",
+ "raygun-net",
+ "raygun-remote",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "socket2",
+ "specta",
+ "tauri",
+ "tauri-plugin-raygun-audio",
+ "tauri-specta",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
 ]
 
 [[package]]

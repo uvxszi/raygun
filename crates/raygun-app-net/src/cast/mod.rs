@@ -15,8 +15,10 @@
 //!   watching, the library's episodes and sessions follow the TV; the player's own reports are
 //!   left out meanwhile. Disconnect resumes the player from where the TV was.
 
+pub mod commands;
 mod dlna;
 mod googlecast;
+pub mod player;
 mod ssdp;
 
 use std::collections::{BTreeMap, HashSet};
@@ -32,8 +34,8 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::sync::mpsc;
 
-use crate::catalog::now_ms;
-use crate::local_network::LocalNetwork;
+use raygun_app_base::local_network::LocalNetwork;
+use raygun_app_base::now_ms;
 
 /// The device couldn't play the video.
 pub(crate) const TV_FAILED: &str = "The TV couldn't play this video";
@@ -449,7 +451,7 @@ impl CastService {
             }
             inner.added_loaded = true;
         }
-        let db = self.app.state::<crate::startup::AppDb>().0.clone();
+        let db = self.app.state::<raygun_app_base::AppDb>().0.clone();
         let locations: Vec<String> = match raygun_db::local_value(&db, ADDED_KEY).await {
             Ok(Some(saved)) => serde_json::from_str(&saved).unwrap_or_default(),
             _ => Vec::new(),
@@ -540,7 +542,7 @@ impl CastService {
             }
         };
         if let Some(added) = saved {
-            let db = self.app.state::<crate::startup::AppDb>().0.clone();
+            let db = self.app.state::<raygun_app_base::AppDb>().0.clone();
             let text = serde_json::to_string(&added).unwrap_or_default();
             if let Err(error) = raygun_db::set_local_value(&db, ADDED_KEY, &text).await {
                 tracing::warn!(%error, "couldn't remember the TV");
@@ -559,7 +561,7 @@ impl CastService {
                 "devices": self.listed(),
                 "searching": self.searching(),
             });
-            let _ = crate::video::update_player(&self.app, &update);
+            let _ = player::update(&self.app, &update);
         }
     }
 
@@ -857,7 +859,7 @@ impl CastService {
             let mut request = session.payload.clone();
             let finished = session.status.state == CastState::Finished;
             request["startMs"] = json!(if finished { 0.0 } else { position });
-            crate::video::update_player(&self.app, &json!({ "type": "load", "request": request }))?;
+            player::update(&self.app, &json!({ "type": "load", "request": request }))?;
         }
         Ok(())
     }
@@ -981,21 +983,16 @@ impl CastService {
     }
 
     fn send_report(&self, report: Value) {
-        if let Some(reports) = self.app.try_state::<crate::video::VideoReports>() {
-            reports.send(report.to_string());
-        }
+        player::report(&self.app, report.to_string());
     }
 
     fn publish(&self, status: Option<CastStatus>) {
         self.keep_alive(status.as_ref());
         #[cfg(target_os = "android")]
         {
-            let _ = crate::video::update_player(
-                &self.app,
-                &json!({ "type": "cast", "status": status }),
-            );
+            let _ = player::update(&self.app, &json!({ "type": "cast", "status": status }));
         }
-        let _ = crate::events::CastStatusEvent(status).emit(&self.app);
+        let _ = raygun_app_base::events::CastStatusEvent(status).emit(&self.app);
     }
 
     /// On Android, a foreground service keeps Raygun (and the stream the TV reads) running while
@@ -1016,10 +1013,7 @@ impl CastService {
                 .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>();
             let result = match wanted {
                 Some((device, title)) => {
-                    let labels = self
-                        .app
-                        .state::<crate::video_session::VideoSessions>()
-                        .labels();
+                    let labels = player::labels(&self.app);
                     let heading = labels
                         .get("castPlayingOn")
                         .and_then(Value::as_str)
@@ -1081,7 +1075,7 @@ pub async fn on_request(app: &AppHandle, action: &str, raw: &Value) {
         _ => Ok(()),
     };
     if let Err(error) = result {
-        let _ = crate::video::update_player(app, &json!({ "type": "castError", "text": error }));
+        let _ = player::update(app, &json!({ "type": "castError", "text": error }));
     }
 }
 

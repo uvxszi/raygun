@@ -1407,6 +1407,27 @@ pub fn link_request(url: &str, title: Option<&str>, subtitle_url: Option<&str>) 
     }
 }
 
+/// The player as Play on TV (`raygun_app_net::cast`) reaches it.
+pub struct CastPlayer(pub AppHandle);
+
+impl raygun_app_net::cast::player::PlayerLink for CastPlayer {
+    fn update(&self, update: &serde_json::Value) -> Result<(), String> {
+        update_player(&self.0, update)
+    }
+
+    fn report(&self, report: String) {
+        if let Some(reports) = self.0.try_state::<VideoReports>() {
+            reports.send(report);
+        }
+    }
+
+    fn labels(&self) -> serde_json::Value {
+        self.0
+            .state::<crate::video_session::VideoSessions>()
+            .labels()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

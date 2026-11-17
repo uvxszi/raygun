@@ -14,7 +14,6 @@ mod book_search;
 mod browser_check;
 mod caches;
 mod captions;
-mod cast;
 mod catalog;
 mod collections;
 mod comics;
@@ -103,6 +102,7 @@ mod ytdlp;
 
 use raygun_app_answers as answers;
 use raygun_app_base::{device_state, events, local_network, network, picker, privacy};
+use raygun_app_net::cast;
 use raygun_app_reading::{dictionary, epub};
 
 use std::path::Path;
@@ -647,12 +647,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_player_report,
             commands::video_player_external,
             commands::video_external_players,
-            commands::cast_devices,
-            commands::cast_add_device,
-            commands::cast_start,
-            commands::cast_control,
-            commands::cast_disconnect,
-            commands::cast_status,
+            cast::commands::cast_devices,
+            cast::commands::cast_add_device,
+            cast::commands::cast_start,
+            cast::commands::cast_control,
+            cast::commands::cast_disconnect,
+            cast::commands::cast_status,
             commands::video_find_subtitles,
             commands::youtube_embed_url,
             commands::playback_skip_segments,
