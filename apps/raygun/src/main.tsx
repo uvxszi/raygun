@@ -8,6 +8,7 @@ import './i18n';
 import { MiniplayerApp } from './miniplayer/MiniplayerApp';
 import { createAppRouter } from './router';
 import { RootErrorBoundary } from './shell/ErrorScreen';
+import { followDevicePixels, installIconSizes } from './shell/iconSizes';
 import { persistQueryCache, restoreQueryCache } from './shell/queryPersist';
 import { SPLASH_LIMIT_MS, hideSplash } from './shell/splash';
 import './styles.css';
@@ -35,6 +36,10 @@ const isMiniplayerWindow = () => {
   }
 };
 const miniplayer = isMiniplayerWindow();
+
+// Icons scale with the buttons around them and stay on whole device pixels.
+installIconSizes();
+followDevicePixels();
 
 const render = () =>
   createRoot(document.getElementById('root')!).render(
