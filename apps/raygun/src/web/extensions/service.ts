@@ -362,6 +362,12 @@ export class ExtensionsService {
     return index;
   }
 
+  /** An index Sources → Add already read (`core/sources.ts`), so a preview doesn't ask again. */
+  rememberIndex(url: string, index: unknown) {
+    const read = index as RepoIndex;
+    if (Array.isArray(read.extensions)) this.indexes.set(url, read);
+  }
+
   async addRepo(url: string): Promise<ExtensionRepo[]> {
     const address = url.trim();
     if (!/^https:\/\//i.test(address))
