@@ -1,12 +1,6 @@
 import { shaderParams, withEffectDefaults } from './effectParams';
 import { canvasWith, fakeGl } from './fakeGl';
-import {
-  EffectsRenderer,
-  motionPasses,
-  PASSES,
-  VERTEX_SOURCE,
-  WATERMARK_PASS,
-} from './glRenderer';
+import { EffectsRenderer, motionPasses, PASSES, VERTEX_SOURCE, WATERMARK_PASS } from './glRenderer';
 import { IN_APP_MOTION } from './motion/inApp';
 import { NO_WATERMARK } from './watermarkMath';
 
