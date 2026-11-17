@@ -19,6 +19,7 @@
 
 mod algebra;
 mod calc;
+pub mod commands;
 mod constants;
 mod currency;
 mod dates;
@@ -35,7 +36,7 @@ mod text;
 mod units;
 mod wikidata;
 mod wikipedia;
-mod words;
+pub mod words;
 mod zones;
 
 use std::collections::{BTreeMap, HashMap};
@@ -50,9 +51,9 @@ use raygun_model::{
 };
 use tauri::{AppHandle, Manager};
 
-use crate::dictionary::cache::now_ms;
-use crate::dictionary::polite::{Polite, user_agent_for};
 use questions::{Question, Read};
+use raygun_app_base::lookup_cache::now_ms;
+use raygun_app_base::polite::{Polite, user_agent_for};
 
 /// The longest query answered.
 const MAX_QUERY: usize = 300;
@@ -147,8 +148,8 @@ impl AnswersService {
     }
 
     async fn prefs(&self) -> AnswersPrefs {
-        let db = self.app.state::<crate::startup::AppDb>().inner().0.clone();
-        crate::settings::load(&db)
+        let db = self.app.state::<raygun_app_base::AppDb>().inner().0.clone();
+        raygun_app_base::settings::load(&db)
             .await
             .map(|settings| settings.answers)
             .unwrap_or_default()
@@ -344,7 +345,7 @@ impl AnswersService {
         }
         match self.fetch(read, request, clock).await {
             Ok(found) => {
-                if !crate::privacy::incognito(&self.app) {
+                if !raygun_app_base::privacy::incognito(&self.app) {
                     self.kept.put(&key, &found.answers, &found.related).await;
                 }
                 found
@@ -426,7 +427,7 @@ impl AnswersService {
     ) -> Vec<Answer> {
         let Some(extensions) = self
             .app
-            .try_state::<Arc<crate::extensions::ExtensionService>>()
+            .try_state::<raygun_app_base::extension_access::Extensions>()
         else {
             return Vec::new();
         };
@@ -500,32 +501,4 @@ fn question_key(question: &Question) -> String {
         Question::Define(word) => format!("define:{word}"),
         Question::Translate { text, to } => format!("translate:{to}:{text}"),
     }
-}
-
-/// Answers to a question or calculation typed in Search.
-#[tauri::command]
-#[specta::specta]
-pub async fn answers_ask(
-    answers: tauri::State<'_, Arc<AnswersService>>,
-    request: AnswerRequest,
-) -> Result<Answers, String> {
-    Ok(answers.ask(request).await)
-}
-
-/// Opens an answer's page (an article, a source) in Raygun's browser.
-#[tauri::command]
-#[specta::specta]
-pub async fn answers_open_page(
-    websites: tauri::State<'_, Arc<crate::websites::WebsiteService>>,
-    url: String,
-) -> Result<(), String> {
-    let url = url.trim();
-    if !url.starts_with("https://") {
-        return Err("That isn't a web address".into());
-    }
-    websites
-        .inner()
-        .clone()
-        .open_page(&format!("{}answers", crate::websites::PAGE_PREFIX), url)
-        .await
 }

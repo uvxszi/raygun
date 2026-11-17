@@ -2,6 +2,8 @@
 //! extensions' `dictionary` providers) and translations (this device's models, or the
 //! translators set up in Settings → AI). No model is downloaded from here.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use raygun_model::{
@@ -10,7 +12,6 @@ use raygun_model::{
 use tauri::{AppHandle, Manager};
 
 use super::languages;
-use crate::lyrics_translation::{AI_PREFIX, DEVICE, LyricsTranslations};
 
 /// Senses shown at most.
 const MAX_SENSES: usize = 6;
@@ -92,6 +93,40 @@ pub fn definition_of(lookup: &DictionaryLookup) -> Option<raygun_model::Answer> 
     Some(answer)
 }
 
+/// Where words are looked up and translated: the app's dictionaries and translators, set at start
+/// as a [`Words`] state.
+pub trait WordSources: Send + Sync {
+    /// What the dictionaries answer; `None` without dictionaries.
+    fn lookup(&self, request: DictionaryRequest) -> Looking<'_>;
+
+    /// `text` translated into `to` by this device's models when they're there, else by the first
+    /// translator from Settings → AI; `None` when no translator writes that language yet.
+    fn translate<'a>(&'a self, text: &'a str, to: &'a str) -> Translating<'a>;
+}
+
+/// A dictionary lookup on its way.
+pub type Looking<'a> =
+    Pin<Box<dyn Future<Output = Option<Result<DictionaryLookup, String>>> + Send + 'a>>;
+
+/// A translation on its way.
+pub type Translating<'a> =
+    Pin<Box<dyn Future<Output = Result<Option<Translation>, String>> + Send + 'a>>;
+
+/// The word sources, as Tauri state.
+pub type Words = Arc<dyn WordSources>;
+
+/// What a translator made of a text.
+pub struct Translation {
+    /// The chosen translator's name.
+    pub chosen_name: String,
+    /// Whether it was this device's models.
+    pub on_device: bool,
+    /// The name the translation gave itself, if any.
+    pub name: String,
+    /// The text's lines translated.
+    pub lines: Vec<String>,
+}
+
 /// What the dictionaries say about `word`.
 pub async fn define(
     app: &AppHandle,
@@ -99,18 +134,21 @@ pub async fn define(
     language: &str,
     refresh: bool,
 ) -> Result<Option<raygun_model::Answer>, String> {
-    let Some(dictionary) = app.try_state::<Arc<crate::dictionary::DictionaryService>>() else {
+    let Some(words) = app.try_state::<Words>() else {
         return Ok(None);
     };
-    let lookup = dictionary
+    let Some(lookup) = words
         .lookup(DictionaryRequest {
             text: word.to_owned(),
             title_id: None,
             app_language: language.to_owned(),
             refresh,
         })
-        .await?;
-    Ok(definition_of(&lookup))
+        .await
+    else {
+        return Ok(None);
+    };
+    Ok(definition_of(&lookup?))
 }
 
 /// What a translation found.
@@ -123,35 +161,17 @@ pub enum Translated {
 /// `text` translated into `to` by this device's models when they're there, else by the first
 /// translator from Settings → AI.
 pub async fn translate(app: &AppHandle, text: &str, to: &str) -> Result<Translated, String> {
-    let Some(translations) = app.try_state::<Arc<LyricsTranslations>>() else {
+    let Some(words) = app.try_state::<Words>() else {
         return Ok(Translated::NeedsTranslator);
     };
-    let options = translations.translators(&[text], to).await?;
-    let ready = options.iter().find(|option| {
-        option.supported
-            && ((option.id == DEVICE && option.download_bytes == 0.0 && !option.models.is_empty())
-                || option.id.starts_with(AI_PREFIX))
-    });
-    let Some(chosen) = ready else {
+    let Some(Translation {
+        chosen_name,
+        on_device,
+        name,
+        lines: translated,
+    }) = words.translate(text, to).await?
+    else {
         return Ok(Translated::NeedsTranslator);
-    };
-    let lines = [text.to_owned()];
-    let (name, translated) = if chosen.id == DEVICE {
-        let done = translations
-            .translate_on_device(to, &lines, |_, _| {})
-            .await?;
-        (String::new(), done)
-    } else {
-        let provider = chosen.id.trim_start_matches(AI_PREFIX);
-        app.state::<crate::ai::AiService>()
-            .translate_texts_from(
-                provider,
-                &lines,
-                None,
-                to,
-                raygun_ai::translate::Content::Text,
-            )
-            .await?
     };
     let Some(result) = translated
         .into_iter()
@@ -169,7 +189,7 @@ pub async fn translate(app: &AppHandle, text: &str, to: &str) -> Result<Translat
     answer.credits.push(AnswerCredit {
         // This device's models are named by the app.
         name: if name.is_empty() {
-            chosen.name.clone()
+            chosen_name.clone()
         } else {
             name
         },
@@ -177,10 +197,10 @@ pub async fn translate(app: &AppHandle, text: &str, to: &str) -> Result<Translat
         license: None,
         license_url: None,
     });
-    answer.engine_name = if chosen.id == DEVICE {
+    answer.engine_name = if on_device {
         String::new()
     } else {
-        chosen.name.clone()
+        chosen_name.clone()
     };
     Ok(Translated::Done(Box::new(answer)))
 }

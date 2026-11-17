@@ -15,11 +15,11 @@
 //! up before opens offline.
 
 mod book_search;
-pub(crate) mod cache;
+pub(crate) use raygun_app_base::lookup_cache as cache;
 mod forms;
 mod free_dictionary;
 mod merge;
-pub(crate) mod polite;
+pub(crate) use raygun_app_base::polite;
 #[cfg(test)]
 mod tests;
 mod wiktionary;

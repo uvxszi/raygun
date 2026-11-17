@@ -11,8 +11,8 @@ use quick_xml::events::Event;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use crate::dictionary::cache::now_ms;
-use crate::dictionary::polite::{Fetched, Polite};
+use raygun_app_base::lookup_cache::now_ms;
+use raygun_app_base::polite::{Fetched, Polite};
 
 pub const ECB_URL: &str = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml";
 /// The page people read the rates on.

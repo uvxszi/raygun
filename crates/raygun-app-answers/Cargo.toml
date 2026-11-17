@@ -1,0 +1,33 @@
+[package]
+name = "raygun-app-answers"
+description = "Answers in Raygun's Search: calculations, dates, units, facts and words"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-app-base.workspace = true
+raygun-model.workspace = true
+raygun-net.workspace = true
+raygun-ext-host.workspace = true
+tauri.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+specta.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+tokio = { version = "1", features = ["sync", "time", "fs", "rt", "macros"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+sha2 = "0.11"
+url = "2"
+quick-xml = "0.42"
+chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
+# fend computes with exact numbers and units (MIT, no dependencies of its own); chrono-tz holds
+# the IANA time zones for "time in Tokyo".
+fend-core = "1.5"
+chrono-tz = { version = "0.10", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }

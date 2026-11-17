@@ -10,7 +10,7 @@ use raygun_model::{Answer, AnswerSuggestion};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::dictionary::cache::{now_ms, trim};
+use raygun_app_base::lookup_cache::{now_ms, trim};
 
 /// How long a kept answer counts as fresh.
 const FOUND_FRESH_MS: u64 = 7 * 24 * 60 * 60 * 1000;

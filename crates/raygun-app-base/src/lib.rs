@@ -4,9 +4,12 @@
 
 pub mod device_state;
 pub mod events;
+pub mod extension_access;
 pub mod local_network;
+pub mod lookup_cache;
 pub mod network;
 pub mod picker;
+pub mod polite;
 pub mod privacy;
 pub mod quick_access_rows;
 pub mod settings;

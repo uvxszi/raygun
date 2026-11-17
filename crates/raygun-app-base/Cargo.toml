@@ -11,6 +11,10 @@ raygun-model.workspace = true
 raygun-paths.workspace = true
 raygun-db.workspace = true
 raygun-net.workspace = true
+raygun-ext-host.workspace = true
+reqwest.workspace = true
+flate2 = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
 tauri-plugin-raygun-audio.workspace = true
 tauri.workspace = true
 serde.workspace = true

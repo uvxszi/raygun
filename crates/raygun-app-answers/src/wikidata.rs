@@ -15,7 +15,7 @@ use serde_json::Value;
 use super::numbers;
 use super::questions::{self, Property, Value as Shape};
 use super::text::capitalized;
-use crate::dictionary::polite::{Fetched, Polite};
+use raygun_app_base::polite::{Fetched, Polite};
 
 const API: &str = "https://www.wikidata.org/w/api.php";
 pub const NAME: &str = "Wikidata";

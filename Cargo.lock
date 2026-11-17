@@ -7419,9 +7419,7 @@ dependencies = [
  "base64 0.22.1",
  "cbc",
  "chrono",
- "chrono-tz",
  "ego-tree",
- "fend-core",
  "flacenc",
  "flate2",
  "fontdb",
@@ -7440,6 +7438,7 @@ dependencies = [
  "qrcode",
  "quick-xml 0.42.0",
  "raygun-ai",
+ "raygun-app-answers",
  "raygun-app-base",
  "raygun-db",
  "raygun-ext-host",
@@ -7492,13 +7491,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "raygun-app-answers"
+version = "1.9.7"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "fend-core",
+ "futures-util",
+ "quick-xml 0.42.0",
+ "raygun-app-base",
+ "raygun-ext-host",
+ "raygun-model",
+ "raygun-net",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "specta",
+ "tauri",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "raygun-app-base"
 version = "1.9.7"
 dependencies = [
+ "chrono",
+ "flate2",
  "raygun-db",
+ "raygun-ext-host",
  "raygun-model",
  "raygun-net",
  "raygun-paths",
+ "reqwest",
  "rfd",
  "serde",
  "serde_json",

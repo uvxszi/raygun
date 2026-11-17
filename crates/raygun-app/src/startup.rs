@@ -240,6 +240,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle(),
         extensions.clone(),
     ));
+    // The same service as crates below this one reach it.
+    app.manage::<raygun_app_base::extension_access::Extensions>(extensions.clone());
     app.manage(extensions);
     app.manage(crate::servers::ServerService::new(app.handle().clone()));
     // Sources → Add: what an address is, then adding it (M46.52).
@@ -310,6 +312,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.cache(raygun_paths::CacheKind::Dictionary),
     )?);
     // Search's answers: computed here, or looked up and kept on the device.
+    app.manage::<raygun_app_answers::words::Words>(std::sync::Arc::new(
+        crate::answer_words::AppWords(app.handle().clone()),
+    ));
     app.manage(crate::answers::AnswersService::new(
         app.handle().clone(),
         paths.cache(raygun_paths::CacheKind::Answers),

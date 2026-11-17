@@ -215,6 +215,20 @@ fn first_party() -> Vec<raygun_ext_host::ExtensionSource> {
 
 type Fingerprint = Vec<(PathBuf, u64, Option<SystemTime>)>;
 
+impl raygun_app_base::extension_access::ExtensionAccess for ExtensionService {
+    fn ready(
+        &self,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = (tokio::sync::RwLockReadGuard<'_, ()>, &ExtensionHost)>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(ExtensionService::ready(self))
+    }
+}
+
 pub struct ExtensionService {
     app: AppHandle,
     host: ExtensionHost,

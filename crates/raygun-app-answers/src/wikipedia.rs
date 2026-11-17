@@ -6,7 +6,7 @@ use raygun_model::{Answer, AnswerCredit, AnswerKind, AnswerText};
 use serde_json::Value;
 
 use super::wikidata::{self, Entity, Hit};
-use crate::dictionary::polite::{Fetched, Polite};
+use raygun_app_base::polite::{Fetched, Polite};
 
 pub const NAME: &str = "Wikipedia";
 pub const LICENSE: &str = "CC BY-SA 4.0";

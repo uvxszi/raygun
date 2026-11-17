@@ -5,7 +5,7 @@
 
 mod ai;
 mod aniskip;
-mod answers;
+mod answer_words;
 mod app_window;
 mod artist_profiles;
 mod background;
@@ -102,6 +102,7 @@ mod websites;
 mod youtube_embed;
 mod ytdlp;
 
+use raygun_app_answers as answers;
 use raygun_app_base::{device_state, events, local_network, network, picker, privacy};
 
 use std::path::Path;
@@ -604,8 +605,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             dictionary::dictionary_sources,
             dictionary::dictionary_open_page,
             dictionary::novel_search_book,
-            answers::answers_ask,
-            answers::answers_open_page,
+            answers::commands::answers_ask,
+            commands::answers_open_page,
             network_mode::network_set_offline,
             permissions::permissions_list,
             permissions::permission_request,
