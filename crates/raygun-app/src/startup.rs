@@ -27,6 +27,18 @@ struct LogGuard(#[allow(dead_code)] WorkerGuard);
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // What `settings::apply_live` puts into effect lives in this crate's services.
     crate::settings::install();
+    raygun_app_base::app_hooks::set(raygun_app_base::app_hooks::Hooks {
+        open_route: |app, route| {
+            if let Some(notices) =
+                app.try_state::<std::sync::Arc<crate::notifications::DownloadNotices>>()
+            {
+                notices.open(route);
+            }
+        },
+        hand_over: crate::open_with::hand_over,
+        to_viewer: crate::web_remote::to_viewer,
+        file_path: crate::open_with::file_path,
+    });
     let paths = resolve_paths(app)?;
     // Erase everything (M46.51) happens here, before anything opens the data root.
     let erased = crate::backup::erase::finish_pending(paths.root(), paths.mode());
@@ -170,7 +182,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             .build()?,
     );
     app.manage(video_downloads.clone());
-    app.manage(std::sync::Arc::new(crate::export::ExportService::new(
+    let export = std::sync::Arc::new(crate::export::ExportService::new(
         app.handle().clone(),
         crate::export::Outputs::new(
             app.handle().clone(),
@@ -178,7 +190,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             paths.cache(raygun_paths::CacheKind::Share),
         ),
         paths.cache(raygun_paths::CacheKind::Convert),
-    )?));
+    )?);
+    // Where files go, as song downloads reach it.
+    app.manage(export.outputs().clone());
+    app.manage(export);
     let podcasts = std::sync::Arc::new(crate::podcasts::PodcastService::new(
         app.handle().clone(),
         raygun_net::http_client()?,
@@ -205,10 +220,16 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         crate::video::CastPlayer(app.handle().clone()),
     ));
     app.manage(crate::cast::CastService::new(app.handle().clone()));
-    app.manage(std::sync::Arc::new(crate::stremio::StremioService::new(
+    let stremio = std::sync::Arc::new(crate::stremio::StremioService::new(
         app.handle().clone(),
         raygun_net::http_client()?,
-    )));
+    ));
+    // The same list as Sources reaches it, and quick access as the library reaches it.
+    app.manage::<raygun_app_sources::stremio_addons::Addons>(stremio.clone());
+    app.manage(stremio);
+    app.manage::<raygun_app_sources::catalog::TitlePinsState>(std::sync::Arc::new(
+        crate::quick_access::LibraryPins(app.handle().clone()),
+    ));
     let ai = tauri::async_runtime::block_on(crate::ai::AiService::open(
         app.handle().clone(),
         paths.secrets(),

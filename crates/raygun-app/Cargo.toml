@@ -8,6 +8,10 @@ rust-version.workspace = true
 
 [dependencies]
 raygun-app-base.workspace = true
+raygun-app-devices.workspace = true
+raygun-app-media.workspace = true
+raygun-app-music.workspace = true
+raygun-app-sources.workspace = true
 raygun-app-answers.workspace = true
 raygun-app-export.workspace = true
 raygun-app-reading.workspace = true

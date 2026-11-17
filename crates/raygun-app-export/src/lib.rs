@@ -9,5 +9,6 @@ pub mod hls;
 pub mod names;
 pub mod output;
 pub mod pdf;
+pub mod places;
 pub mod remux;
 pub mod transcode;

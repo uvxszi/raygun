@@ -21,6 +21,10 @@ raygun-ext-host = { path = "crates/raygun-ext-host" }
 raygun-resolver = { path = "crates/raygun-resolver" }
 raygun-app = { path = "crates/raygun-app" }
 raygun-app-base = { path = "crates/raygun-app-base" }
+raygun-app-devices = { path = "crates/raygun-app-devices" }
+raygun-app-media = { path = "crates/raygun-app-media" }
+raygun-app-music = { path = "crates/raygun-app-music" }
+raygun-app-sources = { path = "crates/raygun-app-sources" }
 raygun-app-answers = { path = "crates/raygun-app-answers" }
 raygun-app-export = { path = "crates/raygun-app-export" }
 raygun-app-reading = { path = "crates/raygun-app-reading" }

@@ -1,0 +1,131 @@
+[package]
+name = "raygun-app-media"
+description = "Raygun's videos, comics and books, exports and downloads (M46.56): the video player's sessions and sources, Stremio, torrents, the comic and book libraries, Local Files, websites and their downloads"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-app-base.workspace = true
+raygun-app-music.workspace = true
+raygun-app-sources.workspace = true
+raygun-app-answers.workspace = true
+raygun-app-export.workspace = true
+raygun-app-reading.workspace = true
+raygun-app-net.workspace = true
+raygun-model.workspace = true
+raygun-paths.workspace = true
+raygun-db.workspace = true
+raygun-playback.workspace = true
+raygun-net.workspace = true
+raygun-library.workspace = true
+raygun-ext-host.workspace = true
+raygun-resolver.workspace = true
+raygun-mcp.workspace = true
+raygun-remote.workspace = true
+raygun-sync.workspace = true
+raygun-ai.workspace = true
+raygun-torrent.workspace = true
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+reqwest.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tauri-plugin-raygun-audio.workspace = true
+tauri.workspace = true
+# New releases from followed artists (M46.42), on desktop and Android.
+tauri-plugin-notification = "2"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+specta.workspace = true
+specta-typescript.workspace = true
+tauri-specta.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+tokio = { version = "1", features = ["sync", "time", "fs", "rt", "process", "io-util", "macros", "net"] }
+# Fetches of models and tools that a Cancel stops wherever they are.
+tokio-util = { version = "0.7", default-features = false }
+# Checking yt-dlp and FFmpeg downloads against their published checksums (M46.47).
+sha2 = "0.11"
+flate2 = "1"
+tar = "0.4"
+# yt-dlp's Linux FFmpeg builds are `.tar.xz` (pure Rust; RustPython already builds it).
+xz = "0.4.6-rc.0"
+scraper = "0.24"
+ego-tree = "0.10"
+url = "2"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+base64 = "0.22"
+uuid.workspace = true
+prost = { version = "0.13", default-features = false, features = ["derive", "std"] }
+quick-xml = "0.42"
+# Play on TV: Cast v2 runs over TLS to devices with self-signed certificates; SSDP searches go
+# out of each network interface.
+rustls.workspace = true
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+socket2 = "0.6"
+if-addrs = "0.15"
+# Exports (M46.1): page images decoded for PDFs, HLS segments decrypted when joined.
+png = "0.18"
+# Saving covers as JPEG XL (M46.38): a lossless encoder in safe Rust.
+zune-jpegxl = "0.5"
+zune-core = "0.5"
+aes = "0.8"
+cbc = "0.1"
+# Matroska files read (the converters are in raygun-app-export).
+matroska-demuxer = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
+# Music downloads (M46.10): decoding to save as WAV or FLAC, and tags on saved files.
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "mkv", "flac", "ogg", "vorbis", "wav", "pcm", "opt-simd"] }
+hound = "3.5"
+lofty = "0.25"
+
+# The device's own fonts for the font pickers: their names, letters and weights.
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "variable-fonts"] }
+
+# Copying pages on desktop (M46.6) and reading screenshots with ocrs (M46.21).
+image ={ version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+
+# Reading screenshots where Windows' own OCR isn't there (M46.21): ocrs over rten.
+[target.'cfg(not(windows))'.dependencies]
+ocrs = { version = "0.13", default-features = false, features = ["onnx"] }
+rten = "0.26"
+rten-imageproc = "0.26"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+rfd.workspace = true
+# Copying a page to the clipboard on desktop (M46.6).
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+# Installed font families for the font pickers (the system's font folders, fontconfig's on Linux).
+fontdb = { version = "0.24", default-features = false, features = ["std", "fs", "memmap", "fontconfig"] }
+
+# One running copy on desktop (M46.11): two would share one database. The plugin has no BSD
+# implementation; there a second copy isn't kept out.
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+tauri-plugin-single-instance = "2.5"
+
+# The desktop browser's blocker (M46.6): WebView2's request filter, at Tauri's own versions.
+# The browser-check window sends the checked request's body as a memory stream (`Win32_UI_Shell`).
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+# Windows' OCR reads screenshots for importing songs (M46.21). Media Foundation checks that a
+# converted video opens and decodes in Windows' own players.
+windows = { version = "0.62", features = [
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "test-util"] }
+axum.workspace = true
