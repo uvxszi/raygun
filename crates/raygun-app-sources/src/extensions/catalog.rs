@@ -13,11 +13,11 @@ use raygun_model::{CatalogEntry, ExtensionRepo};
 
 /// Repository indexes as read, by address, with when each was read.
 #[derive(Default)]
-pub(super) struct Indexes(HashMap<String, (Instant, Arc<RepoIndex>)>);
+pub struct Indexes(HashMap<String, (Instant, Arc<RepoIndex>)>);
 
 impl Indexes {
     /// The index read from `url` less than `max_age` ago.
-    pub(super) fn get(&self, url: &str, max_age: Duration) -> Option<Arc<RepoIndex>> {
+    pub fn get(&self, url: &str, max_age: Duration) -> Option<Arc<RepoIndex>> {
         self.0
             .get(url)
             .filter(|(read, _)| read.elapsed() < max_age)
@@ -25,7 +25,7 @@ impl Indexes {
     }
 
     /// Keeps the index just read from `url`.
-    pub(super) fn put(&mut self, url: &str, index: RepoIndex) -> Arc<RepoIndex> {
+    pub fn put(&mut self, url: &str, index: RepoIndex) -> Arc<RepoIndex> {
         let index = Arc::new(index);
         self.0
             .insert(url.to_owned(), (Instant::now(), index.clone()));
@@ -36,10 +36,10 @@ impl Indexes {
 /// What a listing depends on besides its index (the extensions on this device and their
 /// versions, conversions tried, addons added, the 18+ switch and marks), as one fingerprint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Inputs(u64);
+pub struct Inputs(u64);
 
 impl Inputs {
-    pub(super) fn of(parts: &impl Hash) -> Self {
+    pub fn of(parts: &impl Hash) -> Self {
         let mut hasher = DefaultHasher::new();
         parts.hash(&mut hasher);
         Self(hasher.finish())
@@ -47,7 +47,7 @@ impl Inputs {
 }
 
 /// `items` in a fixed order, so the same set always gives the same fingerprint.
-pub(super) fn sorted<T: Ord>(items: impl IntoIterator<Item = T>) -> Vec<T> {
+pub fn sorted<T: Ord>(items: impl IntoIterator<Item = T>) -> Vec<T> {
     let mut items: Vec<T> = items.into_iter().collect();
     items.sort();
     items
@@ -64,13 +64,13 @@ struct Listing {
 
 /// Each repository's listing as last built, by the repository's id.
 #[derive(Default)]
-pub(super) struct Listings(HashMap<String, Listing>);
+pub struct Listings(HashMap<String, Listing>);
 
 impl Listings {
     /// The listing built for `repo` from this very `index` with these `inputs`, less than
     /// `max_age` ago. Built listings go stale with time too: their icons' proxy links are handed
     /// out again when they're built (the proxy forgets links it hasn't seen for long).
-    pub(super) fn get(
+    pub fn get(
         &self,
         repo: &ExtensionRepo,
         index: &Arc<RepoIndex>,
@@ -85,7 +85,7 @@ impl Listings {
             .then(|| listing.entries.clone())
     }
 
-    pub(super) fn put(
+    pub fn put(
         &mut self,
         repo: &ExtensionRepo,
         index: Arc<RepoIndex>,
@@ -105,7 +105,7 @@ impl Listings {
     }
 
     /// Forgets the listings of repositories that are no longer added.
-    pub(super) fn keep_only(&mut self, repos: &[ExtensionRepo]) {
+    pub fn keep_only(&mut self, repos: &[ExtensionRepo]) {
         let added: HashSet<&str> = repos.iter().map(|repo| repo.id.as_str()).collect();
         self.0.retain(|id, _| added.contains(id.as_str()));
     }

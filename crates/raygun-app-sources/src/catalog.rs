@@ -532,13 +532,10 @@ impl Catalog {
             }
         }
         // Quick access follows the library (M46.41).
-        if let Ok(Some(row)) = titles::title(&db, title_id).await {
-            let pin = crate::quick_access::title_pin(&row);
-            if in_library {
-                crate::quick_access::add(&self.app, pin).await;
-            } else {
-                crate::quick_access::remove(&self.app, &pin.to, &pin.search).await;
-            }
+        if let Ok(Some(row)) = titles::title(&db, title_id).await
+            && let Some(pins) = self.app.try_state::<TitlePinsState>()
+        {
+            pins.library_changed(&row, in_library).await;
         }
         Ok(())
     }
@@ -552,8 +549,11 @@ impl Catalog {
             .map(|source| (source.id, source.name))
             .collect();
         names.insert("stremio".into(), "Stremio".into());
-        names.insert(crate::novel::LOCAL_EPUB.into(), "EPUB file".into());
-        names.insert(crate::novel::LOCAL_PDF.into(), "PDF file".into());
+        names.insert(
+            raygun_app_base::books::LOCAL_EPUB.into(),
+            "EPUB file".into(),
+        );
+        names.insert(raygun_app_base::books::LOCAL_PDF.into(), "PDF file".into());
         names.insert(crate::comics::LOCAL_COMICS.into(), "Local comics".into());
         names
     }
@@ -1137,6 +1137,20 @@ pub use raygun_app_base::now_ms;
 pub fn to_message(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
+
+/// Quick access as the library reaches it (pins follow titles added and removed, M46.41):
+/// raygun-app's quick access, set at start.
+pub trait TitlePins: Send + Sync {
+    /// `row` was added to the library (`in_library`) or left it.
+    fn library_changed<'a>(
+        &'a self,
+        row: &'a raygun_db::titles::TitleRow,
+        in_library: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
+}
+
+/// Quick access's pins, as Tauri state.
+pub type TitlePinsState = std::sync::Arc<dyn TitlePins>;
 
 #[cfg(test)]
 mod tests {

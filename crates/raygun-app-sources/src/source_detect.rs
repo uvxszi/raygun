@@ -30,8 +30,8 @@ use tauri::{AppHandle, Manager};
 use crate::extensions::ExtensionService;
 use crate::local_network::{LocalNetwork, SOURCES_DENIED};
 use crate::servers::ServerService;
-use crate::stremio::StremioService;
-use crate::stremio::protocol::{self, Manifest};
+use crate::stremio_addons::Addons;
+use crate::stremio_addons::protocol::{self, Manifest};
 
 /// The most of an answer that's read: a whole extension package, and so any index.
 pub const MAX_BYTES: u64 = MAX_PACKAGE_BYTES;
@@ -121,8 +121,10 @@ async fn addon_collection<F: Fetch>(
     manifest: &Manifest,
 ) -> Result<Found, String> {
     let address = protocol::normalize_addon_url(answer.url.as_str())?;
-    let index =
-        crate::stremio::addon_catalogs::read(&address, manifest, |list: String| async move {
+    let index = crate::stremio_addons::addon_catalogs::read(
+        &address,
+        manifest,
+        |list: String| async move {
             let url = Url::parse(&list).map_err(|error| error.to_string())?;
             let next = fetch.get(&url).await?;
             if next.ok() && !next.truncated {
@@ -130,8 +132,9 @@ async fn addon_collection<F: Fetch>(
             } else {
                 Err(format!("{url} answered HTTP {}", next.status))
             }
-        })
-        .await?;
+        },
+    )
+    .await?;
     Ok(Found::Repository {
         url: Url::parse(&address).map_err(|error| error.to_string())?,
         format: PackageFormat::Stremio,
@@ -280,7 +283,7 @@ fn checked(found: Found) -> Result<Found, String> {
 /// The addresses `typed` may be: as typed, Stremio's `stremio://` as https, a path on this
 /// computer as a file, and without a scheme `https://` and then `http://` (servers and addons
 /// on a home network rarely have certificates).
-pub(crate) fn addresses(typed: &str) -> Result<Vec<Url>, String> {
+pub fn addresses(typed: &str) -> Result<Vec<Url>, String> {
     let not_one = || format!("“{typed}” isn't an address");
     let fragmentless = |mut url: Url| {
         url.set_fragment(None);
@@ -973,8 +976,8 @@ impl SourceDetector {
         self.app.state::<Arc<ExtensionService>>().inner().clone()
     }
 
-    fn stremio(&self) -> Arc<StremioService> {
-        self.app.state::<Arc<StremioService>>().inner().clone()
+    fn stremio(&self) -> Addons {
+        self.app.state::<Addons>().inner().clone()
     }
 
     /// What `address` is, as Sources shows it before it's added.

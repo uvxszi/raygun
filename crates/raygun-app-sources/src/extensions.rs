@@ -1404,7 +1404,7 @@ impl ExtensionService {
     async fn added_addons(&self) -> HashSet<String> {
         match self
             .app
-            .state::<Arc<crate::stremio::StremioService>>()
+            .state::<crate::stremio_addons::Addons>()
             .addons()
             .await
         {
@@ -1428,7 +1428,7 @@ impl ExtensionService {
             };
             let base: reqwest::Url = repo.url.parse().ok()?;
             let url = repo::package_url(&base, entry).ok()?;
-            return crate::stremio::protocol::normalize_addon_url(url.as_str()).ok();
+            return crate::stremio_addons::protocol::normalize_addon_url(url.as_str()).ok();
         }
         None
     }
@@ -1487,7 +1487,8 @@ impl ExtensionService {
                     .then(|| {
                         let url = repo::package_url(index_url.as_ref()?, entry).ok()?;
                         let url =
-                            crate::stremio::protocol::normalize_addon_url(url.as_str()).ok()?;
+                            crate::stremio_addons::protocol::normalize_addon_url(url.as_str())
+                                .ok()?;
                         addons.contains(&url).then(|| Installed {
                             version: entry.version.clone(),
                             stale_conversion: false,
@@ -1597,7 +1598,7 @@ impl ExtensionService {
             }
         });
         // A few repositories at a time (M46.7).
-        Ok(crate::stremio::at_most(4, listings).await)
+        Ok(crate::stremio_addons::at_most(4, listings).await)
     }
 
     /// What every listing depends on besides its index, as one fingerprint: the extensions on
@@ -1689,11 +1690,12 @@ impl ExtensionService {
             return Ok(self.indexes.lock().unwrap().put(url, index));
         }
         // A Stremio addon that only lists other addons: the repository of them it stands for.
-        if let Some(manifest) = crate::stremio::addon_catalogs::collection(&bytes) {
-            let index = crate::stremio::addon_catalogs::read(url, &manifest, |list| async move {
-                self.download(&list, MAX_INDEX_BYTES).await
-            })
-            .await?;
+        if let Some(manifest) = crate::stremio_addons::addon_catalogs::collection(&bytes) {
+            let index =
+                crate::stremio_addons::addon_catalogs::read(url, &manifest, |list| async move {
+                    self.download(&list, MAX_INDEX_BYTES).await
+                })
+                .await?;
             return Ok(self.indexes.lock().unwrap().put(url, index));
         }
         // Kodi's indexes come gzipped as often as not (`addons.xml.gz`). Parsing a large index
@@ -1859,7 +1861,7 @@ impl ExtensionService {
                 repo::package_url(&index_url, entry).map_err(|error| error.to_string())?;
             phase(Phase::Installing);
             self.app
-                .state::<Arc<crate::stremio::StremioService>>()
+                .state::<crate::stremio_addons::Addons>()
                 .add(manifest.as_str())
                 .await?;
             tracing::info!(addon = %entry.id, url = %manifest, "Stremio addon added from a repository");
@@ -2345,7 +2347,7 @@ impl ExtensionService {
         if !installed {
             // A repository's Stremio addon: removing it removes the addon.
             if let Some(url) = self.listed_addon_url(extension_id).await {
-                let stremio = self.app.state::<Arc<crate::stremio::StremioService>>();
+                let stremio = self.app.state::<crate::stremio_addons::Addons>();
                 if let Some(addon) = stremio
                     .addons()
                     .await?

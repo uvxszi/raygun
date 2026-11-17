@@ -205,10 +205,16 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         crate::video::CastPlayer(app.handle().clone()),
     ));
     app.manage(crate::cast::CastService::new(app.handle().clone()));
-    app.manage(std::sync::Arc::new(crate::stremio::StremioService::new(
+    let stremio = std::sync::Arc::new(crate::stremio::StremioService::new(
         app.handle().clone(),
         raygun_net::http_client()?,
-    )));
+    ));
+    // The same list as Sources reaches it, and quick access as the library reaches it.
+    app.manage::<raygun_app_sources::stremio_addons::Addons>(stremio.clone());
+    app.manage(stremio);
+    app.manage::<raygun_app_sources::catalog::TitlePinsState>(std::sync::Arc::new(
+        crate::quick_access::LibraryPins(app.handle().clone()),
+    ));
     let ai = tauri::async_runtime::block_on(crate::ai::AiService::open(
         app.handle().clone(),
         paths.secrets(),

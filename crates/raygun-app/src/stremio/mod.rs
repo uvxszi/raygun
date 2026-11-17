@@ -8,9 +8,8 @@
 //! subtitles from every addon that serves them, each asked by an id it knows
 //! (`Meta::stream_ids_for_video`). Addons that didn't answer lately are asked last.
 
-pub(crate) mod addon_catalogs;
-pub mod protocol;
 pub(crate) mod providers;
+pub use raygun_app_sources::stremio_addons::{at_most, protocol};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -185,21 +184,6 @@ struct FoundMeta {
 /// Addons asked at the same time (M46.7): rows, searches, streams and subtitles go a few addons at
 /// a time instead of all at once.
 const ADDON_CONCURRENCY: usize = 6;
-
-/// Runs `tasks` with at most `limit` at once, keeping their order. (A semaphore rather than a
-/// buffered stream: the futures borrow `self`, and spawned sessions need them `Send`.)
-pub(crate) async fn at_most<T, F: Future<Output = T>>(
-    limit: usize,
-    tasks: impl IntoIterator<Item = F>,
-) -> Vec<T> {
-    let permits = tokio::sync::Semaphore::new(limit);
-    let permits = &permits;
-    join_all(tasks.into_iter().map(|task| async move {
-        let _permit = permits.acquire().await;
-        task.await
-    }))
-    .await
-}
 
 /// A manifest read from storage: the addon's address, when it was fetched, and what it says.
 type StoredManifest = (String, Option<i64>, Manifest);
@@ -2785,6 +2769,30 @@ fn root_cause(error: &(dyn std::error::Error + 'static)) -> String {
     cause.to_string()
 }
 
+impl raygun_app_sources::stremio_addons::AddonList for StremioService {
+    fn addons(&self) -> raygun_app_sources::stremio_addons::Answer<'_, Vec<StremioAddon>> {
+        Box::pin(StremioService::addons(self))
+    }
+
+    fn add<'a>(
+        &'a self,
+        url: &'a str,
+    ) -> raygun_app_sources::stremio_addons::Answer<'a, StremioAddon> {
+        Box::pin(StremioService::add(self, url))
+    }
+
+    fn remove<'a>(&'a self, id: &'a str) -> raygun_app_sources::stremio_addons::Answer<'a, ()> {
+        Box::pin(StremioService::remove(self, id))
+    }
+
+    fn preview_manifest<'a>(
+        &'a self,
+        url: &'a str,
+        manifest: protocol::Manifest,
+    ) -> raygun_app_sources::stremio_addons::Answer<'a, StremioAddon> {
+        Box::pin(StremioService::preview_manifest(self, url, manifest))
+    }
+}
 fn to_message(error: impl std::fmt::Display) -> String {
     error.to_string()
 }

@@ -2,6 +2,7 @@
 //! storage handles, typed settings, the device's state, incognito, local network access and the
 //! system's pickers. No domain logic; the app's crates build on it.
 
+pub mod books;
 pub mod device_state;
 pub mod events;
 pub mod extension_access;

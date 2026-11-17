@@ -340,7 +340,7 @@ mod exact {
 
     use super::Watch;
 
-    pub(super) fn send(window: &WebviewWindow, request: &WindowRequest, watch: Arc<Watch>) {
+    pub fn send(window: &WebviewWindow, request: &WindowRequest, watch: Arc<Watch>) {
         let sent = request.clone();
         let started = window.with_webview(move |platform| {
             // SAFETY: WebView2 calls are made on the thread `with_webview` runs on (the UI

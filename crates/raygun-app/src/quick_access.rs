@@ -908,6 +908,26 @@ async fn library(app: &AppHandle, db: &Arc<Db>, names: &QuickAccessNames) -> Vec
     items
 }
 
+/// Quick access following titles added to and removed from the library, as the catalogue
+/// (`raygun_app_sources::catalog`) reaches it.
+pub struct LibraryPins(pub AppHandle);
+
+impl raygun_app_sources::catalog::TitlePins for LibraryPins {
+    fn library_changed<'a>(
+        &'a self,
+        row: &'a TitleRow,
+        in_library: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            let pin = title_pin(row);
+            if in_library {
+                add(&self.0, pin).await;
+            } else {
+                remove(&self.0, &pin.to, &pin.search).await;
+            }
+        })
+    }
+}
 #[cfg(test)]
 mod tests {
     use raygun_app_base::quick_access_rows::{migrate_row, migrated};

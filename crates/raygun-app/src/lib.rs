@@ -3,7 +3,6 @@
 //! The Tauri shell in `apps/raygun/src-tauri` stays thin: it owns the config
 //! and context, and gets everything else from [`builder`].
 
-mod ai;
 mod aniskip;
 mod answer_words;
 mod app_window;
@@ -11,29 +10,21 @@ mod artist_profiles;
 mod background;
 mod backup;
 mod book_search;
-mod browser_check;
 mod caches;
 mod captions;
-mod catalog;
 mod collections;
-mod comics;
 mod commands;
 mod connect;
 mod cover_fallback;
 mod cover_search;
-mod crash_log;
 mod details;
 mod device_link;
 mod device_sync;
 mod discovery;
 mod durations;
 mod export;
-mod extension_installs;
-mod extensions;
 mod follows;
 mod fonts;
-mod genres;
-mod hidden;
 mod history;
 mod import;
 mod last_played;
@@ -47,8 +38,6 @@ mod made_for_you;
 mod manga;
 mod manga_downloads;
 mod mcp;
-mod mihon;
-mod mihon_container;
 mod miniplayer;
 mod music_downloads;
 mod network_mode;
@@ -62,18 +51,12 @@ mod podcasts;
 mod prefetch;
 mod quick_access;
 mod reader_ai;
-mod recent_searches;
 mod remote;
 mod resolution;
 mod resolver;
-mod search;
-mod search_filter;
-mod servers;
 mod settings;
 mod song_memory;
 mod sound;
-mod source_detect;
-mod source_queue;
 mod sponsorblock;
 mod startup;
 mod stremio;
@@ -82,7 +65,6 @@ mod text_translation;
 mod torrents;
 mod tts;
 mod updates;
-mod uploads;
 mod video;
 #[cfg(not(target_os = "android"))]
 mod video_desktop;
@@ -94,7 +76,6 @@ mod video_session;
 mod video_sources;
 mod video_subtitles;
 mod web_remote;
-mod web_views;
 mod website_downloads;
 mod websites;
 mod youtube_embed;
@@ -104,6 +85,11 @@ use raygun_app_answers as answers;
 use raygun_app_base::{device_state, events, local_network, network, picker, privacy};
 use raygun_app_net::cast;
 use raygun_app_reading::{dictionary, epub};
+use raygun_app_sources::{
+    ai, browser_check, catalog, comics, crash_log, extension_installs, extensions, genres, hidden,
+    mihon, mihon_container, recent_searches, search, search_filter, servers, source_detect,
+    source_queue, uploads, web_views,
+};
 
 use std::path::Path;
 
