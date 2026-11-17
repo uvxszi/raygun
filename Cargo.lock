@@ -7440,6 +7440,7 @@ dependencies = [
  "qrcode",
  "quick-xml 0.42.0",
  "raygun-ai",
+ "raygun-app-base",
  "raygun-db",
  "raygun-ext-host",
  "raygun-library",
@@ -7488,6 +7489,29 @@ dependencies = [
  "zip",
  "zune-core",
  "zune-jpegxl",
+]
+
+[[package]]
+name = "raygun-app-base"
+version = "1.9.7"
+dependencies = [
+ "raygun-db",
+ "raygun-model",
+ "raygun-net",
+ "raygun-paths",
+ "rfd",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "specta",
+ "tauri",
+ "tauri-plugin-raygun-audio",
+ "tauri-specta",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -30,9 +30,9 @@ use raygun_model::IncognitoStatus;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::catalog::now_ms;
+use crate::AppDb;
 use crate::events::IncognitoEvent;
-use crate::startup::AppDb;
+use crate::now_ms;
 
 /// The `local_meta` key saying whether incognito was on, for `keep_incognito`. Device-local.
 const STATE_KEY: &str = "privacy.incognito";

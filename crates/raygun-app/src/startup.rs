@@ -19,16 +19,14 @@ pub const MAIN_WINDOW: &str = "main";
 /// Days of logs kept (crate::logs gzips all but the newest).
 const LOG_FILES_KEPT: usize = 7;
 
-/// Resolved storage locations, available to commands as Tauri state.
-pub struct AppPaths(pub Paths);
-
-/// The open database, available to commands as Tauri state.
-pub struct AppDb(pub std::sync::Arc<raygun_db::Db>);
+pub use raygun_app_base::{AppDb, AppPaths};
 
 /// Keeps the background log writer alive for the app's lifetime.
 struct LogGuard(#[allow(dead_code)] WorkerGuard);
 
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
+    // What `settings::apply_live` puts into effect lives in this crate's services.
+    crate::settings::install();
     let paths = resolve_paths(app)?;
     // Erase everything (M46.51) happens here, before anything opens the data root.
     let erased = crate::backup::erase::finish_pending(paths.root(), paths.mode());

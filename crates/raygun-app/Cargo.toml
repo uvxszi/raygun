@@ -7,6 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+raygun-app-base.workspace = true
 raygun-model.workspace = true
 raygun-paths.workspace = true
 raygun-db.workspace = true

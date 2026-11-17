@@ -1132,12 +1132,7 @@ pub fn chapter_info(
     }
 }
 
-pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or_default()
-}
+pub use raygun_app_base::now_ms;
 
 pub fn to_message(error: impl std::fmt::Display) -> String {
     error.to_string()

@@ -17,8 +17,8 @@ use std::sync::Arc;
 use raygun_db::Db;
 use raygun_db::titles::TitleRow;
 use raygun_model::{
-    QuickAccessItem, QuickAccessList, QuickAccessNames, RAIL_PLAYED_KEPT, RAIL_VERSION, RailKinds,
-    RailOrder, RailPin, RailPlayed, RailPrefs, SettingChange, Settings,
+    QuickAccessItem, QuickAccessList, QuickAccessNames, RAIL_PLAYED_KEPT, RailKinds, RailOrder,
+    RailPin, RailPlayed, RailPrefs, SettingChange, Settings,
 };
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -26,24 +26,10 @@ use tokio::sync::Mutex;
 
 use crate::events::{QuickAccessChangedEvent, SettingsChangedEvent};
 use crate::startup::AppDb;
+use raygun_app_base::quick_access_rows::{AUDIO_LIBRARY, FIXED};
 
 /// One change at a time: two additions at once would each save the other's pins away.
 static CHANGES: Mutex<()> = Mutex::const_new(());
-
-/// Kinds the audio library lists by itself; they're never pinned automatically.
-const AUDIO_LIBRARY: &[&str] = &[
-    "favorites",
-    "downloaded",
-    "localFiles",
-    "playlist",
-    "album",
-    "artist",
-    "podcast",
-    "audiobook",
-];
-
-/// The fixed blocks, in the order they keep among equals.
-const FIXED: [&str; 3] = ["favorites", "downloaded", "localFiles"];
 
 /// Play contexts whose pages are stamped when played from: the library's kinds and mixes. Other
 /// pages (a search, a chart) only while pinned.
@@ -61,9 +47,6 @@ const STAMPED: &[&str] = &[
 
 /// Plays from one page this close together are stamped once.
 const STAMP_EVERY_S: u32 = 30;
-
-/// Older versions pinned the first run's blocks and playlists at once, within this many seconds.
-const SEED_WINDOW_S: u32 = 2;
 
 /// Something with a page, to pin.
 pub struct QuickPin {
@@ -409,79 +392,6 @@ async fn change(app: &AppHandle, edit: impl FnOnce(&Settings, &mut RailPrefs) ->
             false
         }
     }
-}
-
-/// A stored row's JSON before it's read: older versions' orders, the custom one and Recently
-/// opened, are Recently played now.
-pub fn migrate_row(value: &str) -> String {
-    let Ok(serde_json::Value::Object(mut fields)) = serde_json::from_str(value) else {
-        return value.to_owned();
-    };
-    if matches!(
-        fields.get("order").and_then(serde_json::Value::as_str),
-        Some("custom" | "opened")
-    ) {
-        fields.insert("order".to_owned(), "played".into());
-    }
-    serde_json::Value::Object(fields).to_string()
-}
-
-/// A row of an older version (`version` 0) as quick access is now:
-/// - its pins' played stamps move to `played`;
-/// - automatic pins of the audio library go, since it lists itself;
-/// - the first run's pins (Favorites, Downloaded, Local files and the playlists there were, all
-///   pinned in the same moment) go too, so they're sorted like the rest of the library;
-/// - every other pin, made by hand, stays pinned, in its order.
-///
-/// Its custom order and Recently opened are Recently played by then ([`migrate_row`]).
-pub fn migrated(mut rail: RailPrefs) -> RailPrefs {
-    if rail.version >= RAIL_VERSION {
-        return rail;
-    }
-    for pin in &rail.pins {
-        if pin.played_at == 0 {
-            continue;
-        }
-        let known = rail
-            .played
-            .iter_mut()
-            .find(|stamp| stamp.to == pin.to && stamp.search == pin.search);
-        match known {
-            Some(stamp) => stamp.at = stamp.at.max(pin.played_at),
-            None => rail.played.push(RailPlayed {
-                to: pin.to.clone(),
-                search: pin.search.clone(),
-                at: pin.played_at,
-            }),
-        }
-    }
-    rail.played.sort_by_key(|stamp| std::cmp::Reverse(stamp.at));
-    rail.played.truncate(RAIL_PLAYED_KEPT);
-
-    let seeded_at = rail
-        .pins
-        .iter()
-        .filter(|pin| !pin.auto && FIXED.contains(&pin.kind.as_str()))
-        .map(|pin| pin.pinned_at)
-        .min()
-        .filter(|_| rail.seeded);
-    let first_run = |pin: &RailPin| {
-        seeded_at.is_some_and(|at| {
-            !pin.auto
-                && (FIXED.contains(&pin.kind.as_str()) || pin.kind == "playlist")
-                && pin.pinned_at.abs_diff(at) <= SEED_WINDOW_S
-        })
-    };
-    rail.pins.retain(|pin| {
-        let listed_anyway = pin.auto && AUDIO_LIBRARY.contains(&pin.kind.as_str());
-        !listed_anyway && !first_run(pin)
-    });
-    for pin in &mut rail.pins {
-        pin.played_at = 0;
-        pin.opened_at = 0;
-    }
-    rail.version = RAIL_VERSION;
-    rail
 }
 
 /// Whether `kind` is listed by `kinds` (kinds outside the audio library always are).
@@ -1000,7 +910,8 @@ async fn library(app: &AppHandle, db: &Arc<Db>, names: &QuickAccessNames) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use raygun_model::RAIL_SHOWN_DEFAULT;
+    use raygun_app_base::quick_access_rows::{migrate_row, migrated};
+    use raygun_model::{RAIL_SHOWN_DEFAULT, RAIL_VERSION};
 
     use super::*;
 

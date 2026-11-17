@@ -1,0 +1,31 @@
+[package]
+name = "raygun-app-base"
+description = "What Raygun's app crates share: events, database handles, settings, device state"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-model.workspace = true
+raygun-paths.workspace = true
+raygun-db.workspace = true
+raygun-net.workspace = true
+tauri-plugin-raygun-audio.workspace = true
+tauri.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+specta.workspace = true
+tauri-specta.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio = { version = "1", features = ["sync", "time", "fs", "rt", "macros"] }
+sha2 = "0.11"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+rfd.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
