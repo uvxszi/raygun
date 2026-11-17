@@ -300,7 +300,7 @@ async fn save_devices(db: &raygun_db::Db, devices: &[PairedDevice]) -> Result<()
 }
 
 /// A link code as a QR code.
-pub(crate) fn qr_svg(text: &str) -> Option<String> {
+pub fn qr_svg(text: &str) -> Option<String> {
     let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
     Some(
         code.render::<qrcode::render::svg::Color<'_>>()

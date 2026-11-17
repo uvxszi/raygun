@@ -289,7 +289,7 @@ async fn resolve(app: &AppHandle, item: &Value) -> Result<Value, String> {
 }
 
 /// Why a page may not run `command` here, or None when it may.
-pub(crate) fn refusal(command: &str) -> Option<String> {
+pub fn refusal(command: &str) -> Option<String> {
     let denied = DENIED.contains(&command)
         || DENIED_PREFIXES
             .iter()
@@ -300,7 +300,7 @@ pub(crate) fn refusal(command: &str) -> Option<String> {
 }
 
 /// The proxy path a page asked for, when it's one of [`ROUTES`] and stays inside it.
-pub(crate) fn proxy_path(path: &str) -> Option<&str> {
+pub fn proxy_path(path: &str) -> Option<&str> {
     let path = path.trim_start_matches('/');
     let (route, rest) = path.split_once('/')?;
     let target = rest.split(['?', '#']).next().unwrap_or_default();

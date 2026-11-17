@@ -1047,7 +1047,7 @@ fn kind_or_default(kind: String) -> String {
 }
 
 /// `host:port` from what someone typed: a scheme, a path or a missing port are fine.
-pub(crate) fn normalize_address(text: &str) -> Result<String, String> {
+pub fn normalize_address(text: &str) -> Result<String, String> {
     let text = text.trim();
     let text = text
         .strip_prefix("http://")
@@ -1096,7 +1096,7 @@ async fn error_message(response: reqwest::Response, name: &str) -> String {
 
 /// Whether a command from another device starts this device's own player: then this one is the
 /// active device (see [`ConnectService::playing_here`]).
-pub(crate) fn starts_playback(command: &ConnectCommand) -> bool {
+pub fn starts_playback(command: &ConnectCommand) -> bool {
     match command {
         ConnectCommand::Replace { play, .. } => *play,
         ConnectCommand::Enqueue { play_now, .. } => *play_now,
@@ -1179,7 +1179,7 @@ fn input(item: QueueItem) -> QueueItemInput {
 
 /// A queue item another device can play: a file or a link only this device reaches goes as a
 /// lookup by its title and artist, and artwork as its source address.
-pub(crate) fn portable(item: QueueItemInput, original: &dyn Fn(&str) -> String) -> QueueItemInput {
+pub fn portable(item: QueueItemInput, original: &dyn Fn(&str) -> String) -> QueueItemInput {
     let source = match &item.source {
         MediaSource::LocalFile { .. } => lookup(&item),
         MediaSource::Url { url, .. } if !portable_url(url) => lookup(&item),
@@ -1198,7 +1198,7 @@ pub(crate) fn portable(item: QueueItemInput, original: &dyn Fn(&str) -> String) 
 }
 
 /// A queue item as another device gets it, with its id kept (Connect's events).
-pub(crate) fn portable_queue_item(item: QueueItem, original: &dyn Fn(&str) -> String) -> QueueItem {
+pub fn portable_queue_item(item: QueueItem, original: &dyn Fn(&str) -> String) -> QueueItem {
     let id = item.id.clone();
     let input = portable(input(item), original);
     QueueItem {
@@ -1223,7 +1223,7 @@ fn lookup(item: &QueueItemInput) -> MediaSource {
     }
 }
 
-pub(crate) fn portable_command(
+pub fn portable_command(
     command: ConnectCommand,
     original: &dyn Fn(&str) -> String,
 ) -> ConnectCommand {
@@ -1231,7 +1231,7 @@ pub(crate) fn portable_command(
 }
 
 /// A command from another device, with its artwork through this device's cover cache.
-pub(crate) fn arrived(command: ConnectCommand, images: &ImageLinks) -> ConnectCommand {
+pub fn arrived(command: ConnectCommand, images: &ImageLinks) -> ConnectCommand {
     map_items(command, |item| QueueItemInput {
         artwork_url: item.artwork_url.map(|url| shown_artwork(&url, images)),
         ..item

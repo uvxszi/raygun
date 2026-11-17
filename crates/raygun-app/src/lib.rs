@@ -6,22 +6,17 @@
 mod app_window;
 mod backup;
 mod commands;
-mod connect;
 mod cover_search;
-mod device_link;
-mod device_sync;
-mod mcp;
 mod network_mode;
 mod notifications;
 mod open_with;
-mod remote;
 mod settings;
 mod startup;
 mod updates;
-mod web_remote;
 
 use raygun_app_answers as answers;
 use raygun_app_base::{device_state, events, local_network, network, picker, privacy};
+use raygun_app_devices::{connect, device_link, device_sync, mcp, remote, web_remote};
 #[cfg(not(target_os = "android"))]
 use raygun_app_media::video_desktop;
 use raygun_app_media::{
@@ -33,8 +28,8 @@ use raygun_app_music::{
     answer_words, artist_profiles, background, captions, collections, cover_fallback, details,
     discovery, durations, follows, fonts, import, library, logs, lyrics_store, lyrics_translation,
     made_for_you, miniplayer, music_downloads, playback, podcasts, quick_access, reader_ai,
-    resolution, resolver, song_memory, sound, sponsorblock, system_ui, text_translation, tts,
-    youtube_embed, ytdlp,
+    resolver, song_memory, sound, sponsorblock, system_ui, text_translation, tts, youtube_embed,
+    ytdlp,
 };
 use raygun_app_net::cast;
 use raygun_app_reading::dictionary;

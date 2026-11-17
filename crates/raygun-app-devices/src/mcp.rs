@@ -531,7 +531,7 @@ fn tool_defs() -> Vec<ToolDef> {
 }
 
 /// A playback command from `{ action, positionMs?, volume?, itemId? }` (MCP and the LAN remote).
-pub(crate) fn parse_control(args: &Value) -> Result<PlaybackControl, String> {
+pub fn parse_control(args: &Value) -> Result<PlaybackControl, String> {
     let action = text_arg(args, "action")?;
     Ok(match action.as_str() {
         "play" => PlaybackControl::Play,
@@ -561,7 +561,7 @@ pub(crate) fn parse_control(args: &Value) -> Result<PlaybackControl, String> {
 }
 
 /// A required, non-empty string argument.
-pub(crate) fn text_arg(args: &Value, key: &str) -> Result<String, String> {
+pub fn text_arg(args: &Value, key: &str) -> Result<String, String> {
     args.get(key)
         .and_then(Value::as_str)
         .map(str::trim)
@@ -571,7 +571,7 @@ pub(crate) fn text_arg(args: &Value, key: &str) -> Result<String, String> {
 }
 
 /// A song from `title`, `artist` and `album` arguments.
-pub(crate) fn track_arg(args: &Value) -> Result<TrackInput, String> {
+pub fn track_arg(args: &Value) -> Result<TrackInput, String> {
     let optional = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)
