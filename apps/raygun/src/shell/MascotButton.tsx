@@ -10,12 +10,15 @@ import { Sheet } from './Sheet';
  */
 export const MascotIcon: FC<SVGProps<SVGSVGElement> & { size?: number }> = ({
   size = 24,
+  className,
   ...props
 }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
+    // Sized as lucide's icons are (shell/iconSizes).
+    className={className ? `lucide ${className}` : 'lucide'}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"

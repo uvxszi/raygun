@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 
+import { isWebBuild } from '../lib/webBuild';
 import { setAppZoom } from '../shell/appWindow';
 
 /** The shorter side Raygun has: a phone's own (which the keyboard and turning don't change, and
@@ -13,12 +14,17 @@ const shortSide = (desktop: boolean) =>
         window.innerWidth,
       );
 
+/** Whether Interface size zooms the window: Raygun's desktop app only. A web page can't zoom
+ * itself, so there, as on phones, it scales the root font size. */
+export const desktopZooms = (desktop: boolean) => desktop && !isWebBuild();
+
 /**
  * Sizes come from the screen (M46.48): the root font size, which every rem-based size and gap
  * follows, grows with the shorter side (`--short-side`, read by styles.css), from small phones to
  * tablets and desktops. Interface size (`zoom`, percent of that) comes on top: the desktop window
- * zooms, phones scale the root (`--ui-scale`) and, with `data-ui-scaled`, icons drawn at a size in
- * px. Text size (`textSize`, percent more or less) scales text alone (`--text-scale`).
+ * zooms; phones and the web scale the root (`--ui-scale`), and icons drawn at a size in px follow
+ * the root there (`data-root-sized`, shell/iconSizes). Text size (`textSize`, percent more or less)
+ * scales text alone (`--text-scale`).
  */
 export const useApplySize = (
   desktop: boolean,
@@ -48,13 +54,16 @@ export const useApplySize = (
   useEffect(() => {
     const root = document.documentElement;
     const percent = zoom ?? 100;
-    if (desktop || percent === 100) {
+    const zooms = desktopZooms(desktop);
+    // Phones' buttons follow the root font size, which the screen sets: icons drawn in px follow
+    // it too. The web's desktop layout keeps px icons, scaled by Interface size alone.
+    if (desktop) delete root.dataset.rootSized;
+    else root.dataset.rootSized = '';
+    if (zooms || percent === 100) {
       root.style.removeProperty('--ui-scale');
-      delete root.dataset.uiScaled;
-      if (desktop && zoom) void setAppZoom(percent / 100);
+      if (zooms && zoom) void setAppZoom(percent / 100);
     } else {
       root.style.setProperty('--ui-scale', String(percent / 100));
-      root.dataset.uiScaled = '';
     }
   }, [desktop, zoom]);
 
