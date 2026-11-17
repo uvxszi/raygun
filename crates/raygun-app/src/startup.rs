@@ -96,6 +96,12 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     sponsorblock.set_prefs(startup_settings.youtube.sponsor_block);
     sponsorblock.sweep_later();
     app.manage(std::sync::Arc::new(sponsorblock));
+    // Smart Chips (M46.57): what this device installed, and their switches.
+    app.manage(raygun_app_base::chips::ChipsService::for_app(
+        app.handle(),
+        paths.chips(),
+        startup_settings.chips.clone(),
+    ));
     let caches = crate::caches::Caches::new(&paths, &cache_prefs);
     let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with(
         raygun_net::http_client()?,

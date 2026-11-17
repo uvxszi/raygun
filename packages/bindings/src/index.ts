@@ -1563,6 +1563,8 @@ export const commands = {
 	torrents?: TorrentPrefs,
 	/**  YouTube's videos and songs: parts skipped with SponsorBlock, the audio track that plays. */
 	youtube?: YouTubePrefs,
+	/**  Smart Chips turned off (`ChipPrefs`); what's installed is this device's own. */
+	chips?: ChipPrefs,
 } | null, string>(__TAURI_INVOKE("songs_pick_folder")),
 	/**  Whether Raygun may still write to the picked folder. */
 	saveFolderState: (uri: string) => typedError<SaveFolderState, string>(__TAURI_INVOKE("save_folder_state", { uri })),
@@ -1784,6 +1786,24 @@ export const commands = {
 	novelSearchBook: (titleId: string, chapterId: string | null, query: string) => typedError<BookSearch, string>(__TAURI_INVOKE("novel_search_book", { titleId, chapterId, query })),
 	/**  Answers to a question or calculation typed in Search. */
 	answersAsk: (request: AnswerRequest) => typedError<Answers, string>(__TAURI_INVOKE("answers_ask", { request })),
+	/**  Every chip in the catalogue, with what this device has of it. */
+	chipsList: () => __TAURI_INVOKE<ChipInfo[]>("chips_list"),
+	/**
+	 *  Downloads and installs a chip (or its update) and switches it on; progress comes as
+	 *  `ChipsEvent`s, and the answer once it's done.
+	 */
+	chipsInstall: (id: ChipId) => typedError<ChipInfo[], string>(__TAURI_INVOKE("chips_install", { id })),
+	/**  Stops a chip's download. */
+	chipsCancel: (id: ChipId) => __TAURI_INVOKE<ChipInfo[]>("chips_cancel", { id }),
+	chipsRemove: (id: ChipId) => typedError<ChipInfo[], string>(__TAURI_INVOKE("chips_remove", { id })),
+	/**  Switches a chip on or off (synced with linked devices). */
+	chipsSetEnabled: (id: ChipId, enabled: boolean) => typedError<ChipInfo[], string>(__TAURI_INVOKE("chips_set_enabled", { id, enabled })),
+	/**  A text file of an installed, switched-on chip (the desktop player reads its shaders so). */
+	chipsReadText: (id: ChipId, name: string) => typedError<string, string>(__TAURI_INVOKE("chips_read_text", { id, name })),
+	/**  "Not for me" on a song Smart Shuffle added: it leaves and isn't suggested for this list again. */
+	smartShuffleNotForMe: (itemId: string) => typedError<null, string>(__TAURI_INVOKE("smart_shuffle_not_for_me", { itemId })),
+	/**  "Add to this playlist" on a song Smart Shuffle added. */
+	smartShuffleAddToList: (itemId: string) => typedError<null, string>(__TAURI_INVOKE("smart_shuffle_add_to_list", { itemId })),
 	/**  Opens an answer's page (an article, a source) in Raygun's browser. */
 	answersOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("answers_open_page", { url })),
 	/**  Turns Offline Mode on or off: while it's on, Raygun sends nothing over the network. */
@@ -2002,6 +2022,7 @@ export const events = {
 	audiobooksFoundEvent: makeEvent<AudiobooksFoundEvent>("audiobooks-found-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
 	castStatusEvent: makeEvent<CastStatusEvent>("cast-status-event"),
+	chipsEvent: makeEvent<ChipsEvent>("chips-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
 	coverOptionsEvent: makeEvent<CoverOptionsEvent>("cover-options-event"),
@@ -3013,6 +3034,47 @@ export type ChartGroup =
 "viral" | "genre" | "mood" | "decade" | 
 /**  Rising artists with smaller followings. */
 "underground";
+
+/**
+ *  A Smart Chip: an optional feature installed like an extension, from the catalogue
+ *  (`raygun_app_base::chips`), then turned on.
+ */
+export type ChipId = 
+/**  Recommended songs mixed into a shuffled list (the shuffle button's third state). */
+"smartShuffle" | 
+/**  The video player's frames between frames (`PictureEffects::smooth_motion`). */
+"smoothMotion" | 
+/**  Subtitle and audio tracks compared across sources (`VideoPlayerPrefs::smart_subtitles`). */
+"smartSubtitles";
+
+/**  A Smart Chip as Settings and the Smart Chips sheet list it. */
+export type ChipInfo = {
+	id: ChipId,
+	name: string,
+	description: string,
+	/**  `feature` for now; later chips may carry models or mascots. */
+	kind: string,
+	version: string,
+	/**  The package's size in bytes. */
+	size: number | null,
+	installed: boolean,
+	/**  Installed with a different package than the catalogue's: an update is offered. */
+	outdated: boolean,
+	/**  Its switch (only matters while installed). */
+	on: boolean,
+	progress: ChipProgress,
+};
+
+/**  Smart Chips' switches (synced): an installed chip is on unless it's listed here. */
+export type ChipPrefs = {
+	off?: ChipId[],
+};
+
+/**  Where a chip's download is. */
+export type ChipProgress = { kind: "idle" } | { kind: "downloading"; received: number | null; total: number | null } | { kind: "failed"; message: string };
+
+/**  The Smart Chips changed: installed, removed, turned on or off, or a download moved on. */
+export type ChipsEvent = ChipInfo[];
 
 /**  Which saved tracks to play. */
 export type Collection = { kind: "favorites" } | { kind: "playlist"; id: string } | { kind: "history" } | 
@@ -5668,7 +5730,9 @@ export type PlayRequest = {
 export type PlaySelection = { kind: "album"; artist: string; album: string } | { kind: "artist"; artist: string } | { kind: "allTracks" };
 
 /**  A user or client request to the player. */
-export type PlaybackControl = { type: "play" } | { type: "pause" } | { type: "toggle" } | { type: "next" } | { type: "previous" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "setRepeat"; mode: RepeatMode } | { type: "setShuffle"; enabled: boolean } | { type: "playItem"; itemId: string } | { type: "remove"; itemId: string } | { type: "clear" } | 
+export type PlaybackControl = { type: "play" } | { type: "pause" } | { type: "toggle" } | { type: "next" } | { type: "previous" } | { type: "seek"; positionMs: number | null } | { type: "setVolume"; volume: number | null } | { type: "setRepeat"; mode: RepeatMode } | { type: "setShuffle"; enabled: boolean } | 
+/**  Smart Shuffle on (shuffle too, with new suggestions each time) or off (its songs leave). */
+{ type: "setSmartShuffle"; enabled: boolean } | { type: "playItem"; itemId: string } | { type: "remove"; itemId: string } | { type: "clear" } | 
 /**  Removes everything after the current item in play order, keeping it playing. */
 { type: "clearUpcoming" } | 
 /**  Moves a queued item before another in the play order, or to the end (M46.8). */
@@ -5711,6 +5775,11 @@ export type PlaybackState = {
 	 *  song the engine already holds that only resumes (M46.53).
 	 */
 	waiting?: boolean,
+	/**
+	 *  Smart Shuffle (a Smart Chip): the shuffled list has recommended songs mixed in
+	 *  (`QueueSnapshot::suggested`). Only with `shuffle`.
+	 */
+	smartShuffle?: boolean,
 };
 
 /**  The canonical player state changed. */
@@ -5990,6 +6059,8 @@ export type QueueSnapshot = {
 	 *  started from a page that says, or the queue is empty.
 	 */
 	context?: PlayContext | null,
+	/**  Ids of the items Smart Shuffle added: recommended, not the list's own. */
+	suggested?: string[],
 };
 
 /**
@@ -6591,7 +6662,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "videoCards"; value: VideoCardPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "answers"; value: AnswersPrefs } | { key: "youtube"; value: YouTubePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "videoCards"; value: VideoCardPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "answers"; value: AnswersPrefs } | { key: "youtube"; value: YouTubePrefs } | { key: "chips"; value: ChipPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -6777,6 +6848,8 @@ export type Settings = {
 	torrents?: TorrentPrefs,
 	/**  YouTube's videos and songs: parts skipped with SponsorBlock, the audio track that plays. */
 	youtube?: YouTubePrefs,
+	/**  Smart Chips turned off (`ChipPrefs`); what's installed is this device's own. */
+	chips?: ChipPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */

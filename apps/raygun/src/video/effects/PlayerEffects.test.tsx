@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { AppShellWrapper } from '../../shell/AppShell.test-wrapper';
 import { bindingsMock, emitEvent } from '../../test/bindingsMock';
 import { fakeGl } from './fakeGl';
+import { IN_APP_MOTION } from './motion/inApp';
+import { MOTION_FILES } from './motionSources';
 
 vi.mock('@raygun/bindings', async () => (await import('../../test/bindingsMock')).bindingsMock);
 
@@ -86,7 +88,50 @@ describe('effects in the desktop player', () => {
     expect(within(player).queryByTestId('video-effects')).not.toBeInTheDocument();
   });
 
+  it('offers smooth motion only with its Smart Chip', async () => {
+    const { gl } = fakeGl();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => gl as unknown as RenderingContext,
+    );
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    await user.click(within(player).getByRole('button', { name: 'More' }));
+    await user.click(screen.getByRole('menuitemradio', { name: /^Effects/ }));
+    const panel = screen.getByRole('region', { name: 'Effects' });
+    expect(within(panel).getByRole('button', { name: 'Cinema' })).toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('menuitemcheckbox', { name: /Smooth motion/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it('turns smooth motion on and smart audio from the Effects panel', async () => {
+    // The Smooth Motion chip is installed and on: its shaders are read from it.
+    commands.chipsList.mockResolvedValue([
+      {
+        id: 'smoothMotion',
+        name: 'Smooth Motion',
+        description: '',
+        kind: 'feature',
+        version: '1.0.0',
+        size: 1,
+        installed: true,
+        outdated: false,
+        on: true,
+        progress: { kind: 'idle' },
+      },
+    ]);
+    const byFile = Object.fromEntries(
+      Object.entries(MOTION_FILES).map(([part, file]) => [
+        file,
+        IN_APP_MOTION[part as keyof typeof IN_APP_MOTION],
+      ]),
+    );
+    commands.chipsReadText.mockImplementation(async (_id: string, name: string) => ({
+      status: 'ok',
+      data: byFile[name],
+    }));
     const { gl, draws } = fakeGl();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
       () => gl as unknown as RenderingContext,
@@ -104,7 +149,7 @@ describe('effects in the desktop player', () => {
     await user.click(within(player).getByRole('button', { name: 'More' }));
     await user.click(screen.getByRole('menuitemradio', { name: /^Effects/ }));
     const panel = screen.getByRole('region', { name: 'Effects' });
-    await user.click(within(panel).getByRole('menuitemcheckbox', { name: /Smooth motion/ }));
+    await user.click(await within(panel).findByRole('menuitemcheckbox', { name: /Smooth motion/ }));
     // Paused, the frame is kept and shown as it is.
     await vi.waitFor(() => expect(draws.some((draw) => draw.pass === 'motionCopy')).toBe(true));
     await vi.waitFor(() =>

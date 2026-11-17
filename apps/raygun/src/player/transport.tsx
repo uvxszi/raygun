@@ -1,8 +1,18 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-react';
+import {
+  Pause,
+  Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Sparkles,
+} from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useShuffleMode } from './smartShuffle';
 import {
   isActive,
   isWaiting,
@@ -26,20 +36,34 @@ type ButtonProps = {
 const toggleClass = (on: boolean) =>
   on ? `text-primary ${ON_DOT}` : 'text-muted hover:text-foreground';
 
-/** Shuffle, lit with a dot while on. */
+/**
+ * Shuffle, lit with a dot while on. With the Smart Shuffle chip, a third press turns Smart
+ * Shuffle on (a sparkle on the icon), and the next turns both off.
+ */
 export const ShuffleButton: FC<ButtonProps> = ({ className = '', iconSize = 20 }) => {
   const { t } = useTranslation();
-  const shuffle = usePlayerSelect((state) => state?.shuffle ?? false);
+  const { mode, next } = useShuffleMode();
+  const on = mode !== 'off';
+  const label = mode === 'smart' ? t('player.smartShuffle') : t('player.shuffle');
   return (
     <button
       type="button"
-      aria-label={t('player.shuffle')}
-      title={t('player.shuffle')}
-      aria-pressed={shuffle}
-      onClick={() => void sendControl({ type: 'setShuffle', enabled: !shuffle })}
-      className={`grid shrink-0 place-items-center rounded-full transition-colors ${toggleClass(shuffle)} ${className}`}
+      aria-label={label}
+      title={label}
+      aria-pressed={on}
+      data-mode={mode}
+      onClick={() => void sendControl(next)}
+      className={`relative grid shrink-0 place-items-center rounded-full transition-colors ${toggleClass(on)} ${className}`}
     >
       <Shuffle aria-hidden size={iconSize} />
+      {mode === 'smart' && (
+        <Sparkles
+          aria-hidden
+          data-testid="smart-shuffle-mark"
+          size={Math.round(iconSize * 0.55)}
+          className="absolute top-0 right-0"
+        />
+      )}
     </button>
   );
 };

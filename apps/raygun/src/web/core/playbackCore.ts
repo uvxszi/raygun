@@ -252,6 +252,8 @@ export class PlaybackCore {
       lookingForSource: this.looking,
       skippedItemId: this.skipped,
       waiting: this.waiting(),
+      // Smart Shuffle is a Smart Chip of the apps: the page has none.
+      smartShuffle: false,
     };
   }
 
@@ -344,6 +346,7 @@ export class PlaybackCore {
       items: this.items.map((item) => ({ ...item })),
       order: [...this.order],
       context: this.items.length > 0 ? this.context : null,
+      suggested: [],
     };
   }
 

@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useTrackActionsStore } from '../collections/trackActionsStore';
 import { ExplicitMark } from '../music/ExplicitMark';
+import { SuggestedButton } from './SuggestedMark';
 import { fromQueueItem } from '../collections/useCollections';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ArtistLinks } from '../music/ArtistLinks';
@@ -732,6 +733,7 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
               text={item?.title ?? t('player.nothingPlaying')}
               className={`min-w-0 font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
             />
+            <SuggestedButton itemId={item?.id} />
             {item?.explicit && <ExplicitMark />}
           </span>
         )}
@@ -744,6 +746,7 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
                   text={item?.title ?? t('player.nothingPlaying')}
                   className={`min-w-0 font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
                 />
+                <SuggestedButton itemId={item?.id} />
                 {item?.explicit && <ExplicitMark />}
               </span>
             )}

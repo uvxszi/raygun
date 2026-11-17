@@ -337,6 +337,7 @@ impl Backend for RemoteBackend {
                 .collect(),
             order: queue.order,
             context: queue.context,
+            suggested: queue.suggested,
         };
         (
             serde_json::to_value(playback.state()).unwrap_or_default(),

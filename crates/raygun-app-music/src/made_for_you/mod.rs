@@ -264,6 +264,23 @@ impl MadeForYouService {
             .ok_or_else(|| "This mix is no longer made for you; open Made for You again".to_owned())
     }
 
+    /// Every song of today's mixes, hidden ones left out: what the listener's taste would play
+    /// (Smart Shuffle's last resort). Nothing is made for it.
+    pub async fn taste_tracks(&self) -> Vec<OnlineTrack> {
+        let hidden = Hidden::load(self.db()).await;
+        self.stored()
+            .await
+            .map(|stored| {
+                stored
+                    .mixes
+                    .into_iter()
+                    .filter_map(|mix| visible(mix, &hidden))
+                    .flat_map(|mix| mix.tracks)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Saves a mix as a playlist named `name`; returns the playlist's id.
     pub async fn save(&self, id: &str, name: &str) -> Result<String, String> {
         let mix = self.mix(id).await?;

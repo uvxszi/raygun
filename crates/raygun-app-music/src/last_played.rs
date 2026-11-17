@@ -24,6 +24,11 @@ pub struct LastPlayed {
     /// Where the queue was played from (the player's "Playing from").
     #[serde(default)]
     pub context: Option<PlayContext>,
+    /// Smart Shuffle's songs among `items` (indexes), and whether it was on.
+    #[serde(default)]
+    pub suggested: Vec<usize>,
+    #[serde(default)]
+    pub smart_shuffle: bool,
 }
 
 /// The core's queue as JSON to save; `{}` when it's empty (nothing to reopen). Links through this
@@ -31,6 +36,7 @@ pub struct LastPlayed {
 pub fn snapshot(core: &PlaybackCore, original: &dyn Fn(&str) -> String) -> String {
     let queue = core.queue();
     let state = core.state();
+    let suggested = core.suggested_indexes();
     let current = state
         .current_item_id
         .as_ref()
@@ -81,6 +87,8 @@ pub fn snapshot(core: &PlaybackCore, original: &dyn Fn(&str) -> String) -> Strin
                 .filter(|url| portable_url(url)),
             ..context
         }),
+        suggested,
+        smart_shuffle: state.smart_shuffle,
     };
     serde_json::to_string(&last).unwrap_or_else(|_| "{}".into())
 }

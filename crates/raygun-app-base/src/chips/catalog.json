@@ -1,0 +1,38 @@
+[
+  {
+    "id": "smart-shuffle",
+    "name": "Smart Shuffle",
+    "description": "Shuffle with recommended songs mixed in: about one for every three of the list's own, chosen from what the list sounds like. The shuffle button gets a third state.",
+    "kind": "feature",
+    "version": "1.0.0",
+    "package": {
+      "url": "https://raw.githubusercontent.com/uvxszi/raygun/main/chips/packages/smart-shuffle-1.0.0.tar.gz",
+      "sha256": "9e13e11885e3ad5dc9b85ba11092d82fa4eabe259717749f41a2ee6e0d35f3e2",
+      "size": 282
+    }
+  },
+  {
+    "id": "smart-subtitles",
+    "name": "Smart Subtitles",
+    "description": "Compares subtitle and audio tracks from different sources: the ones that agree with the rest come first and are marked Matching, ones unlike all others get a note.",
+    "kind": "feature",
+    "version": "1.0.0",
+    "package": {
+      "url": "https://raw.githubusercontent.com/uvxszi/raygun/main/chips/packages/smart-subtitles-1.0.0.tar.gz",
+      "sha256": "232cdc204b25d0d46c92755e3fa419f1a23d26fa18b01f6055f934b315f05a0a",
+      "size": 282
+    }
+  },
+  {
+    "id": "smooth-motion",
+    "name": "Smooth Motion",
+    "description": "In-between frames for smoother movement in the video player, made on this device's graphics chip. Adds Smooth motion to the player's Effects.",
+    "kind": "feature",
+    "version": "1.0.0",
+    "package": {
+      "url": "https://raw.githubusercontent.com/uvxszi/raygun/main/chips/packages/smooth-motion-1.0.0.tar.gz",
+      "sha256": "05f3730f04fab98e7687152d353cfba6b1a1a089b4c84ff5669bad0b4274dbcd",
+      "size": 3044
+    }
+  }
+]

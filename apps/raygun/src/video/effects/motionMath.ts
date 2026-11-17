@@ -1,5 +1,5 @@
 /**
- * Smooth motion's numbers on desktop (`glsl/fx_motion_*.glsl`; Android's are
+ * Smooth motion's numbers on desktop (`motion/fx_motion_*.glsl`, the Smooth Motion chip's shaders; Android's are
  * `PlayerEffectsMotionMath.kt`, its tests checking the same): the flow's encoding, its search (the
  * same as the shader's, for tests), how in-between frames blend, where between two frames the
  * picture is at a screen refresh, and when the computer can't keep up.

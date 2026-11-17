@@ -70,6 +70,8 @@ import { isNeutral } from './effects/effectParams';
 import { useVideoAudio } from './effects/useVideoAudio';
 import { useVideoEffects } from './effects/useVideoEffects';
 import { VideoEffectsLayer } from './effects/VideoEffectsLayer';
+import { useMotionSources } from './effects/motionSources';
+import { useChipEnabled } from '../chips/useChips';
 import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, latestCueAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
@@ -615,7 +617,15 @@ const VideoStage: FC<StageProps> = ({
   const savePrefs = (change: Record<string, unknown>) =>
     sendRequest(id, 'prefs', positionOf(videoRef.current).positionMs, { change });
   // The picture's effects and smart audio (`effects/`): the title's own, else the settings'.
-  const effects = useVideoEffects({ titleState, defaults: prefs, remember, savePrefs });
+  // Smooth motion comes with its Smart Chip: its shaders are read from it.
+  const motion = useMotionSources(useChipEnabled('smoothMotion'));
+  const effects = useVideoEffects({
+    titleState,
+    defaults: prefs,
+    remember,
+    savePrefs,
+    smoothMotion: motion !== null,
+  });
   const showHint = (text: string) => {
     setHint(text);
     window.clearTimeout(hintTimer.current);
@@ -1440,6 +1450,7 @@ const VideoStage: FC<StageProps> = ({
         videoRef={videoRef}
         fit={FIT[aspect]}
         effects={effects.applied}
+        motion={motion}
         onTooSlow={(kind) => {
           effects.drop(kind);
           showHint(t('videoPlayer.effectsDropped', { n: t(HEAVY_LABEL[kind]) }));

@@ -1,0 +1,7 @@
+{
+  "id": "smart-shuffle",
+  "name": "Smart Shuffle",
+  "description": "Shuffle with recommended songs mixed in: about one for every three of the list's own, chosen from what the list sounds like. The shuffle button gets a third state.",
+  "kind": "feature",
+  "version": "1.0.0"
+}

@@ -240,3 +240,7 @@ pub struct SkippedSegmentEvent(pub raygun_model::SkippedSegment);
 /// Something another app opened with Raygun or shared to it didn't play (`open_with`).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct OpenWithEvent(pub raygun_model::OpenWithProblem);
+
+/// The Smart Chips changed: installed, removed, turned on or off, or a download moved on.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ChipsEvent(pub Vec<raygun_model::ChipInfo>);

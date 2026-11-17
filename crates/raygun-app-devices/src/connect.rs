@@ -455,6 +455,7 @@ impl ConnectService {
                         items: Vec::new(),
                         order: Vec::new(),
                         context: None,
+                        suggested: Vec::new(),
                     });
                     (
                         queue.clone(),
@@ -670,6 +671,7 @@ impl ConnectService {
                 items: Vec::new(),
                 order: Vec::new(),
                 context: None,
+                suggested: Vec::new(),
             };
             let command = session.state.as_ref().and_then(|state| {
                 transfer(
@@ -847,6 +849,7 @@ impl ConnectService {
                         .collect(),
                     order: queue.order.clone(),
                     context: queue.context.clone(),
+                    suggested: queue.suggested.clone(),
                 });
                 session.queue = Some(queue);
             }
@@ -1161,6 +1164,17 @@ fn transfer(
         }),
         order: Some(queue.order.clone()),
         repeat: Some(state.repeat),
+        // Smart Shuffle's songs go as its own, kept apart there too.
+        suggested: Some(
+            queue
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| queue.suggested.contains(&item.id))
+                .map(|(index, _)| index as u32)
+                .collect(),
+        ),
+        smart_shuffle: Some(state.smart_shuffle),
     })
 }
 
@@ -1261,6 +1275,8 @@ fn map_items(
             context,
             order,
             repeat,
+            suggested,
+            smart_shuffle,
         } => ConnectCommand::Replace {
             items: all(items),
             start_index,
@@ -1270,6 +1286,8 @@ fn map_items(
             context,
             order,
             repeat,
+            suggested,
+            smart_shuffle,
         },
         ConnectCommand::Enqueue { items, play_now } => ConnectCommand::Enqueue {
             items: all(items),
@@ -1358,6 +1376,7 @@ mod tests {
                 search: Default::default(),
                 played_at: 0.0,
             }),
+            suggested: Vec::new(),
         };
         let state = PlaybackState {
             status: PlaybackStatus::Playing,
@@ -1375,6 +1394,7 @@ mod tests {
             looking_for_source: false,
             skipped_item_id: None,
             waiting: false,
+            smart_shuffle: false,
         };
         let Some(ConnectCommand::Replace {
             items,
@@ -1385,6 +1405,7 @@ mod tests {
             context,
             order,
             repeat,
+            ..
         }) = transfer(&queue, &state, Duration::from_millis(1_500), &same)
         else {
             panic!("a queue moves");
@@ -1428,6 +1449,7 @@ mod tests {
             items: Vec::new(),
             order: Vec::new(),
             context: None,
+            suggested: Vec::new(),
         };
         assert!(
             transfer(&empty, &paused, Duration::ZERO, &same).is_none(),
@@ -1452,6 +1474,7 @@ mod tests {
             looking_for_source: false,
             skipped_item_id: None,
             waiting: false,
+            smart_shuffle: false,
         }
     }
 
@@ -1522,6 +1545,8 @@ mod tests {
             context: None,
             order: None,
             repeat: None,
+            suggested: None,
+            smart_shuffle: None,
         };
         assert!(starts_playback(&replace(true)));
         assert!(!starts_playback(&replace(false)));
@@ -1563,6 +1588,7 @@ mod tests {
             ],
             order: vec![1, 2, 0],
             context: None,
+            suggested: Vec::new(),
         };
         let Some(ConnectCommand::Replace {
             start_index,

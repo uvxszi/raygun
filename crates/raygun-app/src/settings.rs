@@ -7,6 +7,23 @@ use raygun_model::Settings;
 /// Sets `apply_live`'s work (at start).
 pub fn install() {
     set_apply_live(apply_boxed);
+    raygun_app_base::chips::set_changed_hook(chips_changed);
+}
+
+/// A Smart Chip was installed, removed or switched: what it gates follows at once. Smart
+/// Shuffle's songs leave without it; an open video player learns whether Smooth Motion and Smart
+/// Subtitles are there.
+fn chips_changed(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if !raygun_app_base::chips::enabled(app, raygun_model::ChipId::SmartShuffle)
+        && let Some(playback) = app.try_state::<crate::playback::PlaybackService>()
+    {
+        playback.smart_shuffle_unavailable();
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::video::settings_changed(&app).await;
+    });
 }
 
 fn apply_boxed<'a>(
@@ -48,6 +65,11 @@ async fn apply_here(app: &tauri::AppHandle, settings: &Settings, changed: Option
     if differs("sound", &|before| before.sound == settings.sound) {
         app.state::<crate::playback::PlaybackService>()
             .set_sound(settings.sound.clone());
+    }
+    if differs("chips", &|before| before.chips == settings.chips)
+        && let Some(chips) = app.try_state::<std::sync::Arc<raygun_app_base::chips::ChipsService>>()
+    {
+        chips.set_prefs(settings.chips.clone());
     }
     let content = differs("showNsfw", &|before| before.show_nsfw == settings.show_nsfw)
         || differs("explicitMusic", &|before| {

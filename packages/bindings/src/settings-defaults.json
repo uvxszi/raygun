@@ -714,5 +714,8 @@
       "trimDownloads": false
     },
     "originalAudio": true
+  },
+  "chips": {
+    "off": []
   }
 }
