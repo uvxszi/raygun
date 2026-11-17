@@ -17,6 +17,7 @@ export const SOUND_DEFAULTS: FullSound = {
   normalizeTarget: -14,
   // Rust's CROSSFADE_DEFAULT_MS.
   crossfadeMs: 2000,
+  pitch: 0,
 };
 
 export const withSoundDefaults = (sound?: SoundPrefs | null): FullSound => ({
@@ -34,6 +35,7 @@ export const withSoundDefaults = (sound?: SoundPrefs | null): FullSound => ({
   normalize: sound?.normalize ?? SOUND_DEFAULTS.normalize,
   normalizeTarget: sound?.normalizeTarget ?? SOUND_DEFAULTS.normalizeTarget,
   crossfadeMs: sound?.crossfadeMs ?? SOUND_DEFAULTS.crossfadeMs,
+  pitch: sound?.pitch ?? SOUND_DEFAULTS.pitch,
 });
 
 export const withEditDefaults = (edit?: SongEdit | null): FullSongEdit => ({

@@ -27,6 +27,7 @@ import { useTrackActionsStore } from '../collections/trackActionsStore';
 import { ExplicitMark } from '../music/ExplicitMark';
 import { fromQueueItem } from '../collections/useCollections';
 import { PlayingOn } from '../connect/PlayingOn';
+import { ConnectButton } from '../devices/ConnectButton';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { useTrackMenuItems } from '../music/useTrackMenu';
 import { useBackLayer } from '../shell/backLayers';
@@ -786,6 +787,8 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
             )}
             {error && <SourceIssue>{error}</SourceIssue>}
           </div>
+          {/* A phone's devices, left of the lyrics' toggle. */}
+          {toggle && <ConnectButton />}
           {toggle}
           {item && !spoken && <FavoriteButton item={item} download />}
           {item && <MoreButton item={item} spoken={spoken} />}

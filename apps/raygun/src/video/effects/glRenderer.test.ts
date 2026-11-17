@@ -1,6 +1,13 @@
 import { shaderParams, withEffectDefaults } from './effectParams';
 import { canvasWith, fakeGl } from './fakeGl';
-import { EffectsRenderer, MOTION_PASSES, PASSES, VERTEX_SOURCE } from './glRenderer';
+import {
+  EffectsRenderer,
+  MOTION_PASSES,
+  PASSES,
+  VERTEX_SOURCE,
+  WATERMARK_PASS,
+} from './glRenderer';
+import { NO_WATERMARK } from './watermarkMath';
 
 const video = (width = 320, height = 180) => {
   const element = document.createElement('video');
@@ -26,6 +33,35 @@ describe('the effect passes', () => {
       // ES 1.00 reserves `half`.
       expect(source).not.toMatch(/#version|(float|vec\d) half\b/);
     }
+  });
+
+  it('takes the watermark out first once its mask is known, the rest reading that frame', () => {
+    const { gl, draws } = fakeGl();
+    const renderer = new EffectsRenderer(canvasWith(gl));
+    const params = shaderParams(withEffectDefaults({}));
+    renderer.setWatermark({
+      ...NO_WATERMARK,
+      enabled: true,
+      x: 8_000,
+      y: 500,
+      width: 1_500,
+      height: 1_000,
+      feather: 40,
+    });
+    renderer.draw(video(), params, 0.04);
+    // No mask yet: nothing to take out.
+    expect(draws.map((draw) => draw.pass)).toEqual(['final']);
+    draws.length = 0;
+    renderer.setWatermarkMask({ cols: 4, rows: 4, data: new Uint8Array(64) });
+    renderer.draw(video(), params, 0.08);
+    expect(draws.map((draw) => draw.pass)).toEqual(['watermark', 'final']);
+    const [watermark, final] = draws;
+    expect(watermark?.uniforms.uBox).toEqual(
+      [0.8, 0.85, 0.95, 0.95].map((value) => expect.closeTo(value, 5)),
+    );
+    expect(watermark?.uniforms.uFeather).toBeCloseTo(0.2);
+    expect(final?.textures.uFrame).toBe(watermark?.into);
+    expect(WATERMARK_PASS).toContain('uniform sampler2D uMask;');
   });
 
   it('draws colours alone in one pass onto the canvas', () => {

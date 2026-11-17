@@ -322,8 +322,10 @@ export class OverlayFinder {
     const typical = sorted[Math.floor(sorted.length / 2)] ?? 0;
     if (typical < MIN_CHANGE) return null;
     const meanAt = (col: number, row: number) =>
-      means[Math.min(FIND_ROWS - 1, Math.max(0, row)) * FIND_COLS +
-        Math.min(FIND_COLS - 1, Math.max(0, col))] ?? 0;
+      means[
+        Math.min(FIND_ROWS - 1, Math.max(0, row)) * FIND_COLS +
+          Math.min(FIND_COLS - 1, Math.max(0, col))
+      ] ?? 0;
     const still = new Uint8Array(cells);
     for (let row = 0; row < FIND_ROWS; row += 1) {
       for (let col = 0; col < FIND_COLS; col += 1) {
@@ -367,8 +369,7 @@ export class OverlayFinder {
         }
       }
       groups += 1;
-      const area =
-        ((found.right - found.left + 1) * (found.bottom - found.top + 1)) / cells;
+      const area = ((found.right - found.left + 1) * (found.bottom - found.top + 1)) / cells;
       if (found.count >= 3 && area <= MAX_AREA && (!best || found.count > best.count)) {
         best = found;
       }

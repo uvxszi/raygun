@@ -72,6 +72,26 @@ describe('Sound settings', () => {
     await waitFor(() => expect(lastSound()).toMatchObject({ normalize: true, mono: true }));
   });
 
+  it('sets the tempo and the pitch, and puts both back with Reset sound', async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/settings/music');
+    const controls = await screen.findByTestId('tempo-pitch');
+    expect(within(controls).getByRole('button', { name: 'Reset sound' })).toBeDisabled();
+
+    fireEvent.change(within(controls).getByRole('slider', { name: 'Tempo' }), {
+      target: { value: '125' },
+    });
+    expect(commands.playbackControl).toHaveBeenLastCalledWith({ type: 'setRate', rate: 1.25 });
+    fireEvent.change(within(controls).getByRole('slider', { name: 'Pitch' }), {
+      target: { value: '30' },
+    });
+    await waitFor(() => expect(lastSound()).toMatchObject({ pitch: 30 }));
+    expect(within(controls).getByText('+3 semitones')).toBeInTheDocument();
+
+    await user.click(within(controls).getByRole('button', { name: 'Reset sound' }));
+    await waitFor(() => expect(lastSound()).toMatchObject({ pitch: 0 }));
+  });
+
   it('changes nothing in the equalizer while it is off; only its switch turns it on', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/settings/music');

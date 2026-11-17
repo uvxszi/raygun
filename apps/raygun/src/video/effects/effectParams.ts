@@ -1,5 +1,13 @@
 import type { PictureEffects, PictureLook, SmartAudio } from '@raygun/bindings';
 
+import {
+  isWatermarkActive,
+  NO_WATERMARK,
+  sameWatermark,
+  withWatermarkDefaults,
+} from './watermarkMath';
+import type { Watermark } from './watermarkMath';
+
 /**
  * The video player's effects as numbers (`raygun_model::PictureEffects`, `SmartAudio`): how each
  * setting maps onto the shared shaders' uniforms (`glsl/fx_*.glsl`). Android's player maps them
@@ -7,7 +15,7 @@ import type { PictureEffects, PictureLook, SmartAudio } from '@raygun/bindings';
  */
 
 /** Every field present: Rust always sends them all, but the generated types mark them optional. */
-export type Effects = Required<PictureEffects>;
+export type Effects = Omit<Required<PictureEffects>, 'watermark'> & { watermark: Watermark };
 export type Audio = Required<SmartAudio>;
 
 export const NO_EFFECTS: Effects = {
@@ -21,6 +29,7 @@ export const NO_EFFECTS: Effects = {
   deflicker: 0,
   denoise: 0,
   smoothMotion: false,
+  watermark: NO_WATERMARK,
 };
 
 export const NO_SMART_AUDIO: Audio = {
@@ -33,6 +42,7 @@ export const NO_SMART_AUDIO: Audio = {
 export const withEffectDefaults = (effects?: PictureEffects | null): Effects => ({
   ...NO_EFFECTS,
   ...effects,
+  watermark: withWatermarkDefaults(effects?.watermark),
 });
 
 export const withAudioDefaults = (audio?: SmartAudio | null): Audio => ({
@@ -41,7 +51,7 @@ export const withAudioDefaults = (audio?: SmartAudio | null): Audio => ({
 });
 
 /** The signed and strength settings, in the order the panels list them. */
-export type AdjustKey = Exclude<keyof Effects, 'look' | 'smoothMotion'>;
+export type AdjustKey = Exclude<keyof Effects, 'look' | 'smoothMotion' | 'watermark'>;
 
 export type Adjustment = { key: AdjustKey; min: number; max: number };
 
@@ -58,14 +68,35 @@ export const ADJUSTMENTS: Adjustment[] = [
 
 export const LOOKS: PictureLook[] = ['none', 'warm', 'cool', 'vivid', 'grayscale', 'sepia'];
 
+/** The plain fields (the watermark is compared on its own). */
+const PLAIN_KEYS = (Object.keys(NO_EFFECTS) as (keyof Effects)[]).filter(
+  (key) => key !== 'watermark',
+);
+
+/** Nothing changes the picture (a watermark box that's off changes nothing, as Rust's). */
 export const isNeutral = (effects: Effects) =>
-  (Object.keys(NO_EFFECTS) as (keyof Effects)[]).every((key) => effects[key] === NO_EFFECTS[key]);
+  PLAIN_KEYS.every((key) => effects[key] === NO_EFFECTS[key]) &&
+  !isWatermarkActive(effects.watermark);
 
 export const sameEffects = (left: Effects, right: Effects) =>
-  (Object.keys(NO_EFFECTS) as (keyof Effects)[]).every((key) => left[key] === right[key]);
+  PLAIN_KEYS.every((key) => left[key] === right[key]) &&
+  sameWatermark(left.watermark, right.watermark);
 
-/** The picture's own adjustments, smooth motion left out (presets set only these). */
-export const adjustmentsOf = (effects: Effects): Effects => ({ ...effects, smoothMotion: false });
+/**
+ * The picture's own adjustments, smooth motion and the watermark left out (presets set only these;
+ * the watermark is the title's alone).
+ */
+export const adjustmentsOf = (effects: Effects): Effects => ({
+  ...effects,
+  smoothMotion: false,
+  watermark: NO_WATERMARK,
+});
+
+/** What may become the settings' default: never a title's watermark. */
+export const withoutWatermark = (effects: Effects): Effects => ({
+  ...effects,
+  watermark: NO_WATERMARK,
+});
 
 export const isAudioOff = (audio: Audio) =>
   !audio.dialogue && !audio.night && !audio.normalize && !audio.leveling;

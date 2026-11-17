@@ -372,6 +372,8 @@ describe('Cover and lyrics on a phone', () => {
 
     const toggle = within(sheet).getByRole('button', { name: 'Show lyrics' });
     expect(toggle.nextElementSibling).toBe(within(sheet).getByTestId('download-song'));
+    // Devices (Connect) sits just left of it.
+    expect(toggle.previousElementSibling).toHaveAccessibleName('Connect to a device');
     expect(within(header).queryByRole('button', { name: /^Show / })).not.toBeInTheDocument();
 
     await user.click(toggle);

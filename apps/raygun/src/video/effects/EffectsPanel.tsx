@@ -14,6 +14,9 @@ import {
 } from './effectParams';
 import type { Adjustment, HeavyKind } from './effectParams';
 import type { VideoEffects } from './useVideoEffects';
+import { VideoSoundOptions } from './VideoSoundOptions';
+import type { VideoSoundControls } from './VideoSoundOptions';
+import { WatermarkOptions } from './WatermarkOptions';
 
 const pill = (pressed: boolean) =>
   `rounded-full px-3 py-1.5 text-sm ${pressed ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/20'}`;
@@ -59,14 +62,20 @@ const EffectSlider: FC<SliderProps> = ({ name, adjustment, value, onChange }) =>
   );
 };
 
-type Props = { effects: VideoEffects; onClose: () => void };
+type Props = {
+  effects: VideoEffects;
+  onClose: () => void;
+  /** The title's tempo, pitch and equalizer (the Sound part); none leaves them out. */
+  sound?: VideoSoundControls;
+};
 
 /**
  * More → Effects in the desktop player: presets, a look, and a slider per adjustment, changing
  * the picture as they move (kept for the title once they settle), with Reset all, Make default
- * and, for a title with its own, Use the default.
+ * and, for a title with its own, Use the default; then the title's watermark remover, and its sound
+ * (tempo, pitch, equalizer, smart audio).
  */
-export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
+export const EffectsPanel: FC<Props> = ({ effects, onClose, sound }) => {
   const { t } = useTranslation();
   const { picture } = effects;
   const names = (kinds: HeavyKind[]) => kinds.map((kind) => t(HEAVY_LABEL[kind])).join(', ');
@@ -87,7 +96,11 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
               type="button"
               aria-pressed={pressed}
               onClick={() =>
-                effects.setPicture({ ...preset.effects, smoothMotion: picture.smoothMotion })
+                effects.setPicture({
+                  ...preset.effects,
+                  smoothMotion: picture.smoothMotion,
+                  watermark: picture.watermark,
+                })
               }
               className={pill(pressed)}
             >
@@ -142,7 +155,12 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose }) => {
         )}
       </div>
       {note && <p className="px-3 pt-3 text-xs text-white/60">{note}</p>}
-      <SmartAudioOptions effects={effects} title={t('videoPlayer.effectsSound')} />
+      <WatermarkOptions effects={effects} onDraw={onClose} />
+      {sound && <VideoSoundOptions controls={sound} />}
+      <SmartAudioOptions
+        effects={effects}
+        title={sound ? t('videoPlayer.smartAudio') : t('videoPlayer.effectsSound')}
+      />
     </PlayerPanel>
   );
 };

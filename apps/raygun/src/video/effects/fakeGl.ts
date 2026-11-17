@@ -29,6 +29,7 @@ const MOTION_PASSES: [string, string][] = [
 const passOf = (source: string) => {
   const motion = MOTION_PASSES.find(([uniform]) => source.includes(uniform));
   if (motion) return motion[1];
+  if (source.includes('uMask')) return 'watermark';
   if (source.includes('uBlocks')) return 'mean';
   if (source.includes('uHistory')) return 'clean';
   if (source.includes('uColour')) return 'final';
@@ -69,6 +70,7 @@ export const fakeGl = () => {
     FLOAT: 19,
     TRIANGLE_STRIP: 20,
     UNPACK_FLIP_Y_WEBGL: 21,
+    UNPACK_ALIGNMENT: 22,
     createShader: () => ({}),
     shaderSource: (shader: object, source: string) => {
       sources.set(shader, source);
@@ -127,6 +129,8 @@ export const fakeGl = () => {
       program?.uniforms.set(location.name, [x, y]),
     uniform3f: (location: { name: string }, x: number, y: number, z: number) =>
       program?.uniforms.set(location.name, [x, y, z]),
+    uniform4f: (location: { name: string }, x: number, y: number, z: number, w: number) =>
+      program?.uniforms.set(location.name, [x, y, z, w]),
     uniformMatrix3fv: (location: { name: string }, _transpose: boolean, value: Float32Array) =>
       program?.uniforms.set(location.name, Array.from(value)),
     drawArrays: () => {

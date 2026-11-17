@@ -2,6 +2,7 @@ import type { Reverb, SoundPrefs } from '@raygun/bindings';
 
 import { withSoundDefaults } from '../sound/soundPrefs';
 import type { FullSound } from '../sound/soundPrefs';
+import { PitchStage } from './pitchShifter';
 
 /** Centre frequencies of the equalizer's bands, Hz; the same as `EQ_FREQUENCIES` in Rust. */
 export const EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -65,14 +66,15 @@ const fadeCurve = (from: number, to: number, points = 64) => {
 
 /**
  * Music on desktop plays through this Web Audio graph (M46.12). Each deck (an `<audio>` element)
- * has its own level and fade, so two can cross; their mix goes through the preamp, ten
- * BiquadFilters (a low shelf, peaking bands, a high shelf, as Nuclear's hifi package lays them
+ * has its own level and fade, so two can cross; their mix goes through the pitch
+ * shifter, the preamp, ten BiquadFilters (a low shelf, peaking bands, a high shelf, as Nuclear's hifi package lays them
  * out), the bass shelf, reverb (a ConvolverNode on a generated impulse) beside the dry signal,
  * balance, mono, a limiter at −1 dBFS and the master volume. Each deck also feeds a K-weighted
  * meter (two filters and an analyser per channel) for loudness normalization.
  */
 export class WebAudioSound implements SoundBackend {
   private readonly mix: GainNode;
+  private readonly pitch: PitchStage;
   private readonly preamp: GainNode;
   private readonly bands: BiquadFilterNode[];
   private readonly bass: BiquadFilterNode;
@@ -97,6 +99,7 @@ export class WebAudioSound implements SoundBackend {
     window.addEventListener('pointerdown', wake, true);
     window.addEventListener('keydown', wake, true);
     this.mix = context.createGain();
+    this.pitch = new PitchStage(context);
     this.preamp = context.createGain();
     this.bands = EQ_FREQUENCIES.map((frequency, index) => {
       const filter = context.createBiquadFilter();
@@ -130,7 +133,9 @@ export class WebAudioSound implements SoundBackend {
     limiter.release.value = 0.15;
     this.master = context.createGain();
 
-    let chain: AudioNode = this.mix.connect(this.preamp);
+    // Pitch first (a worklet only while shifted, pitchShifter.ts), then the equalizer.
+    this.mix.connect(this.pitch.input);
+    let chain: AudioNode = this.pitch.output.connect(this.preamp);
     for (const band of this.bands) chain = chain.connect(band);
     chain.connect(this.bass);
     this.bass.connect(dry).connect(merge);
@@ -246,6 +251,7 @@ export class WebAudioSound implements SoundBackend {
     // A one-channel node mixes both sides together; the speakers get it on both again.
     this.mono.channelCount = sound.mono ? 1 : 2;
     this.mono.channelCountMode = sound.mono ? 'explicit' : 'max';
+    this.pitch.setPitch(sound.pitch);
   }
 
   setVolume(volume: number) {

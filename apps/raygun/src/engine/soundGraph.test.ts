@@ -123,7 +123,8 @@ describe('The Web Audio sound graph', () => {
 
   it('applies the equalizer with headroom, bass, reverb, balance and mono', () => {
     const { sound, bands, bass, gains, made } = build();
-    const preamp = gains[1];
+    // The mix, the pitch shifter's way in and out, then the preamp.
+    const preamp = gains[3];
     const eqBands = [60, 30, 0, 0, -20, 0, 0, 0, 40, 0];
 
     sound.apply({ ...SOUND_DEFAULTS, eqEnabled: true, eqBands, preamp: 20 });

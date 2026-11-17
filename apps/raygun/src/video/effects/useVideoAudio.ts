@@ -4,6 +4,8 @@ import type { RefObject } from 'react';
 import { isAudioOff } from './effectParams';
 import type { Audio } from './effectParams';
 import { VideoAudioGraph } from './smartAudio';
+import { isTuningOff } from './videoSound';
+import type { SoundTuning } from './videoSound';
 
 export type VideoAudio = {
   /**
@@ -16,7 +18,8 @@ export type VideoAudio = {
 };
 
 /**
- * The video's sound: its volume (past 100 % through Web Audio's gain) and smart audio
+ * The video's sound: its volume (past 100 % through Web Audio's gain), its pitch and equalizer,
+ * and smart audio
  * (`VideoAudioGraph`), with the sound beside the picture (another source's, a file, the video's
  * own moved by the delay) through the same chain. The graph is made the first time either needs
  * it and stays with the element; without Web Audio the video plays as it is, up to 100 %.
@@ -27,6 +30,8 @@ export const useVideoAudio = (
   volume: number,
   muted: boolean,
   audio: Audio,
+  /** The title's pitch and equalizer (none: as it is). */
+  tuning?: SoundTuning,
 ): VideoAudio => {
   const graph = useRef<VideoAudioGraph | null>(null);
   const [connected, setConnected] = useState(false);
@@ -37,7 +42,8 @@ export const useVideoAudio = (
     const video = videoRef.current;
     if (!video) return;
     video.muted = muted;
-    const wanted = volume > 1 || !isAudioOff(audio);
+    const wanted =
+      volume > 1 || !isAudioOff(audio) || (tuning !== undefined && !isTuningOff(tuning));
     if (wanted && !graph.current && typeof AudioContext !== 'undefined') {
       try {
         graph.current = new VideoAudioGraph(video, () => setConnected(true));
@@ -48,10 +54,11 @@ export const useVideoAudio = (
     if (graph.current) {
       graph.current.setVolume(volume);
       graph.current.setAudio(audio);
+      if (tuning) graph.current.setTuning(tuning);
     } else {
       video.volume = Math.min(1, volume);
     }
-  }, [volume, muted, audio, videoRef]);
+  }, [volume, muted, audio, tuning, videoRef]);
 
   // The sound beside the picture joins the chain once the graph runs; gone, it lets go of it.
   useEffect(() => {

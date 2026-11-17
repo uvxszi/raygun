@@ -1,11 +1,15 @@
+import { PitchStage } from '../../engine/pitchShifter';
+import { EQ_FREQUENCIES } from '../../engine/soundGraph';
 import type { Audio } from './effectParams';
+import type { SoundTuning } from './videoSound';
 
 /**
  * Smart audio on desktop: the video's `<audio>` through Web Audio (the same chain as Android's
  * `SmartAudioDsp` in `PlayerEffectsAudio.kt`): clearer dialogue (the middle's voice band lifted,
  * the sides lowered), night mode (a compressor), even loudness and scene leveling (one gain,
  * from the K-weighted loudness after the compressor), a limiter at −1 dBFS, then the volume (past
- * 100 %, its boost).
+ * 100 %, its boost). In front of it all, the title's pitch (`pitchShifter.ts`) and equalizer (its
+ * own or the music player's, ten bands laid out as the music graph's).
  */
 
 /** The loudness even loudness and scene leveling aim for, LUFS (Android's too). */
@@ -157,10 +161,17 @@ export class VideoAudioGraph {
   private connected = false;
   private audio: Audio = { dialogue: false, night: false, normalize: false, leveling: false };
   private volume = 1;
+  private tuning: SoundTuning = {
+    pitch: 0,
+    eq: { enabled: false, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], preamp: 0 },
+  };
   private readonly follower = new LoudnessFollower();
   private timer: ReturnType<typeof setInterval> | null = null;
   private nodes: {
     input: GainNode;
+    pitch: PitchStage;
+    preamp: GainNode;
+    bands: BiquadFilterNode[];
     presence: BiquadFilterNode;
     side: GainNode;
     compressor: DynamicsCompressorNode;
@@ -216,6 +227,12 @@ export class VideoAudioGraph {
     this.beside.delete(element);
   }
 
+  /** The title's pitch and equalizer. */
+  setTuning(tuning: SoundTuning) {
+    this.tuning = tuning;
+    this.applyTuning();
+  }
+
   setAudio(audio: Audio) {
     const measuring =
       (audio.normalize || audio.leveling) !== (this.audio.normalize || this.audio.leveling);
@@ -260,7 +277,27 @@ export class VideoAudioGraph {
     const splitter = context.createChannelSplitter(2);
     const mid = context.createGain();
     const sideSum = context.createGain();
-    source.connect(input).connect(splitter);
+    source.connect(input);
+    // The title's pitch, then its equalizer (pplyTuning).
+    const pitch = new PitchStage(context);
+    const preamp = context.createGain();
+    const bands = EQ_FREQUENCIES.map((frequency, index) => {
+      const filter = context.createBiquadFilter();
+      const last = EQ_FREQUENCIES.length - 1;
+      filter.type = index === 0 ? 'lowshelf' : index === last ? 'highshelf' : 'peaking';
+      filter.frequency.value = frequency;
+      if (filter.type === 'peaking') {
+        const below = EQ_FREQUENCIES[index - 1] ?? frequency / 2;
+        const above = EQ_FREQUENCIES[index + 1] ?? frequency * 2;
+        filter.Q.value = (2 * frequency) / Math.abs(above - below);
+      }
+      filter.gain.value = 0;
+      return filter;
+    });
+    input.connect(pitch.input);
+    let chain: AudioNode = pitch.output.connect(preamp);
+    for (const band of bands) chain = chain.connect(band);
+    chain.connect(splitter);
     // Middle = (left + right) / 2, side = (left − right) / 2.
     [0.5, 0.5].forEach((weight, channel) => {
       const gain = context.createGain();
@@ -320,9 +357,22 @@ export class VideoAudioGraph {
       analyser.fftSize = 8192;
       meterSplit.connect(analyser, channel);
     });
-    this.nodes = { input, presence, side, compressor, trim, level, output, analysers };
+    this.nodes = {
+      input,
+      pitch,
+      preamp,
+      bands,
+      presence,
+      side,
+      compressor,
+      trim,
+      level,
+      output,
+      analysers,
+    };
     this.setVolume(this.volume);
     this.apply();
+    this.applyTuning();
     this.watch();
     this.onConnected();
   }
@@ -340,6 +390,19 @@ export class VideoAudioGraph {
     nodes.compressor.attack.value = NIGHT.attack;
     nodes.compressor.release.value = NIGHT.release;
     nodes.trim.gain.value = audio.night ? dbToGain(NIGHT.trimDb) : 1;
+  }
+
+  /** The pitch and the bands, with the largest boost taken off first so boosts don't clip. */
+  private applyTuning() {
+    const nodes = this.nodes;
+    if (!nodes) return;
+    const { pitch, eq } = this.tuning;
+    nodes.pitch.setPitch(pitch);
+    nodes.bands.forEach((band, index) => {
+      band.gain.value = eq.enabled ? (eq.bands[index] ?? 0) / 10 : 0;
+    });
+    const headroom = eq.enabled ? Math.max(0, ...eq.bands.map((gain) => gain / 10)) : 0;
+    nodes.preamp.gain.value = dbToGain((eq.enabled ? eq.preamp / 10 : 0) - headroom);
   }
 
   /** While even loudness or leveling is on: the loudness every 100 ms, and the gain from it. */

@@ -6,6 +6,7 @@ import type {
   VideoAspect,
   VideoChapter,
   VideoPlayerPrefs,
+  VideoSound,
   VideoSubtitle,
 } from '@raygun/bindings';
 
@@ -52,7 +53,12 @@ export type TitleState = {
   /** The title's own picture effects and smart audio (`effects/useVideoEffects.ts`). */
   pictureEffects?: PictureEffects | null;
   smartAudio?: SmartAudio | null;
+  /** The title's pitch and equalizer (effects/videoSound.ts). */
+  videoSound?: VideoSound | null;
 };
+
+/** The music player's equalizer, for titles without one of their own (Rust's musicEq). */
+export type MusicEq = Pick<VideoSound, 'eqEnabled' | 'eqPreset' | 'eqBands' | 'preamp'>;
 
 /** Another stream of the episode, offered for its sound (`video_session::audio::AudioOffer`). */
 export type AudioOffer = {
@@ -91,6 +97,7 @@ export type PlayerRequest = {
   subtitleLanguage?: string;
   /** When subtitles turn on by themselves. */
   subtitleMode?: SubtitleMode;
+  musicEq?: MusicEq | null;
   /** The audio's language when the stream doesn't say (anime: Japanese). */
   spokenLanguage?: string | null;
   group?: string;
@@ -242,7 +249,7 @@ export type PlayerUpdate =
    * once, as a request's would be. */
   | ({ type: 'prefs' } & Pick<
       PlayerRequest,
-      'prefs' | 'seekStepMs' | 'appLanguage' | 'subtitleLanguage' | 'subtitleMode'
+      'prefs' | 'seekStepMs' | 'appLanguage' | 'subtitleLanguage' | 'subtitleMode' | 'musicEq'
     >);
 
 export type ReportState = 'progress' | 'ended' | 'error' | 'switched' | 'closed';

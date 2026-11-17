@@ -4,6 +4,7 @@ import finalSource from './glsl/fx_final.glsl?raw';
 import meanSource from './glsl/fx_stats_mean.glsl?raw';
 import blocksSource from './glsl/fx_stats_blocks.glsl?raw';
 import vertexSource from './glsl/fx_vertex.glsl?raw';
+import watermarkSource from './glsl/fx_watermark.glsl?raw';
 import motionCommonSource from './glsl/fx_motion_common.glsl?raw';
 import motionCopySource from './glsl/fx_motion_copy.glsl?raw';
 import motionErrorSource from './glsl/fx_motion_error.glsl?raw';
@@ -14,6 +15,14 @@ import motionWarpSource from './glsl/fx_motion_warp.glsl?raw';
 import { columns } from './effectParams';
 import type { ShaderParams } from './effectParams';
 import { flowSize, LEVELS, RADII } from './motionMath';
+import {
+  isWatermarkActive,
+  shaderBox,
+  watermarkBrightness,
+  watermarkContrast,
+  watermarkFeather,
+} from './watermarkMath';
+import type { Watermark, WatermarkMask } from './watermarkMath';
 
 /**
  * The picture's effects on desktop: the `<video>`'s frames drawn through the same GLSL passes as
@@ -35,6 +44,9 @@ export const PASSES = {
 } as const;
 
 export const VERTEX_SOURCE = vertexSource;
+
+/** The watermark remover's pass (linked when first used). */
+export const WATERMARK_PASS = fragmentSource(watermarkSource);
 
 /** A smooth motion pass's fragment shader: the shared parts first, then its own. */
 export const motionSource = (pass: string) => `${commonSource}\n${motionCommonSource}\n${pass}`;
@@ -118,6 +130,15 @@ export class EffectsRenderer {
   private readonly quad: WebGLBuffer;
   /** The video's frame, as uploaded. */
   private readonly frame: WebGLTexture;
+  /** What the passes start from: the frame, or the frame with its watermark taken out. */
+  private input: WebGLTexture;
+  // The watermark remover: its box and mask (from the frames, watermarkMath.ts), its pass and
+  // the frame it draws.
+  private watermark: Watermark | null = null;
+  private watermarkPass: Pass | null = null;
+  private watermarkMask: WebGLTexture | null = null;
+  private hasWatermarkMask = false;
+  private watermarked: Target | null = null;
   private frameWidth = 0;
   private frameHeight = 0;
   private blockTarget: Target | null = null;
@@ -163,6 +184,59 @@ export class EffectsRenderer {
     );
     this.quad = quad;
     this.frame = gl.createTexture();
+    this.input = this.frame;
+  }
+
+  /** The title's watermark box (null or off: none). */
+  setWatermark(watermark: Watermark | null) {
+    this.watermark = watermark && isWatermarkActive(watermark) ? watermark : null;
+  }
+
+  /** The overlay's opacity and colour over the box, as found so far (null: none yet). */
+  setWatermarkMask(mask: WatermarkMask | null) {
+    const { gl } = this;
+    if (!mask) {
+      this.hasWatermarkMask = false;
+      return;
+    }
+    this.watermarkMask ??= gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.watermarkMask);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      mask.cols,
+      mask.rows,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      mask.data,
+    );
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    this.hasWatermarkMask = true;
+  }
+
+  /** The frame with its watermark taken out, when there's a box and a mask; else the frame. */
+  private drawWatermark(): WebGLTexture {
+    const { gl, watermark } = this;
+    const mask = this.watermarkMask;
+    if (!watermark || !mask || !this.hasWatermarkMask) return this.frame;
+    const pass = this.watermarkPass ?? (this.watermarkPass = link(gl, WATERMARK_PASS));
+    const into =
+      this.watermarked ?? (this.watermarked = this.target(this.frameWidth, this.frameHeight));
+    this.focus(into);
+    this.use(pass);
+    this.texture(pass, 'uFrame', 0, this.frame, true);
+    this.texture(pass, 'uMask', 1, mask, true);
+    gl.uniform2f(this.at(pass, 'uTexel'), 1 / this.frameWidth, 1 / this.frameHeight);
+    const [x0 = 0, y0 = 0, x1 = 1, y1 = 1] = shaderBox(watermark);
+    gl.uniform4f(this.at(pass, 'uBox'), x0, y0, x1, y1);
+    gl.uniform1f(this.at(pass, 'uFeather'), watermarkFeather(watermark.feather));
+    gl.uniform1f(this.at(pass, 'uBright'), watermarkBrightness(watermark.brightness));
+    gl.uniform1f(this.at(pass, 'uContrast'), watermarkContrast(watermark.contrast));
+    this.drawQuad();
+    return into.texture;
   }
 
   /**
@@ -253,7 +327,8 @@ export class EffectsRenderer {
   /** The picture's passes, the final look onto the canvas or into `into`. */
   private drawLook(params: ShaderParams, again: boolean, into: Target | null) {
     const { gl } = this;
-    let source = this.frame;
+    this.input = this.drawWatermark();
+    let source = this.input;
     let gainLeft = params.deflicker;
     if (params.deflicker) this.drawLight(params, again);
     else this.statsKnown = false;
@@ -419,6 +494,8 @@ export class EffectsRenderer {
       if (target) this.deleteTarget(target);
     }
     for (const pass of Object.values(this.passes)) gl.deleteProgram(pass.program);
+    if (this.watermarkPass) gl.deleteProgram(this.watermarkPass.program);
+    if (this.watermarkMask) gl.deleteTexture(this.watermarkMask);
     gl.deleteBuffer(this.quad);
     gl.deleteTexture(this.frame);
     gl.getExtension('WEBGL_lose_context')?.loseContext();
@@ -456,6 +533,8 @@ export class EffectsRenderer {
   private deleteFrames() {
     for (const target of this.cleaned ?? []) this.deleteTarget(target);
     this.cleaned = null;
+    if (this.watermarked) this.deleteTarget(this.watermarked);
+    this.watermarked = null;
     this.historyKnown = false;
   }
 
@@ -507,7 +586,7 @@ export class EffectsRenderer {
     this.focus(grid);
     const { blocks, mean } = this.passes;
     this.use(blocks);
-    this.texture(blocks, 'uFrame', 0, this.frame, true);
+    this.texture(blocks, 'uFrame', 0, this.input, true);
     this.drawQuad();
 
     this.focus(drawn);
@@ -541,7 +620,7 @@ export class EffectsRenderer {
     const { clean } = this.passes;
     this.focus(drawn);
     this.use(clean);
-    this.texture(clean, 'uFrame', 0, this.frame, true);
+    this.texture(clean, 'uFrame', 0, this.input, true);
     this.texture(clean, 'uHistory', 1, history.texture, false);
     if (light) this.texture(clean, 'uStats', 2, light, false);
     gl.uniform2f(this.at(clean, 'uTexel'), 1 / this.frameWidth, 1 / this.frameHeight);

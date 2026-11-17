@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { PrefBlock, PrefChoice, PrefGroup, PrefSlider, PrefSwitch } from '../settings/prefs';
 import { EqualizerPanel } from './EqualizerPanel';
 import { LyricsTranslationSettings } from './LyricsTranslationSettings';
+import { MusicTempoPitch } from './TempoPitch';
 import { useSoundPrefs } from './useSound';
 
 const REVERBS: Reverb[] = [
@@ -28,6 +29,11 @@ export const SoundSettings: FC = () => {
       <PrefGroup title={t('sound.equalizer')}>
         <PrefBlock>
           <EqualizerPanel sound={sound} change={change} />
+        </PrefBlock>
+      </PrefGroup>
+      <PrefGroup title={t('sound.tempoPitch')}>
+        <PrefBlock>
+          <MusicTempoPitch sound={sound} change={change} disabled={loading} />
         </PrefBlock>
       </PrefGroup>
       <PrefGroup title={t('sound.effects')}>

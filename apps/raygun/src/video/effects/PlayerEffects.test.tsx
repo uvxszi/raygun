@@ -38,6 +38,15 @@ describe('effects in the desktop player', () => {
     vi.restoreAllMocks();
   });
 
+  it('names the effects button Fx', async () => {
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    const button = within(player).getByRole('button', { name: 'Effects' });
+    expect(button).toHaveTextContent('Fx');
+    expect(button.querySelector('svg')).toBeNull();
+  });
+
   it("draws a title's own effects over the picture, and changes them from More", async () => {
     const { gl, draws } = fakeGl();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
@@ -130,10 +139,13 @@ describe('effects in the desktop player', () => {
     // Smart audio is under Sound in the same panel.
     expect(within(panel).getByText('Sound')).toBeInTheDocument();
     await user.click(within(panel).getByRole('menuitemcheckbox', { name: /Night mode/ }));
-    expect(requests().at(-1)).toMatchObject({
-      action: 'state',
-      change: { smartAudio: expect.objectContaining({ night: true }) },
-    });
+    // (The preset is kept a moment after it's picked, so it may come after.)
+    expect(requests()).toContainEqual(
+      expect.objectContaining({
+        action: 'state',
+        change: { smartAudio: expect.objectContaining({ night: true }) },
+      }),
+    );
   });
 
   it('says when there is no WebGL 2, and keeps smart audio in the Audio panel', async () => {

@@ -29,7 +29,6 @@ import {
   Server,
   SkipBack,
   SkipForward,
-  SlidersHorizontal,
   Volume1,
   Volume2,
   VolumeX,
@@ -70,6 +69,8 @@ import { isNeutral } from './effects/effectParams';
 import { useVideoAudio } from './effects/useVideoAudio';
 import { useVideoEffects } from './effects/useVideoEffects';
 import { VideoEffectsLayer } from './effects/VideoEffectsLayer';
+import { appliedEq, useVideoSound } from './effects/videoSound';
+import { WatermarkDraw } from './effects/WatermarkDraw';
 import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, latestCueAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
@@ -616,6 +617,13 @@ const VideoStage: FC<StageProps> = ({
     sendRequest(id, 'prefs', positionOf(videoRef.current).positionMs, { change });
   // The picture's effects and smart audio (`effects/`): the title's own, else the settings'.
   const effects = useVideoEffects({ titleState, defaults: prefs, remember, savePrefs });
+  // The title's pitch and equalizer (its own, or the music player's).
+  const videoSound = useVideoSound(titleState.videoSound, remember);
+  const musicEq = useVideoPlayerStore((state) => state.musicEq);
+  const tuning = useMemo(
+    () => ({ pitch: videoSound.sound.pitch, eq: appliedEq(videoSound.sound, musicEq) }),
+    [videoSound.sound, musicEq],
+  );
   const showHint = (text: string) => {
     setHint(text);
     window.clearTimeout(hintTimer.current);
@@ -1117,7 +1125,13 @@ const VideoStage: FC<StageProps> = ({
 
   // Volume, past 100 % through Web Audio when boosting, and smart audio, the sound beside the
   // picture's too; the video's own is muted while that plays.
-  const sound = useVideoAudio(videoRef, volume, muted || soundSource !== null, effects.audio);
+  const sound = useVideoAudio(
+    videoRef,
+    volume,
+    muted || soundSource !== null,
+    effects.audio,
+    tuning,
+  );
   // The sound beside the picture plays in step with it; the video's own is muted meanwhile.
   useExternalAudio({
     videoRef,
@@ -1445,7 +1459,34 @@ const VideoStage: FC<StageProps> = ({
           showHint(t('videoPlayer.effectsDropped', { n: t(HEAVY_LABEL[kind]) }));
         }}
         onUnavailable={effects.markUnavailable}
+        watermark={{
+          finding: effects.watermarkStatus === 'finding',
+          onMask: (found) => {
+            if (effects.watermarkStatus === 'finding') return;
+            effects.setWatermarkStatus(found ? 'ready' : 'learning');
+          },
+          onFound: (box) => {
+            if (!box) {
+              effects.setWatermarkStatus('notFound');
+              return;
+            }
+            effects.setWatermarkStatus('learning');
+            effects.setWatermark({ ...effects.picture.watermark, ...box, enabled: true });
+          },
+        }}
       />
+      {effects.drawingWatermark && (
+        <WatermarkDraw
+          picture={picture}
+          current={effects.picture.watermark.width > 0 ? effects.picture.watermark : null}
+          onDone={(box) => {
+            effects.setDrawingWatermark(false);
+            effects.setWatermarkStatus('learning');
+            effects.setWatermark({ ...effects.picture.watermark, ...box, enabled: true });
+          }}
+          onCancel={() => effects.setDrawingWatermark(false)}
+        />
+      )}
       {/* The shade behind the controls, under the subtitles (`vignette.ts`). */}
       <div
         aria-hidden
@@ -1686,7 +1727,9 @@ const VideoStage: FC<StageProps> = ({
               label={t('videoPlayer.effects')}
               onClick={() => setPanel(panel === 'effects' ? null : 'effects')}
             >
-              <SlidersHorizontal aria-hidden size={20} />
+              <span aria-hidden className="text-sm font-bold italic">
+                {t('videoPlayer.fxButton')}
+              </span>
             </IconButton>
             {/* Its tracks, another source's sound, a file, the audio delay and smart audio. */}
             <IconButton
@@ -1958,7 +2001,23 @@ const VideoStage: FC<StageProps> = ({
         </PlayerPanel>
       )}
       {panel === 'settings' && <VideoSettingsPanel onClose={() => setPanel(null)} />}
-      {panel === 'effects' && <EffectsPanel effects={effects} onClose={() => setPanel(null)} />}
+      {panel === 'effects' && (
+        <EffectsPanel
+          effects={effects}
+          onClose={() => setPanel(null)}
+          sound={{
+            speed,
+            onSpeed: changeSpeed,
+            sound: videoSound.sound,
+            setSound: videoSound.setSound,
+            resetSound: () => {
+              videoSound.resetSound();
+              if (speed !== 100) changeSpeed(100);
+            },
+            musicEq,
+          }}
+        />
+      )}
       {panel === 'cast' && (
         <CastPanel
           positionMs={timeMs}

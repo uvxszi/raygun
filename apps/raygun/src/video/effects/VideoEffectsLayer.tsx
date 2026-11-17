@@ -5,6 +5,18 @@ import { EffectsRenderer } from './glRenderer';
 import { heavyKinds, isNeutral, shaderParams } from './effectParams';
 import type { Effects, HeavyKind } from './effectParams';
 import { missesRefreshes, progressAt } from './motionMath';
+import type { Watermark, WatermarkMask } from './watermarkMath';
+import { WatermarkSampler } from './watermarkSampler';
+
+/** The watermark remover's part: Find it asked for, and what the frames told. */
+export type WatermarkHooks = {
+  /** Find it was asked for: the whole picture is sampled until the answer comes. */
+  finding: boolean;
+  /** A mask was found for the box (true), or it's learning again (false). */
+  onMask: (found: boolean) => void;
+  /** Find it's answer: the box round a still overlay, or null. */
+  onFound: (box: Pick<Watermark, 'x' | 'y' | 'width' | 'height'> | null) => void;
+};
 
 type Props = {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -16,6 +28,7 @@ type Props = {
   onTooSlow: (kind: HeavyKind) => void;
   /** No WebGL 2 here: the picture plays as it is. */
   onUnavailable: () => void;
+  watermark?: WatermarkHooks;
 };
 
 /** How often missed frames are counted up, and the share of them that's too many. */
@@ -49,8 +62,11 @@ export const VideoEffectsLayer: FC<Props> = ({
   effects,
   onTooSlow,
   onUnavailable,
+  watermark,
 }) => {
-  const active = !isNeutral(effects);
+  const finding = watermark?.finding ?? false;
+  // Find it samples the picture even before there's a box.
+  const active = !isNeutral(effects) || finding;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const params = useRef(shaderParams(effects));
   const smooth = useRef(effects.smoothMotion);
@@ -59,14 +75,31 @@ export const VideoEffectsLayer: FC<Props> = ({
   const redraw = useRef<() => void>(() => {});
   const tooSlow = useEffectEvent((kind: HeavyKind) => onTooSlow(kind));
   const unavailable = useEffectEvent(() => onUnavailable());
+  const maskFound = useEffectEvent((found: boolean) => watermark?.onMask(found));
+  const overlayFound = useEffectEvent(
+    (box: Pick<Watermark, 'x' | 'y' | 'width' | 'height'> | null) => watermark?.onFound(box),
+  );
+  const box = useRef(effects.watermark);
+  const findingNow = useRef(finding);
+  const renderer = useRef<EffectsRenderer | null>(null);
+  const sampler = useRef<WatermarkSampler | null>(null);
 
   // New values apply from the next frame; paused, the frame shows them at once.
   useEffect(() => {
     params.current = shaderParams(effects);
     smooth.current = effects.smoothMotion;
     heavy.current = heavyKinds(effects);
+    box.current = effects.watermark;
+    renderer.current?.setWatermark(effects.watermark);
+    sampler.current?.setWatermark(effects.watermark);
     if (videoRef.current?.paused) redraw.current();
   }, [effects, videoRef]);
+
+  // Find it: the sampler looks until it can tell (the layer is on meanwhile).
+  useEffect(() => {
+    findingNow.current = finding;
+    if (finding && sampler.current && !sampler.current.finding) sampler.current.find();
+  }, [finding]);
 
   useEffect(() => {
     const video = videoRef.current as FrameVideo | null;
@@ -79,6 +112,19 @@ export const VideoEffectsLayer: FC<Props> = ({
       unavailable();
       return;
     }
+    drawing.setWatermark(box.current);
+    renderer.current = drawing;
+    const boxFrames = new WatermarkSampler(
+      (mask: WatermarkMask | null) => {
+        drawing.setWatermarkMask(mask);
+        maskFound(mask !== null);
+        if (video.paused) redraw.current();
+      },
+      (found) => overlayFound(found),
+    );
+    boxFrames.setWatermark(box.current);
+    if (findingNow.current) boxFrames.find();
+    sampler.current = boxFrames;
     let stopped = false;
     let handle = 0;
     let refresh = 0;
@@ -105,6 +151,7 @@ export const VideoEffectsLayer: FC<Props> = ({
       } catch {
         // A frame that can't be read yet; the next one draws.
       }
+      if (time !== lastTime.current) boxFrames.frame(video);
       lastTime.current = time;
     };
     // Paused: the frame shown is drawn again with the new values at once.
@@ -185,6 +232,8 @@ export const VideoEffectsLayer: FC<Props> = ({
       window.cancelAnimationFrame(refresh);
       video.removeEventListener('seeking', onSeeking);
       drawing.dispose();
+      renderer.current = null;
+      sampler.current = null;
       redraw.current = () => {};
       lastTime.current = Number.NaN;
     };

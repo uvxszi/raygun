@@ -10,6 +10,7 @@ import type { MediaEngine } from './mediaEngine';
 import type {
   AudioOffer,
   EpisodeItem,
+  MusicEq,
   PlayerRequest,
   PlayerUpdate,
   QualityRow,
@@ -42,6 +43,8 @@ type VideoPlayerState = {
   subtitleLanguage: string;
   /** When subtitles turn on by themselves. */
   subtitleMode: SubtitleMode;
+  /** The music player's equalizer, which titles without their own follow. */
+  musicEq: MusicEq | null;
   autoplay: boolean;
   nextPromptMs: number;
   loadingText: string | null;
@@ -104,6 +107,7 @@ const settingsFrom = (request: PlayerRequest, state: VideoPlayerState) => ({
   appLanguage: request.appLanguage ?? state.appLanguage,
   subtitleLanguage: request.subtitleLanguage ?? state.subtitleLanguage,
   subtitleMode: request.subtitleMode ?? state.subtitleMode,
+  musicEq: request.musicEq ?? state.musicEq,
   session: request.session ?? state.session,
   autoplay: request.autoplay ?? state.autoplay,
   nextPromptMs:
@@ -142,6 +146,7 @@ const CLOSED = {
   appLanguage: '',
   subtitleLanguage: '',
   subtitleMode: 'foreign',
+  musicEq: null,
   autoplay: true,
   nextPromptMs: DEFAULT_PROMPT_MS,
   loadingText: null,
@@ -246,11 +251,9 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
         }
         case 'prefs': {
           // Only what settings say; the session's own fields stay.
-          const { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode } = settingsFrom(
-            { id: '', ...update },
-            state,
-          );
-          return { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode };
+          const { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode, musicEq } =
+            settingsFrom({ id: '', ...update }, state);
+          return { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode, musicEq };
         }
         case 'transfer': {
           if (update.id !== state.request?.id) return state;

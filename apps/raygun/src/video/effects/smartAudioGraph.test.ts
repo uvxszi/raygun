@@ -195,7 +195,8 @@ describe('smart audio on desktop', () => {
   it('sets its parts from the switches, passing the sound through when off', () => {
     const graph = new VideoAudioGraph(media());
     const [context] = contexts;
-    const [presence] = context?.filters ?? [];
+    // The title's ten equalizer bands come first, then the voice band.
+    const presence = context?.filters[10];
     const [compressor, limiter] = context?.compressors ?? [];
     expect(presence?.gain.value).toBe(0);
     expect(compressor?.ratio.value).toBe(1);
@@ -209,6 +210,22 @@ describe('smart audio on desktop', () => {
     graph.setAudio(NO_SMART_AUDIO);
     expect(presence?.gain.value).toBe(0);
     expect(compressor?.ratio.value).toBe(1);
+  });
+
+  it('sets the title’s equalizer, its biggest boost taken off first', () => {
+    const graph = new VideoAudioGraph(media());
+    const [context] = contexts;
+    const bands = context?.filters.slice(0, 10) ?? [];
+    expect(bands.every((band) => band.gain.value === 0)).toBe(true);
+    const eq = { enabled: true, bands: [60, 0, 0, 0, 0, 0, 0, 0, 0, -30], preamp: 20 };
+    graph.setTuning({ pitch: 0, eq });
+    expect(bands[0]?.gain.value).toBe(6);
+    expect(bands[9]?.gain.value).toBe(-3);
+    // The preamp: +2 dB less the 6 dB boost.
+    const preamp = context?.gains.find((gain) => Math.abs(gain.gain.value - dbToGain(-4)) < 1e-9);
+    expect(preamp).toBeDefined();
+    graph.setTuning({ pitch: 0, eq: { ...eq, enabled: false } });
+    expect(bands[0]?.gain.value).toBe(0);
   });
 
   it('turns a quiet video up as it measures it', () => {

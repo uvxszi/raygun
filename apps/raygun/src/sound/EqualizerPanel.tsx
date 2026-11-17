@@ -12,9 +12,12 @@ import type { FullSound } from './soundPrefs';
 const LIMIT = 120;
 
 const frequencyLabel = (hertz: number) => (hertz >= 1000 ? `${hertz / 1000}k` : `${hertz}`);
+/** What the equalizer reads and changes: the music player's, or a video title's own. */
+export type EqFields = Pick<FullSound, 'eqEnabled' | 'eqPreset' | 'eqBands' | 'preamp'>;
+
 type EqualizerPanelProps = {
-  sound: FullSound;
-  change: (patch: Partial<FullSound>) => void;
+  sound: EqFields;
+  change: (patch: Partial<EqFields>) => void;
 };
 
 /**
@@ -28,7 +31,7 @@ export const EqualizerPanel: FC<EqualizerPanelProps> = ({ sound, change }) => {
   const { t } = useTranslation();
   const on = sound.eqEnabled;
   /** A change to the curve, only while the equalizer is on. */
-  const shape = (patch: Partial<FullSound>) => {
+  const shape = (patch: Partial<EqFields>) => {
     if (on) change(patch);
   };
   const setBand = (index: number, gain: number) => {

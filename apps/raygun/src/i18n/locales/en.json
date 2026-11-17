@@ -5168,6 +5168,7 @@
     "band": "{{frequency}} band",
     "preamp": "Preamp",
     "preampHint": "Boosts are taken back first, so they never distort; turn this up to make up for it.",
+    "tempoPitch": "Tempo and pitch",
     "effects": "Effects",
     "bassBoost": "Bass boost",
     "reverb": "Reverb",

@@ -8,6 +8,7 @@ import { useNowPlaying } from '../player/usePlayback';
 import { Sheet } from '../shell/Sheet';
 import { EqualizerPanel } from './EqualizerPanel';
 import { useSongEditStore } from './songEditStore';
+import { MusicTempoPitch } from './TempoPitch';
 import { useSoundPrefs } from './useSound';
 
 /**
@@ -20,7 +21,8 @@ export const SoundButton: FC<{ className?: string }> = ({ className = '' }) => {
   const { sound, change } = useSoundPrefs();
   const { item } = useNowPlaying();
   const openEditor = useSongEditStore((store) => store.open);
-  const shaped = sound.eqEnabled || sound.bassBoost > 0 || sound.reverb !== 'off';
+  const shaped =
+    sound.eqEnabled || sound.bassBoost > 0 || sound.reverb !== 'off' || sound.pitch !== 0;
   return (
     <>
       <button
@@ -43,6 +45,7 @@ export const SoundButton: FC<{ className?: string }> = ({ className = '' }) => {
           onClose={() => setAnchor(null)}
         >
           <div className="flex flex-col gap-4 px-1">
+            <MusicTempoPitch sound={sound} change={change} />
             <EqualizerPanel sound={sound} change={change} />
             <div className="flex flex-wrap gap-2">
               {item && (

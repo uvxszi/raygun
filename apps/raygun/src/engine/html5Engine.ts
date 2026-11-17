@@ -252,9 +252,12 @@ export class Html5Engine {
         break;
       case 'setRate':
         // The default survives new sources, which reset the rate to it (M46.8).
+        // A tempo: the pitch stays (the pitch shifter in `soundGraph` moves it on its own).
         for (const deck of this.decks) {
-          deck.media.defaultPlaybackRate = command.rate ?? 1;
-          deck.media.playbackRate = command.rate ?? 1;
+          const media = deck.media as MediaElementLike & { preservesPitch?: boolean };
+          if ('preservesPitch' in media) media.preservesPitch = true;
+          media.defaultPlaybackRate = command.rate ?? 1;
+          media.playbackRate = command.rate ?? 1;
         }
         this.scheduleEnd(this.deck);
         break;
