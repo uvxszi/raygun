@@ -70,7 +70,7 @@ fn pages_of(id: &str) -> Option<(u32, u32)> {
 /// book's own title), each running to the next; pages before the first are the front matter. A
 /// document without an outline is read in parts. Each chapter is (name, first page, last page),
 /// pages from 0.
-pub(crate) fn pdf_chapters(outline: &[OutlineEntry], count: usize) -> Vec<(String, usize, usize)> {
+pub fn pdf_chapters(outline: &[OutlineEntry], count: usize) -> Vec<(String, usize, usize)> {
     if count == 0 {
         return Vec::new();
     }
@@ -123,7 +123,7 @@ pub(crate) fn pdf_chapters(outline: &[OutlineEntry], count: usize) -> Vec<(Strin
 /// A PDF's bookmarks as the reader's contents, in the outline's order: each with the chapter
 /// holding its page and the page within it. `chapters` are page runs (from 0) that don't overlap;
 /// bookmarks on pages none of them holds are left out.
-pub(crate) fn pdf_contents(
+pub fn pdf_contents(
     outline: Vec<OutlineEntry>,
     chapters: &[(String, std::ops::Range<usize>)],
 ) -> Vec<PdfContentsEntry> {

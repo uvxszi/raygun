@@ -1148,9 +1148,7 @@ fn show_raygun_downloads(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-    if let Some(notices) = app.try_state::<Arc<crate::notifications::DownloadNotices>>() {
-        notices.open("/downloads?tab=files".to_owned());
-    }
+    raygun_app_base::app_hooks::open_route(app, "/downloads?tab=files".to_owned());
 }
 
 /// Opens a web address in the system's browser. No shell: the address is one argument.

@@ -8,7 +8,7 @@
 //! subtitles from every addon that serves them, each asked by an id it knows
 //! (`Meta::stream_ids_for_video`). Addons that didn't answer lately are asked last.
 
-pub(crate) mod providers;
+pub mod providers;
 pub use raygun_app_sources::stremio_addons::{at_most, protocol};
 
 use std::collections::{HashMap, HashSet};
@@ -53,7 +53,7 @@ const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
 /// Biggest answer read from an addon (thousands of subtitles run to a few MB).
 const MAX_RESPONSE_BYTES: usize = 12 * 1024 * 1024;
 /// Most subtitle tracks handed to the player; more makes a menu of near-identical entries.
-pub(crate) const MAX_SUBTITLES: usize = 20;
+pub const MAX_SUBTITLES: usize = 20;
 /// How long a title's details are reused (the title page, its streams and the player ask in turn).
 const META_FRESH_MS: i64 = 10 * 60 * 1000;
 /// How long details from an addon later in the order wait for the ones before it.
@@ -2377,7 +2377,7 @@ pub fn content_key(kind: &str, video_id: &str) -> String {
 /// The episode a series continues from (M46.48): the one watched last (its progress here, or a
 /// mark on the stored episode), or the next one that is out once that was finished, in watching
 /// order; see [`crate::catalog::continue_index`].
-pub(crate) fn continue_video<'a>(
+pub fn continue_video<'a>(
     kind: &str,
     videos: &'a [protocol::Video],
     progress: &HashMap<String, VideoProgress>,
@@ -2533,7 +2533,7 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
 /// number across seasons. A Kitsu entry numbers every episode "season 1" while its name says
 /// which season it is; its own number then goes with that season, or with none when its name
 /// doesn't say.
-pub(crate) fn numberings(meta: &protocol::Meta) -> Vec<Vec<video_match::EpisodeNumber>> {
+pub fn numberings(meta: &protocol::Meta) -> Vec<Vec<video_match::EpisodeNumber>> {
     let title = video_match::parse_title(&meta.preview.name);
     let one_season = meta
         .videos
@@ -2678,7 +2678,7 @@ fn release_status(kind: &str, release_info: Option<&str>) -> &'static str {
 /// "2024–", "2024-", "2024 - ") is the year alone, and anything else ("2019–2023", "1999") stays as
 /// it is. Addons write the open dash; [`release_status`] reads it before it goes. Artists' years
 /// are shown the same way.
-pub(crate) use raygun_model::year_range_label as release_label;
+pub use raygun_model::year_range_label as release_label;
 
 /// The first four-digit year in a release range.
 fn release_year(text: &str) -> Option<i32> {
@@ -2690,7 +2690,7 @@ fn release_year(text: &str) -> Option<i32> {
 }
 
 /// A release date (`2008-01-20T12:00:00.000Z` or `2008-01-20`) as Unix ms.
-pub(crate) fn release_ms(text: &str) -> Option<i64> {
+pub fn release_ms(text: &str) -> Option<i64> {
     protocol::release_ms(text)
 }
 

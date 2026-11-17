@@ -74,7 +74,7 @@ struct Chosen {
 }
 
 /// What a request works out to.
-struct Planned {
+pub struct Planned {
     titles: Vec<Chosen>,
     /// Chapters to download first.
     missing: Vec<String>,

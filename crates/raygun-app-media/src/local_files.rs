@@ -448,7 +448,7 @@ fn id_path(provider: &str, document: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn percent_decode(text: &str) -> String {
+pub fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let hex = |byte: u8| (byte as char).to_digit(16);
     let mut out = Vec::with_capacity(bytes.len());
@@ -932,14 +932,14 @@ impl LocalFilesService {
     /// Adds a folder the user picks in the system's picker (Android's folder picker, a desktop's
     /// folder dialog) and scans it. `None` when they cancelled.
     pub async fn add(self: &Arc<Self>) -> Result<Option<Vec<LocalFolder>>, String> {
-        let picked = crate::commands::pick_local_folder(&self.app).await?;
+        let picked = raygun_app_base::folders::pick_local_folder(&self.app).await?;
         let Some(location) = picked.uri else {
             return Ok(None);
         };
         let (path, access) = if location.starts_with("content://") {
             // Songs and videos are read by path, which needs the media permissions; a scan
             // tells when they're missing.
-            crate::commands::request_media_access(&self.app).await;
+            raygun_app_base::folders::request_media_access(&self.app).await;
             (tree_path(&location), FolderAccess::Tree)
         } else {
             (Some(location.clone()), FolderAccess::Path)
@@ -1500,7 +1500,7 @@ impl LocalFilesService {
     /// Asks for the media access songs and videos need (Android). When the system won't ask any
     /// more, Raygun's page in the system settings opens. Folders that needed it are scanned again.
     pub async fn allow_access(self: &Arc<Self>) -> Result<bool, String> {
-        let granted = crate::commands::request_media_access(&self.app).await;
+        let granted = raygun_app_base::folders::request_media_access(&self.app).await;
         if granted {
             for folder in store::folders(self.db())
                 .await

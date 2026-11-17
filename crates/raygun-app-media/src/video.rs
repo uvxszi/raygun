@@ -503,7 +503,7 @@ fn playable_address(app: &AppHandle, url: &str) -> Result<String, String> {
         return Ok(url.to_owned());
     }
     if url.starts_with("file:") {
-        let path = crate::open_with::file_path(url)
+        let path = raygun_app_base::app_hooks::file_path(url)
             .ok_or_else(|| "This file's address can't be read".to_owned())?;
         return Ok(app
             .state::<crate::playback::PlaybackService>()
@@ -788,10 +788,7 @@ pub async fn mark(db: &raygun_db::Db, entry: &VideoEntry, watched: bool) -> Resu
 /// Subtitle files through the stream proxy, which serves an empty track for one that can't be
 /// fetched (the player would give up on the whole video) and lets release builds load plain-HTTP
 /// ones. The proxied URL has no extension, so the format is guessed from the original first.
-pub(crate) fn proxied_subtitles(
-    app: &AppHandle,
-    subtitles: &[VideoSubtitle],
-) -> Vec<VideoSubtitle> {
+pub fn proxied_subtitles(app: &AppHandle, subtitles: &[VideoSubtitle]) -> Vec<VideoSubtitle> {
     let Some(links) = app.try_state::<ImageLinks>() else {
         return subtitles.to_vec();
     };
@@ -861,7 +858,11 @@ fn note_loaded(app: &AppHandle, payload: &Value) {
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
     note_loaded(app, payload);
     // Started from a linked browser: it plays there (docs/WEB.md).
-    if crate::web_remote::to_viewer(app, raygun_model::VideoPlayerMessageKind::Open, payload) {
+    if raygun_app_base::app_hooks::to_viewer(
+        app,
+        raygun_model::VideoPlayerMessageKind::Open,
+        payload,
+    ) {
         return Ok(());
     }
     let payload = &with_cast(app, payload);
@@ -879,7 +880,11 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
     note_loaded(app, payload);
     // Started from a linked browser: it plays there (docs/WEB.md).
-    if crate::web_remote::to_viewer(app, raygun_model::VideoPlayerMessageKind::Open, payload) {
+    if raygun_app_base::app_hooks::to_viewer(
+        app,
+        raygun_model::VideoPlayerMessageKind::Open,
+        payload,
+    ) {
         return Ok(());
     }
     let payload = &with_cast(app, payload);
@@ -894,7 +899,11 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 #[cfg(target_os = "android")]
 pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), String> {
     follow_load(app, update);
-    if crate::web_remote::to_viewer(app, raygun_model::VideoPlayerMessageKind::Update, update) {
+    if raygun_app_base::app_hooks::to_viewer(
+        app,
+        raygun_model::VideoPlayerMessageKind::Update,
+        update,
+    ) {
         return Ok(());
     }
     let player = app
@@ -906,7 +915,11 @@ pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), 
 #[cfg(not(target_os = "android"))]
 pub fn update_player(app: &AppHandle, update: &serde_json::Value) -> Result<(), String> {
     follow_load(app, update);
-    if crate::web_remote::to_viewer(app, raygun_model::VideoPlayerMessageKind::Update, update) {
+    if raygun_app_base::app_hooks::to_viewer(
+        app,
+        raygun_model::VideoPlayerMessageKind::Update,
+        update,
+    ) {
         return Ok(());
     }
     crate::video_desktop::update(app, update)

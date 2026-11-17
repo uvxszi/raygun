@@ -38,7 +38,7 @@ fn downloads_dir(app: &AppHandle) -> PathBuf {
 
 /// An episode an export downloads first.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Missing {
+pub struct Missing {
     pub unit_id: String,
     /// Its progress key, which its download goes by.
     pub key: String,
@@ -94,7 +94,7 @@ pub async fn sources(
 
 /// `names` once each, best first by `ranking`, the one played last (`last`) chosen, else the
 /// first.
-pub(super) fn ranked_sources(
+pub fn ranked_sources(
     names: Vec<String>,
     last: &str,
     ranking: &crate::video_session::Ranking,
@@ -153,7 +153,7 @@ fn stored_ids(scope: &ExportScope, units: &[&UnitRow]) -> ExportScope {
 
 /// The episodes a scope takes, in watching order: episodes not out yet are left out unless
 /// they're downloaded (`downloaded` holds stored ids).
-pub(super) fn pick_episodes<'a>(
+pub fn pick_episodes<'a>(
     ordered: Vec<&'a UnitRow>,
     scope: &ExportScope,
     downloaded: &HashSet<String>,
@@ -167,7 +167,7 @@ pub(super) fn pick_episodes<'a>(
 }
 
 /// The file a format converts to, or `None` for the video as it downloaded.
-pub(super) fn target_of(format: ExportFormat, mp3_kbps: u32) -> Option<remux::Target> {
+pub fn target_of(format: ExportFormat, mp3_kbps: u32) -> Option<remux::Target> {
     match format {
         ExportFormat::Mp4 => Some(remux::Target::Mp4),
         ExportFormat::Mkv => Some(remux::Target::Mkv),
@@ -178,7 +178,7 @@ pub(super) fn target_of(format: ExportFormat, mp3_kbps: u32) -> Option<remux::Ta
 }
 
 /// A file's type from its name.
-pub(super) fn mime_of(name: &str) -> &'static str {
+pub fn mime_of(name: &str) -> &'static str {
     match name.rsplit('.').next().unwrap_or_default() {
         "mkv" => "video/x-matroska",
         "webm" => "video/webm",
@@ -192,7 +192,7 @@ pub(super) fn mime_of(name: &str) -> &'static str {
 
 /// What each download holds, read once (by download id, file and reader).
 #[derive(Default)]
-pub(crate) struct Probes(Mutex<HashMap<String, MediaInfo>>);
+pub struct Probes(Mutex<HashMap<String, MediaInfo>>);
 
 impl Probes {
     fn get(&self, key: &str) -> Option<MediaInfo> {
@@ -227,10 +227,7 @@ async fn mp3_kbps(app: &AppHandle) -> u32 {
 }
 
 /// The episodes a request exports, and those it downloads first.
-pub(super) async fn plan(
-    service: &ExportService,
-    request: &ExportRequest,
-) -> Result<Planned, String> {
+pub async fn plan(service: &ExportService, request: &ExportRequest) -> Result<Planned, String> {
     let app = &service.app;
     let db = app.state::<AppDb>().inner().0.clone();
     let now = now_ms();
@@ -324,7 +321,7 @@ pub(super) async fn plan(
 /// Queues `missing` (each finds its link on its own) and waits until each is downloaded or
 /// failed. Returns the stored ids of the failed ones. `source` is the one chosen in the sheet,
 /// where their links come from first.
-pub(super) async fn wait_for_downloads(
+pub async fn wait_for_downloads(
     service: &ExportService,
     job: &str,
     missing: &[Missing],
@@ -373,10 +370,7 @@ pub(super) async fn wait_for_downloads(
 
 /// How many of `missing` are downloaded, and which failed (or left the queue), by their download
 /// states.
-pub(super) fn settled(
-    missing: &[Missing],
-    states: &HashMap<String, String>,
-) -> (usize, HashSet<String>) {
+pub fn settled(missing: &[Missing], states: &HashMap<String, String>) -> (usize, HashSet<String>) {
     let done = missing
         .iter()
         .filter(|episode| states.get(&episode.key).map(String::as_str) == Some(store::DONE))
@@ -397,7 +391,7 @@ pub(super) fn settled(
 /// else beside it). An episode that couldn't be converted is saved as it downloaded, and the job's
 /// message says why.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn write(
+pub async fn write(
     service: &ExportService,
     job: &str,
     title: &TitleRow,
@@ -466,7 +460,7 @@ async fn remux_info(folder: PathBuf, file: String) -> MediaInfo {
 
 /// What a download holds, read once: by ffprobe when FFmpeg is here and it's one file, else by
 /// Raygun's own reader.
-pub(super) async fn media_info(service: &ExportService, row_id: &str, file: &str) -> MediaInfo {
+pub async fn media_info(service: &ExportService, row_id: &str, file: &str) -> MediaInfo {
     let folder = downloads_dir(&service.app).join(row_id);
     let tools = pipeline::ffmpeg_tools(&service.app).filter(|_| !file.ends_with(".m3u8"));
     let reader = if tools.is_some() { "ffprobe" } else { "remux" };

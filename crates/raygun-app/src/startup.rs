@@ -27,6 +27,18 @@ struct LogGuard(#[allow(dead_code)] WorkerGuard);
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     // What `settings::apply_live` puts into effect lives in this crate's services.
     crate::settings::install();
+    raygun_app_base::app_hooks::set(raygun_app_base::app_hooks::Hooks {
+        open_route: |app, route| {
+            if let Some(notices) =
+                app.try_state::<std::sync::Arc<crate::notifications::DownloadNotices>>()
+            {
+                notices.open(route);
+            }
+        },
+        hand_over: crate::open_with::hand_over,
+        to_viewer: crate::web_remote::to_viewer,
+        file_path: crate::open_with::file_path,
+    });
     let paths = resolve_paths(app)?;
     // Erase everything (M46.51) happens here, before anything opens the data root.
     let erased = crate::backup::erase::finish_pending(paths.root(), paths.mode());

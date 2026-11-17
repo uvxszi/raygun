@@ -115,7 +115,7 @@ impl FileRequest {
 /// One download as kept between runs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Stored {
+pub struct Stored {
     item: WebsiteDownload,
     origin: Origin,
     destination: Destination,

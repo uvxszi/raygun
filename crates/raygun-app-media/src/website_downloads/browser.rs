@@ -66,7 +66,7 @@ impl BrowserDownload {
 }
 
 /// How a kept download looks to the browser; `None` for one the browser didn't start.
-pub(super) fn view(stored: &Stored) -> Option<BrowserDownload> {
+pub fn view(stored: &Stored) -> Option<BrowserDownload> {
     let ticket = stored.ticket.clone()?;
     let item = &stored.item;
     Some(BrowserDownload {
@@ -104,7 +104,7 @@ pub enum BrowserAsk {
 
 /// Downloads whose change the browser hasn't heard yet.
 #[derive(Default)]
-pub(super) struct Feed {
+pub struct Feed {
     /// By download id.
     changed: Mutex<BTreeSet<String>>,
     /// Said as they are: removed downloads, refused requests, unknown tickets.
@@ -112,27 +112,27 @@ pub(super) struct Feed {
     /// Android's browsers on screen. Their process may be frozen while they aren't, so nothing
     /// is sent then; they ask again when they're back.
     watching: Mutex<usize>,
-    pub(super) wake: Notify,
+    pub wake: Notify,
 }
 
 impl Feed {
-    pub(super) fn watch(&self) {
+    pub fn watch(&self) {
         *self.watching.lock().expect("feed poisoned") += 1;
     }
 
     /// One more leaving than came (a browser killed on screen) stays at none.
-    pub(super) fn unwatch(&self) {
+    pub fn unwatch(&self) {
         let mut watching = self.watching.lock().expect("feed poisoned");
         *watching = watching.saturating_sub(1);
     }
 
     /// Whether anything sent now is heard: Android's browser only while it's on screen; desktop
     /// windows always (their menus).
-    pub(super) fn heard(&self) -> bool {
+    pub fn heard(&self) -> bool {
         !cfg!(target_os = "android") || *self.watching.lock().expect("feed poisoned") > 0
     }
 
-    pub(super) fn touch(&self, id: &str) {
+    pub fn touch(&self, id: &str) {
         if id.is_empty() {
             return;
         }
@@ -143,13 +143,13 @@ impl Feed {
         self.wake.notify_one();
     }
 
-    pub(super) fn say(&self, download: BrowserDownload) {
+    pub fn say(&self, download: BrowserDownload) {
         self.said.lock().expect("feed poisoned").push(download);
         self.wake.notify_one();
     }
 
     /// What's waiting: the changed ids, and what's said as it is.
-    pub(super) fn take(&self) -> (BTreeSet<String>, Vec<BrowserDownload>) {
+    pub fn take(&self) -> (BTreeSet<String>, Vec<BrowserDownload>) {
         (
             std::mem::take(&mut *self.changed.lock().expect("feed poisoned")),
             std::mem::take(&mut *self.said.lock().expect("feed poisoned")),
@@ -159,7 +159,7 @@ impl Feed {
 
 /// What's sent for a turn of the feed: the views of the changed downloads that the browser
 /// started, then what's said as it is (a ticket appears once, its latest word).
-pub(super) fn turn(
+pub fn turn(
     changed: &BTreeSet<String>,
     said: Vec<BrowserDownload>,
     stored: &[&Stored],

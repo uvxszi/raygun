@@ -301,7 +301,7 @@ pub fn content_key(source_id: &str, episode_remote_id: &str) -> String {
 }
 
 /// What a session's player and episode list call an episode: its subtitle, else its name.
-pub(crate) fn episode_label(row: &TitleRow, unit: &UnitRow, single: bool) -> String {
+pub fn episode_label(row: &TitleRow, unit: &UnitRow, single: bool) -> String {
     episode_subtitle(row, unit, single)
         .filter(|_| !single)
         .unwrap_or_else(|| {
@@ -314,7 +314,7 @@ pub(crate) fn episode_label(row: &TitleRow, unit: &UnitRow, single: bool) -> Str
 }
 
 /// The player's request for a link of a stored episode.
-pub(crate) fn link_request(
+pub fn link_request(
     row: &TitleRow,
     unit: &UnitRow,
     single: bool,
@@ -366,7 +366,7 @@ fn episode_subtitle(row: &TitleRow, unit: &UnitRow, single: bool) -> Option<Stri
 }
 
 /// A video episode's season, kept as its volume.
-pub(crate) fn season(unit: &UnitRow) -> Option<f64> {
+pub fn season(unit: &UnitRow) -> Option<f64> {
     unit.fields
         .volume
         .as_deref()
@@ -377,7 +377,7 @@ pub(crate) fn season(unit: &UnitRow) -> Option<f64> {
 /// The stored episode a title continues from (M46.48): the one watched last (its progress, or a
 /// mark made in the library), or the next one that is out once that was finished, in watching
 /// order; see [`crate::catalog::continue_index`].
-pub(crate) fn continue_episode<'a>(
+pub fn continue_episode<'a>(
     source_id: &str,
     units: &'a [UnitRow],
     progress: &[VideoProgress],
@@ -410,7 +410,7 @@ pub(crate) fn continue_episode<'a>(
 
 /// A title's episodes in watching order: by season (specials last), then number; see
 /// [`video_match::watching_order`].
-pub(crate) fn watching_order(units: &[UnitRow]) -> Vec<&UnitRow> {
+pub fn watching_order(units: &[UnitRow]) -> Vec<&UnitRow> {
     let mut listed: Vec<&UnitRow> = units.iter().collect();
     listed.sort_by_key(|unit| unit.source_order);
     let keys: Vec<video_match::EpisodeOrder> = listed
@@ -428,7 +428,7 @@ pub(crate) fn watching_order(units: &[UnitRow]) -> Vec<&UnitRow> {
 }
 
 /// Whether an episode is a special: season 0, or none where the title's others have one.
-pub(crate) fn is_special(unit: &UnitRow, units: &[UnitRow]) -> bool {
+pub fn is_special(unit: &UnitRow, units: &[UnitRow]) -> bool {
     let seasons = units
         .iter()
         .any(|other| season(other).is_some_and(|season| season >= 1.0));

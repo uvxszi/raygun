@@ -931,7 +931,7 @@ impl VideoSessions {
     }
 
     /// A word of the player's in the app's language (`videoPlayer.*`), or `fallback`.
-    pub(crate) fn label(&self, key: &str, fallback: &str) -> String {
+    pub fn label(&self, key: &str, fallback: &str) -> String {
         self.labels
             .lock()
             .expect("labels poisoned")

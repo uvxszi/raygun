@@ -546,14 +546,14 @@ pub async fn act(app: &AppHandle, action: PageAction) -> Result<(), String> {
                 // Anything else goes where Open with sends an address (a stream to the video
                 // player, a page to Search).
                 None => {
-                    crate::open_with::hand_over(app, &offer.url, None);
+                    raygun_app_base::app_hooks::hand_over(app, &offer.url, None);
                     Ok(())
                 }
             }
         }
         (OfferKind::Playlist, _) => {
             show_raygun(app);
-            crate::open_with::hand_over(app, &offer.url, offer.title.as_deref());
+            raygun_app_base::app_hooks::hand_over(app, &offer.url, offer.title.as_deref());
             Ok(())
         }
         (OfferKind::Song, Action::Play) => {
