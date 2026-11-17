@@ -27,6 +27,8 @@ const UNCLIP_RATIO: f32 = 1.5;
 const GLYPH_SHARE: f32 = 0.75;
 /// Regions smaller than this many pixels (in the detector's picture) are specks.
 const MIN_REGION: usize = 12;
+/// A box: left, top, right, bottom.
+type Bounds = [f32; 4];
 /// The recognizer reads lines at this height.
 const LINE_HEIGHT: u32 = 48;
 /// Lines wider than this (after scaling to `LINE_HEIGHT`) are squeezed to it.
@@ -80,7 +82,7 @@ impl Paddle {
 
     /// The boxes (left, top, right, bottom) around the picture's text lines, in its pixels: where
     /// the text is, and the larger box it's read in.
-    fn detect(&self, picture: &image::GrayImage) -> Result<Vec<([f32; 4], [f32; 4])>, String> {
+    fn detect(&self, picture: &image::GrayImage) -> Result<Vec<(Bounds, Bounds)>, String> {
         let (width, height) = picture.dimensions();
         let (in_width, in_height) = detect_size(width, height);
         let resized = image::imageops::resize(
@@ -213,10 +215,11 @@ pub(crate) fn ctc_decode(
             .enumerate()
             .max_by(|a, b| a.1.total_cmp(b.1))
             .map_or(0, |(class, _)| class);
-        if best != 0 && best != previous {
-            if let Some(character) = characters.get(best - 1) {
-                text.push_str(character);
-            }
+        if best != 0
+            && best != previous
+            && let Some(character) = characters.get(best - 1)
+        {
+            text.push_str(character);
         }
         previous = best;
     }
