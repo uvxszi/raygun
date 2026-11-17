@@ -1,5 +1,7 @@
 import type { TFunction } from 'i18next';
 
+import { formatTime } from '../player/formatTime';
+
 import type { LinkFacts, QualityRange, SourceGroup, SourceLink } from './protocol';
 
 /**
@@ -87,3 +89,17 @@ export const sortedOptions = (group: SourceGroup): { link: SourceLink; index: nu
         (b.link.bitrateKbps ?? -1) - (a.link.bitrateKbps ?? -1) ||
         a.index - b.index,
     );
+
+/** Why a link isn't played by itself and how long it measured, for its line in Sources. */
+export const leftOutText = (link: SourceLink, t: (key: string) => string): string | null => {
+  const reason =
+    link.leftOut === 'off'
+      ? t('videoPlayer.leftOutOff')
+      : link.leftOut === 'trailer'
+        ? t('videoPlayer.leftOutTrailer')
+        : link.leftOut === 'short'
+          ? t('videoPlayer.leftOutShort')
+          : null;
+  const length = link.lengthMs ? formatTime(link.lengthMs) : null;
+  return [reason, length].filter(Boolean).join(' · ') || null;
+};

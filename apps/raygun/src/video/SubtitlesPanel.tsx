@@ -9,6 +9,8 @@ import { AiSubtitles } from './AiSubtitles';
 import { DelayControls } from './DelayControls';
 import { PanelHeading, PanelOption } from './PlayerPanel';
 import { edgeShadow, subtitleFontCss } from './subtitleLook';
+import type { SubtitleFit } from './protocol';
+import { smartOrder } from './smartOrder';
 import { parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import { TranslateSubtitles } from './TranslateSubtitles';
@@ -16,8 +18,14 @@ import { fileLanguage, nameTracks, useTrackWords } from './trackNames';
 import { byLanguages } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 
-/** A track the subtitles panel offers: the video's own, a file, AI subtitles, a translation. */
-export type SubtitleOption = TrackOption & { cues?: Cue[]; hint?: string };
+/** A track the subtitles panel offers: the video's own, a file, AI subtitles, a translation.
+ * Smart Subtitles gives files a `rank` among those of their language and a `fit`. */
+export type SubtitleOption = TrackOption & {
+  cues?: Cue[];
+  hint?: string;
+  rank?: number;
+  fit?: SubtitleFit | null;
+};
 
 type Props = {
   videoKey: string;
@@ -52,6 +60,8 @@ type Props = {
   find: ReactNode;
   /** Changing the chosen track's lines, when it can be. */
   editor: ReactNode;
+  /** Smart Subtitles' switch, while its Smart Chip is on; null hides it. */
+  smart?: { on: boolean; onToggle: () => void } | null;
 };
 
 const TOOL =
@@ -120,21 +130,32 @@ export const SubtitlesPanel: FC<Props> = ({
   translate,
   find,
   editor,
+  smart = null,
 }) => {
   const { t } = useTranslation();
   const words = useTrackWords();
   const [tool, setTool] = useState<'ai' | 'translate' | null>(null);
   const [tab, setTab] = useState<'main' | 'second'>('main');
-  const listed = byLanguages(options, languages);
+  const listed = smartOrder(byLanguages(options, languages));
   // Under each name: how far AI subtitles or a translation got, else where it comes from (a
-  // file without an addon or a name of its own is still a file).
-  const detail = (option: SubtitleOption) => {
+  // file without an addon or a name of its own is still a file), with Smart Subtitles' mark.
+  const origin = (option: SubtitleOption) => {
     if (option.hint) return option.hint;
     if (option.key.startsWith('embedded:')) return t('desktopPlayer.inTheVideo');
     if (option.source) return option.source;
     return option.key.startsWith('file:') || option.key.startsWith('added:')
       ? t('videoPlayer.subtitleFile')
       : null;
+  };
+  const detail = (option: SubtitleOption) => {
+    const mark =
+      option.fit === 'matching'
+        ? t('videoPlayer.smartMatching')
+        : option.fit === 'mightNotMatch'
+          ? t('videoPlayer.smartMightNotMatch')
+          : null;
+    const from = origin(option);
+    return mark && from ? `${mark} · ${from}` : (mark ?? from);
   };
 
   const tabs = (
@@ -271,6 +292,15 @@ export const SubtitlesPanel: FC<Props> = ({
         <ChevronRight aria-hidden size={16} className="shrink-0 text-white/55" />
       </button>
       <PanelHeading>{t('videoPlayer.subtitles')}</PanelHeading>
+      {smart && (
+        <PanelOption
+          label={t('videoPlayer.smartSubtitles')}
+          hint={t('videoPlayer.smartSubtitlesHint')}
+          selected={smart.on}
+          toggle
+          onSelect={smart.onToggle}
+        />
+      )}
       <PanelOption
         label={t('videoPlayer.off')}
         selected={selected === null}

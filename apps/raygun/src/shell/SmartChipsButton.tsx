@@ -1,14 +1,15 @@
+import { Link } from '@tanstack/react-router';
 import { Cpu } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ChipList } from '../chips/ChipList';
 import { Sheet } from './Sheet';
 
 /**
- * Smart Chips' button, right of the mascot's: small on-device models that will work on the
- * library in the background (sorting, transcribing, finding songs to like) are coming, and for
- * now it says so.
+ * Smart Chips' button, right of the mascot's: the list of Smart Chips (M46.57), optional features
+ * installed like extensions, with their downloads and switches, and a link to their Settings page.
  */
 export const SmartChipsButton: FC<{ className: string; iconSize: number }> = ({
   className,
@@ -33,17 +34,19 @@ export const SmartChipsButton: FC<{ className: string; iconSize: number }> = ({
         <Sheet
           title={t('smartChips.label')}
           anchor={anchor}
-          popoverWidth={280}
+          popoverWidth={360}
           onClose={() => setAnchor(null)}
         >
-          <div data-testid="smart-chips-soon" className="flex items-center gap-3 px-3 pb-3">
-            <span className="bg-primary/15 text-primary grid size-12 shrink-0 place-items-center rounded-full">
-              <Cpu aria-hidden size={26} />
-            </span>
-            <span className="flex flex-col gap-0.5">
-              <span className="font-semibold">{t('smartChips.soon')}</span>
-              <span className="text-muted text-sm">{t('smartChips.what')}</span>
-            </span>
+          <div data-testid="smart-chips-list" className="flex flex-col pb-2">
+            <p className="text-muted px-3 pb-1 text-sm">{t('smartChips.what')}</p>
+            <ChipList />
+            <Link
+              to="/settings/chips"
+              onClick={() => setAnchor(null)}
+              className="text-primary self-start px-3 py-2 text-sm font-medium"
+            >
+              {t('smartChips.inSettings')}
+            </Link>
           </div>
         </Sheet>
       )}

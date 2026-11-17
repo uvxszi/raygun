@@ -270,6 +270,7 @@ mod tests {
             looking_for_source: false,
             skipped_item_id: None,
             waiting: false,
+            smart_shuffle: false,
         }
     }
 

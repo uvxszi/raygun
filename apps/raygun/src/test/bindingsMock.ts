@@ -5,6 +5,7 @@ import type {
   AudiobookResult,
   AudiobookSummary,
   CastStatus,
+  ChipInfo,
   ConnectRequest,
   ConnectStatus,
   CoverOption,
@@ -74,6 +75,7 @@ type EventPayloads = {
   engineCommandEvent: EngineCommand;
   playbackStateEvent: PlaybackState;
   queueEvent: QueueSnapshot;
+  chipsEvent: ChipInfo[];
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
   sourcesSetupEvent: SourceSetup[];
@@ -703,6 +705,14 @@ export const bindingsMock = {
     dictionarySources: vi.fn(),
     dictionaryOpenPage: vi.fn(),
     answersAsk: vi.fn(),
+    chipsList: vi.fn(),
+    chipsInstall: vi.fn(),
+    chipsCancel: vi.fn(),
+    chipsRemove: vi.fn(),
+    chipsSetEnabled: vi.fn(),
+    chipsReadText: vi.fn(),
+    smartShuffleNotForMe: vi.fn(),
+    smartShuffleAddToList: vi.fn(),
     answersOpenPage: vi.fn(),
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
@@ -913,6 +923,7 @@ export const bindingsMock = {
     engineCommandEvent: makeEvent('engineCommandEvent'),
     playbackStateEvent: makeEvent('playbackStateEvent'),
     queueEvent: makeEvent('queueEvent'),
+    chipsEvent: makeEvent('chipsEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
     sourcesSetupEvent: makeEvent('sourcesSetupEvent'),
@@ -1151,6 +1162,7 @@ export const seedBindings = () => {
   commands.fontsList.mockResolvedValue({ status: 'ok', data: [] });
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
+  commands.chipsList.mockResolvedValue([]);
   commands.playbackArmContext.mockResolvedValue(undefined);
   commands.quickAccessList.mockImplementation(quickAccessFromMocks);
   commands.playbackSetVideo.mockResolvedValue(undefined);

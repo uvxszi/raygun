@@ -32,6 +32,9 @@ jxl-encoder = { version = "0.3.4", default-features = false, features = ["std", 
 hayro = { version = "0.9", default-features = false, features = ["embed-fonts", "embed-cmaps"] }
 # Large documents are mapped rather than read into memory.
 memmap2 = "0.9"
+# Subtitle files arrive gzipped and in older encodings (`subtitle_text`).
+flate2 = "1"
+encoding_rs = "0.8"
 serde.workspace = true
 serde_json.workspace = true
 

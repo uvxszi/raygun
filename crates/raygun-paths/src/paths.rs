@@ -96,6 +96,11 @@ impl Paths {
         self.root.join("models")
     }
 
+    /// Installed Smart Chips, a folder each (M46.57).
+    pub fn chips(&self) -> PathBuf {
+        self.root.join("chips")
+    }
+
     /// Helper executables such as yt-dlp and ffmpeg.
     pub fn bin(&self) -> PathBuf {
         self.root.join("bin")

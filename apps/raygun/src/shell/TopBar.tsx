@@ -95,7 +95,7 @@ export const TopBar: FC<TopBarProps> = ({
               <ArrowLeft aria-hidden size={22} />
             </button>
           )}
-          <div className={`flex min-w-0 flex-1 flex-col ${back ? 'px-1' : 'px-2'}`}>
+          <div className={`flex min-w-[min(7rem,35%)] flex-1 flex-col ${back ? 'px-1' : 'px-2'}`}>
             <span className="flex min-w-0 items-center gap-2">
               <Title
                 className={
@@ -115,7 +115,9 @@ export const TopBar: FC<TopBarProps> = ({
       {/* Incognito (M47) shows on every screen while it's on; the desktop bar has its own. */}
       <IncognitoBadge phoneOnly className="mx-1" />
       <OfflineBadge phoneOnly className="mx-1" />
-      {actions && <div className="flex shrink-0 items-center">{actions}</div>}
+      {/* At large sizes the actions narrow a little (their icons don't) before the title gives
+          way: it keeps room for a word or two. */}
+      {actions && <div className="flex min-w-0 items-center">{actions}</div>}
     </header>
   );
 };

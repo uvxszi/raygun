@@ -2,7 +2,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
+import { chipEnabledIn } from '../chips/useChips';
 import { usePlayerUiStore } from './playerUiStore';
+import { nextShuffle, shuffleModeOf } from './smartShuffle';
 import { positionAt } from './useLivePosition';
 import { NEXT_REPEAT, pressPlayPause, sendControl, shownState } from './usePlayback';
 
@@ -59,7 +61,7 @@ export const runPlaybackAction = (action: PlaybackAction, client: QueryClient) =
       if (volume > 0) ui.setUnmutedVolume(volume);
       return sendControl({ type: 'setVolume', volume: volume > 0 ? 0 : ui.unmutedVolume || 1 });
     case 'shuffle':
-      return sendControl({ type: 'setShuffle', enabled: !state?.shuffle });
+      return sendControl(nextShuffle(shuffleModeOf(state), chipEnabledIn(client, 'smartShuffle')));
     case 'repeat':
       return sendControl({ type: 'setRepeat', mode: NEXT_REPEAT[state?.repeat ?? 'off'] });
     case 'lyrics':

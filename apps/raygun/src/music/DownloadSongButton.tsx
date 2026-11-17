@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { iconLength } from '../shell/iconSizes';
 import { Popover } from '../shell/Popover';
 import { isBusy, isFailed, shareOf, SPIN, useProblemLine, useStateLine } from './songDownloadState';
 import { chooseDownloadSource } from './sourcePickerStore';
@@ -29,13 +30,15 @@ const ProgressRing: FC<{ value: number | null; size: number; still: boolean }> =
 }) => {
   const radius = size / 2 - 2;
   const length = 2 * Math.PI * radius;
+  // The ring takes the size the icons beside it have (shell/iconSizes), and draws in its own
+  // units within it.
+  const side = iconLength(size).scaled;
   return (
-    <span className="relative grid place-items-center" style={{ width: size, height: size }}>
+    <span className="relative grid place-items-center" style={{ width: side, height: side }}>
       <svg
         aria-hidden
-        width={size}
-        height={size}
-        className={`absolute inset-0 ${value === null && !still ? SPIN : '-rotate-90'}`}
+        viewBox={`0 0 ${size} ${size}`}
+        className={`absolute inset-0 size-full ${value === null && !still ? SPIN : '-rotate-90'}`}
       >
         <circle
           cx={size / 2}

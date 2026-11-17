@@ -1316,3 +1316,147 @@ fn the_songs_next_and_before_are_the_ones_found_ahead() {
     single.set_repeat(RepeatMode::All);
     assert!(titles(&single).is_empty());
 }
+
+fn titles_in_order(core: &PlaybackCore) -> Vec<String> {
+    let queue = core.queue();
+    queue
+        .order
+        .iter()
+        .map(|&index| queue.items[index as usize].title.clone())
+        .collect()
+}
+
+fn suggested_titles(core: &PlaybackCore) -> Vec<String> {
+    let queue = core.queue();
+    queue
+        .items
+        .iter()
+        .filter(|item| queue.suggested.contains(&item.id))
+        .map(|item| item.title.clone())
+        .collect()
+}
+
+#[test]
+fn smart_shuffle_turns_shuffle_on_and_mixes_one_in_every_three() {
+    let mut core = core_with(&["a", "b", "c", "d", "e", "f", "g"]);
+    core.play();
+    core.set_smart_shuffle(true);
+    assert!(core.state().shuffle && core.state().smart_shuffle);
+    // Six songs to come: room for two.
+    assert_eq!(core.suggestion_room(), 2);
+    core.add_suggestions(vec![input("x"), input("y"), input("z")]);
+
+    let order = titles_in_order(&core);
+    assert_eq!(
+        order.len(),
+        9,
+        "the current song, six to come and two added"
+    );
+    let own_between = |title: &str| order.iter().position(|t| t == title).unwrap();
+    assert_eq!(
+        own_between("x"),
+        4,
+        "after the current song and three of the list's"
+    );
+    assert_eq!(own_between("y"), 8);
+    assert!(!order.contains(&"z".to_owned()), "no room for a third");
+    assert_eq!(suggested_titles(&core), ["x", "y"]);
+    assert_eq!(core.own_items().len(), 7);
+}
+
+#[test]
+fn smart_shuffle_again_replaces_its_songs_and_off_removes_them() {
+    let mut core = core_with(&["a", "b", "c", "d"]);
+    core.play();
+    core.set_smart_shuffle(true);
+    core.add_suggestions(vec![input("x")]);
+    assert_eq!(suggested_titles(&core), ["x"]);
+
+    // On again: a refresh, with new songs.
+    core.set_smart_shuffle(true);
+    assert!(suggested_titles(&core).is_empty());
+    core.add_suggestions(vec![input("y")]);
+    assert_eq!(suggested_titles(&core), ["y"]);
+
+    // Plain shuffle again: they leave, the list stays shuffled.
+    core.set_smart_shuffle(false);
+    assert!(core.state().shuffle && !core.state().smart_shuffle);
+    assert_eq!(core.queue().items.len(), 4);
+
+    // Shuffle off ends Smart Shuffle too.
+    core.set_smart_shuffle(true);
+    core.add_suggestions(vec![input("z")]);
+    core.set_shuffle(false);
+    assert!(!core.state().smart_shuffle);
+    assert_eq!(titles_in_order(&core), ["a", "b", "c", "d"]);
+}
+
+#[test]
+fn the_suggested_song_playing_stays_and_late_answers_are_ignored() {
+    let mut core = core_with(&["a", "b", "c"]);
+    core.play();
+    core.set_smart_shuffle(true);
+    core.add_suggestions(vec![input("x")]);
+    let x = core
+        .queue()
+        .items
+        .iter()
+        .find(|item| item.title == "x")
+        .unwrap()
+        .id
+        .clone();
+    core.play_item(&x);
+    core.set_smart_shuffle(false);
+    assert_eq!(current_title(&core).as_deref(), Some("x"), "it finishes");
+    assert_eq!(core.queue().items.len(), 4);
+
+    // Suggestions that arrive after Smart Shuffle went off change nothing.
+    assert!(core.add_suggestions(vec![input("y")]).is_empty());
+}
+
+#[test]
+fn a_kept_suggestion_becomes_the_lists_own_and_a_new_list_starts_without_any() {
+    let mut core = core_with(&["a", "b", "c"]);
+    core.play();
+    core.set_smart_shuffle(true);
+    core.add_suggestions(vec![input("x")]);
+    let x = core.queue().suggested[0].clone();
+    core.keep_suggested(&x);
+    assert!(core.queue().suggested.is_empty());
+    assert!(!core.is_suggested(&x));
+
+    // A new shuffled list keeps Smart Shuffle on, waiting for its own songs.
+    core.replace(vec![input("d"), input("e")], None, true);
+    assert!(core.state().smart_shuffle);
+    assert!(core.queue().suggested.is_empty());
+    // An unshuffled one ends it.
+    core.replace(vec![input("f")], None, false);
+    assert!(!core.state().smart_shuffle);
+}
+
+#[test]
+fn removed_and_cleared_suggestions_are_forgotten_and_restores_mark_them_again() {
+    let mut core = core_with(&["a", "b", "c", "d", "e", "f", "g"]);
+    core.play();
+    core.set_smart_shuffle(true);
+    core.add_suggestions(vec![input("x"), input("y")]);
+    let x = core.queue().suggested[0].clone();
+    core.remove(&x);
+    assert_eq!(suggested_titles(&core), ["y"]);
+    core.clear_upcoming();
+    assert!(core.queue().suggested.is_empty());
+
+    let mut restored = PlaybackCore::new(3);
+    restored.restore(
+        vec![input("a"), input("b"), input("x")],
+        vec![0, 1, 2],
+        0,
+        0.0,
+        true,
+        RepeatMode::Off,
+    );
+    restored.mark_suggested(&[2], true);
+    assert!(restored.state().smart_shuffle);
+    assert_eq!(suggested_titles(&restored), ["x"]);
+    assert_eq!(restored.suggested_indexes(), [2]);
+}

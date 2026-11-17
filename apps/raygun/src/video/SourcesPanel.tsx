@@ -1,4 +1,4 @@
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Settings2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendRequest } from './protocol';
 import type { SourceGroup } from './protocol';
-import { formatSpeed, optionDetail, optionTitle, sortedOptions } from './qualityText';
+import { formatSpeed, leftOutText, optionDetail, optionTitle, sortedOptions } from './qualityText';
 import { transferText } from './transferText';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { sourceName } from './waiting';
@@ -52,6 +52,25 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
   const [raw, setRaw] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
   const [options, setOptions] = useState(false);
+  /** The source whose button was pressed: its settings show. */
+  const [settingsOf, setSettingsOf] = useState<number | null>(null);
+  const leaveOutTrailers = useVideoPlayerStore((state) => state.leaveOutTrailers);
+  const leaveOutShort = useVideoPlayerStore((state) => state.leaveOutShort);
+  /** A Sources toggle: shown at once, saved as the setting it is. */
+  const toggle = (key: 'leaveOutTrailers' | 'leaveOutShort', on: boolean) => {
+    useVideoPlayerStore.setState({ [key]: on });
+    sendRequest(id, 'prefs', positionMs, { change: { [key]: on } });
+  };
+  /** A source's button: off for this title, everywhere, on again, or its settings in the app. */
+  const sourceAction = (group: number, action: 'title' | 'everywhere' | 'on' | 'settings') => {
+    if (action === 'settings') {
+      sendRequest(id, 'sourceSettings', positionMs, { group });
+      onClose();
+      return;
+    }
+    sendRequest(id, 'sourceOff', positionMs, { group, scope: action });
+    setSettingsOf(null);
+  };
 
   // Sources waiting for a key or sign-in weren't asked: one line counts them. A link's own group
   // always shows (why it failed included).
@@ -132,18 +151,37 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
       {shown.map((index) => {
         const group = sources[index];
         if (!group) return null;
+        const hasButton = group.kind !== undefined && group.kind !== 'none';
         return (
-          <PanelOption
-            key={`${index}-${group.name}`}
-            label={group.name}
-            hint={sourceDetail(group, index)}
-            selected={landscape && index === chosen}
-            current={index === playing}
-            onSelect={() => {
-              setPicked(index);
-              setOptions(true);
-            }}
-          />
+          <div key={`${index}-${group.name}`} className="flex items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <PanelOption
+                label={group.name}
+                hint={
+                  group.off
+                    ? [t('videoPlayer.sourceOffHere'), sourceDetail(group, index)].join(' · ')
+                    : sourceDetail(group, index)
+                }
+                selected={landscape && index === chosen}
+                current={index === playing}
+                onSelect={() => {
+                  setPicked(index);
+                  setOptions(true);
+                }}
+              />
+            </div>
+            {hasButton && (
+              <button
+                type="button"
+                aria-label={t('videoPlayer.sourceSettings', { n: group.name })}
+                aria-expanded={settingsOf === index}
+                onClick={() => setSettingsOf(settingsOf === index ? null : index)}
+                className="grid size-9 shrink-0 place-items-center rounded-lg text-white/70 hover:bg-white/10"
+              >
+                <Settings2 aria-hidden size={16} />
+              </button>
+            )}
+          </div>
         );
       })}
     </div>
@@ -162,7 +200,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
             key={`${linkIndex}-${link.label}`}
             label={optionTitle(link, t)}
             hint={
-              [optionDetail(link, group, t), link.current ? transfer : null]
+              [leftOutText(link, t), optionDetail(link, group, t), link.current ? transfer : null]
                 .filter(Boolean)
                 .join(' · ') || null
             }
@@ -192,7 +230,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
                 ? t('videoPlayer.failed')
                 : link.worked
                   ? t('videoPlayer.workedLastTime')
-                  : null
+                  : leftOutText(link, t)
             }
             selected={link.current}
             current={link.current}
@@ -233,6 +271,43 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
         <p data-testid="sources-alone" className="px-3 pb-1 text-sm text-white/70">
           {t('videoPlayer.onlyThisLink')}
         </p>
+      )}
+      <PanelOption
+        label={t('videoPlayer.leaveOutTrailers')}
+        selected={leaveOutTrailers}
+        toggle
+        onSelect={() => toggle('leaveOutTrailers', !leaveOutTrailers)}
+      />
+      <PanelOption
+        label={t('videoPlayer.leaveOutShort')}
+        hint={t('videoPlayer.leaveOutShortHint')}
+        selected={leaveOutShort}
+        toggle
+        onSelect={() => toggle('leaveOutShort', !leaveOutShort)}
+      />
+      {settingsOf !== null && sources[settingsOf] && (
+        <div role="group" aria-label={sources[settingsOf].name} className="flex flex-col">
+          <PanelHeading>{sources[settingsOf].name}</PanelHeading>
+          {sources[settingsOf].off ? (
+            <PanelOption
+              label={t('videoPlayer.sourceOnHere')}
+              onSelect={() => sourceAction(settingsOf, 'on')}
+            />
+          ) : (
+            <PanelOption
+              label={t('videoPlayer.sourceOffTitle')}
+              onSelect={() => sourceAction(settingsOf, 'title')}
+            />
+          )}
+          <PanelOption
+            label={t('videoPlayer.sourceOffEverywhere')}
+            onSelect={() => sourceAction(settingsOf, 'everywhere')}
+          />
+          <PanelOption
+            label={t('videoPlayer.sourceOpenSettings')}
+            onSelect={() => sourceAction(settingsOf, 'settings')}
+          />
+        </div>
       )}
       {raw ? (
         rawList

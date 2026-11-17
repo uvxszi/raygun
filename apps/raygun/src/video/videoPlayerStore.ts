@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { CastStatus, SubtitleMode, VideoChapter } from '@raygun/bindings';
+import type { CastStatus, SubtitleMode, VideoChapter, VideoSubtitle } from '@raygun/bindings';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 
@@ -14,6 +14,7 @@ import type {
   PlayerUpdate,
   QualityRow,
   SourceGroup,
+  SubtitleRank,
   TorrentTransfer,
 } from './protocol';
 
@@ -60,6 +61,15 @@ type VideoPlayerState = {
   sourcesAlone: boolean;
   /** Another link would play if this one failed (Rust's `fallback`). */
   sourcesFallback: boolean;
+  /** The Sources toggles (Leave out trailers, Leave out short videos), as Rust has them. */
+  leaveOutTrailers: boolean;
+  leaveOutShort: boolean;
+  /** Subtitle files that came after the video loaded (slow subtitle addons). */
+  addedSubtitles: VideoSubtitle[];
+  /** Smart Subtitles' order and marks for the video playing's files, by address. */
+  subtitleRanks: SubtitleRank[];
+  /** Smart Subtitles can be switched on (its Smart Chip is installed and on). */
+  smartSubtitlesAvailable: boolean;
   /** The Quality menu's steps, as Rust lists them. */
   qualities: QualityRow[];
   /** The step asked for in Quality (Rust's `wanted`); null while it picks by itself. */
@@ -97,6 +107,10 @@ type VideoPlayerState = {
 /** What every request carries (`readSettings` in the Android player). */
 const settingsFrom = (request: PlayerRequest, state: VideoPlayerState) => ({
   prefs: request.prefs ? withDefaults(request.prefs) : state.prefs,
+  // Sent beside the settings: whether Smart Subtitles' switch shows.
+  smartSubtitlesAvailable: request.prefs
+    ? (request.prefs as { smartSubtitlesAvailable?: boolean }).smartSubtitlesAvailable === true
+    : state.smartSubtitlesAvailable,
   seekStepMs:
     request.seekStepMs !== undefined
       ? Math.min(300_000, Math.max(1_000, request.seekStepMs))
@@ -124,6 +138,8 @@ const loaded = (request: PlayerRequest, state: VideoPlayerState) => ({
   transfer: null,
   loadedAt: Date.now(),
   rememberedSound: null,
+  addedSubtitles: [],
+  subtitleRanks: [],
 });
 
 /** How long after a video loads the sound its title remembers may still join it: a source that
@@ -155,6 +171,11 @@ const CLOSED = {
   linkSession: false,
   sourcesAlone: false,
   sourcesFallback: true,
+  leaveOutTrailers: true,
+  leaveOutShort: true,
+  addedSubtitles: [],
+  subtitleRanks: [],
+  smartSubtitlesAvailable: false,
   qualities: [],
   qualityWanted: null,
   qualityNotice: null,
@@ -224,7 +245,21 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
             linkSession: update.link ?? false,
             sourcesAlone: update.alone ?? false,
             sourcesFallback: update.fallback ?? true,
+            leaveOutTrailers: update.leaveOutTrailers ?? state.leaveOutTrailers,
+            leaveOutShort: update.leaveOutShort ?? state.leaveOutShort,
           };
+        case 'subtitlesAdded': {
+          if (update.id !== state.request?.id) return state;
+          const known = new Set([
+            ...(state.request.subtitles ?? []).map((track) => track.url),
+            ...state.addedSubtitles.map((track) => track.url),
+          ]);
+          const fresh = update.items.filter((track) => !known.has(track.url));
+          return fresh.length > 0 ? { addedSubtitles: [...state.addedSubtitles, ...fresh] } : state;
+        }
+        case 'subtitleRanks':
+          if (update.id !== state.request?.id) return state;
+          return { subtitleRanks: update.on ? update.items : [] };
         case 'qualities':
           return {
             qualities: update.items,
@@ -246,11 +281,22 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
         }
         case 'prefs': {
           // Only what settings say; the session's own fields stay.
-          const { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode } = settingsFrom(
-            { id: '', ...update },
-            state,
-          );
-          return { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode };
+          const {
+            prefs,
+            seekStepMs,
+            appLanguage,
+            subtitleLanguage,
+            subtitleMode,
+            smartSubtitlesAvailable,
+          } = settingsFrom({ id: '', ...update }, state);
+          return {
+            prefs,
+            seekStepMs,
+            appLanguage,
+            subtitleLanguage,
+            subtitleMode,
+            smartSubtitlesAvailable,
+          };
         }
         case 'transfer': {
           if (update.id !== state.request?.id) return state;

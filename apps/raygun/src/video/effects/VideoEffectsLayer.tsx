@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useRef } from 'react';
 import type { FC, RefObject } from 'react';
 
 import { EffectsRenderer } from './glRenderer';
+import type { MotionSources } from './glRenderer';
 import { heavyKinds, isNeutral, shaderParams } from './effectParams';
 import type { Effects, HeavyKind } from './effectParams';
 import { missesRefreshes, progressAt } from './motionMath';
@@ -16,6 +17,8 @@ type Props = {
   onTooSlow: (kind: HeavyKind) => void;
   /** No WebGL 2 here: the picture plays as it is. */
   onUnavailable: () => void;
+  /** Smooth motion's shaders, from its chip (none: `effects` has it off). */
+  motion?: MotionSources | null;
 };
 
 /** How often missed frames are counted up, and the share of them that's too many. */
@@ -49,6 +52,7 @@ export const VideoEffectsLayer: FC<Props> = ({
   effects,
   onTooSlow,
   onUnavailable,
+  motion = null,
 }) => {
   const active = !isNeutral(effects);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -74,7 +78,7 @@ export const VideoEffectsLayer: FC<Props> = ({
     if (!active || !video || !canvas) return;
     let drawing: EffectsRenderer;
     try {
-      drawing = new EffectsRenderer(canvas);
+      drawing = new EffectsRenderer(canvas, motion);
     } catch {
       unavailable();
       return;
@@ -188,7 +192,7 @@ export const VideoEffectsLayer: FC<Props> = ({
       redraw.current = () => {};
       lastTime.current = Number.NaN;
     };
-  }, [active, videoRef]);
+  }, [active, videoRef, motion]);
 
   if (!active) return null;
   return (

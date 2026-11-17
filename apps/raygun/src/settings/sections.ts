@@ -2,6 +2,7 @@ import {
   Bell,
   BookOpen,
   Compass,
+  Cpu,
   Database,
   Download,
   Info,
@@ -35,6 +36,7 @@ import { MusicPlayerSettings } from './screens/MusicPlayerSettings';
 import { NotificationSettings } from './screens/NotificationSettings';
 import { PrivacySettings } from './screens/PrivacySettings';
 import { QuickAccessSettings } from './screens/QuickAccessSettings';
+import { SmartChipsSettings } from './screens/SmartChipsSettings';
 import { ReaderSettings } from './screens/ReaderSettings';
 import { VideoPlayerSettings } from './screens/VideoPlayerSettings';
 
@@ -225,6 +227,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
   { id: 'devices', icon: Smartphone, to: '/settings/devices' },
   // Providers and models are what's on this device, not settings: they stay.
   { id: 'ai', icon: Sparkles, screen: AiSettings, reset: resetKeys('transcription', 'readerAi') },
+  { id: 'chips', icon: Cpu, screen: SmartChipsSettings },
   {
     id: 'data',
     icon: Database,

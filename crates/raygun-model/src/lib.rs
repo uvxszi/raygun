@@ -304,8 +304,99 @@ pub struct Settings {
     /// YouTube's videos and songs: parts skipped with SponsorBlock, the audio track that plays.
     #[serde(default)]
     pub youtube: YouTubePrefs,
+    /// Smart Chips turned off (`ChipPrefs`); what's installed is this device's own.
+    #[serde(default)]
+    pub chips: ChipPrefs,
 }
 
+/// A Smart Chip: an optional feature installed like an extension, from the catalogue
+/// (`raygun_app_base::chips`), then turned on.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum ChipId {
+    /// Recommended songs mixed into a shuffled list (the shuffle button's third state).
+    SmartShuffle,
+    /// The video player's frames between frames (`PictureEffects::smooth_motion`).
+    SmoothMotion,
+    /// Subtitle and audio tracks compared across sources (`VideoPlayerPrefs::smart_subtitles`).
+    SmartSubtitles,
+}
+
+impl ChipId {
+    pub const ALL: [ChipId; 3] = [Self::SmartShuffle, Self::SmoothMotion, Self::SmartSubtitles];
+
+    /// Its id in the catalogue and its folder's name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SmartShuffle => "smart-shuffle",
+            Self::SmoothMotion => "smooth-motion",
+            Self::SmartSubtitles => "smart-subtitles",
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|chip| chip.as_str() == id)
+    }
+}
+
+/// Smart Chips' switches (synced): an installed chip is on unless it's listed here.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChipPrefs {
+    pub off: Vec<ChipId>,
+}
+
+impl ChipPrefs {
+    /// Each chip once, in a fixed order.
+    pub fn normalized(mut self) -> Self {
+        self.off.sort();
+        self.off.dedup();
+        self
+    }
+
+    pub fn is_on(&self, chip: ChipId) -> bool {
+        !self.off.contains(&chip)
+    }
+
+    pub fn with(mut self, chip: ChipId, on: bool) -> Self {
+        self.off.retain(|off| *off != chip);
+        if !on {
+            self.off.push(chip);
+        }
+        self.normalized()
+    }
+}
+
+/// Where a chip's download is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ChipProgress {
+    Idle,
+    Downloading { received: f64, total: f64 },
+    Failed { message: String },
+}
+
+/// A Smart Chip as Settings and the Smart Chips sheet list it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChipInfo {
+    pub id: ChipId,
+    pub name: String,
+    pub description: String,
+    /// `feature` for now; later chips may carry models or mascots.
+    pub kind: String,
+    pub version: String,
+    /// The package's size in bytes.
+    pub size: f64,
+    pub installed: bool,
+    /// Installed with a different package than the catalogue's: an update is offered.
+    pub outdated: bool,
+    /// Its switch (only matters while installed).
+    pub on: bool,
+    pub progress: ChipProgress,
+}
 /// Torrent streaming (`raygun_torrent`): videos that sources give as torrents (Stremio addons'
 /// `infoHash` streams, magnet links, `.torrent` files) play in the video player as their pieces
 /// arrive. This device only (`raygun_db::sync::DEVICE_ONLY_SETTINGS`).
@@ -2991,7 +3082,20 @@ pub struct VideoPlayerPrefs {
     /// The player's Sources list shows servers that failed or had nothing.
     pub show_failed_sources: bool,
     pub show_empty_sources: bool,
+    /// Links named as trailers, teasers or samples aren't played by themselves (they can still be
+    /// picked in Sources).
+    pub leave_out_trailers: bool,
+    /// Links far shorter than the others (under [`SHORT_VIDEO_SHARE`] of their median length, or
+    /// of the title's runtime) are passed over: placeholder clips, trailers, samples.
+    pub leave_out_short: bool,
+    /// Smart Subtitles: subtitle and audio tracks are compared with the others of their language
+    /// from other sources, the most alike first ("Matching"), ones unlike all others marked.
+    pub smart_subtitles: bool,
 }
+
+/// A link counts as short when it lasts under this share of the median of the others' lengths
+/// (`VideoPlayerPrefs::leave_out_short`).
+pub const SHORT_VIDEO_SHARE: f64 = 0.4;
 
 impl Default for VideoPlayerPrefs {
     fn default() -> Self {
@@ -3042,6 +3146,9 @@ impl Default for VideoPlayerPrefs {
             title_trailers: true,
             show_failed_sources: true,
             show_empty_sources: true,
+            leave_out_trailers: true,
+            leave_out_short: true,
+            smart_subtitles: false,
         }
     }
 }
@@ -3198,6 +3305,7 @@ impl Default for Settings {
             rail: RailPrefs::default(),
             torrents: TorrentPrefs::default(),
             youtube: YouTubePrefs::default(),
+            chips: ChipPrefs::default(),
         }
     }
 }
@@ -3264,6 +3372,7 @@ impl Settings {
             SettingChange::Network(prefs) => self.network = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::YouTube(prefs) => self.youtube = prefs,
+            SettingChange::Chips(prefs) => self.chips = prefs.normalized(),
             SettingChange::Privacy(prefs) => self.privacy = prefs,
             SettingChange::Notifications(prefs) => self.notifications = prefs,
             SettingChange::Hidden(prefs) => self.hidden = prefs,
@@ -3387,6 +3496,7 @@ pub enum SettingChange {
     Answers(AnswersPrefs),
     #[serde(rename = "youtube")]
     YouTube(YouTubePrefs),
+    Chips(ChipPrefs),
 }
 
 impl SettingChange {
@@ -3464,6 +3574,7 @@ impl SettingChange {
             Self::Dictionary(_) => "dictionary",
             Self::Answers(_) => "answers",
             Self::YouTube(_) => "youtube",
+            Self::Chips(_) => "chips",
         }
     }
 
@@ -3500,7 +3611,8 @@ impl SettingChange {
             | Self::Notifications(_)
             | Self::Answers(_)
             | Self::VideoCards(_)
-            | Self::YouTube(_) => Ok(()),
+            | Self::YouTube(_)
+            | Self::Chips(_) => Ok(()),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())
             }
@@ -3845,6 +3957,10 @@ pub struct PlaybackState {
     /// song the engine already holds that only resumes (M46.53).
     #[serde(default)]
     pub waiting: bool,
+    /// Smart Shuffle (a Smart Chip): the shuffled list has recommended songs mixed in
+    /// (`QueueSnapshot::suggested`). Only with `shuffle`.
+    #[serde(default)]
+    pub smart_shuffle: bool,
 }
 
 /// The sleep timer (M46.8).
@@ -3871,6 +3987,9 @@ pub struct QueueSnapshot {
     /// started from a page that says, or the queue is empty.
     #[serde(default)]
     pub context: Option<PlayContext>,
+    /// Ids of the items Smart Shuffle added: recommended, not the list's own.
+    #[serde(default)]
+    pub suggested: Vec<String>,
 }
 
 /// A user or client request to the player.
@@ -3893,6 +4012,10 @@ pub enum PlaybackControl {
         mode: RepeatMode,
     },
     SetShuffle {
+        enabled: bool,
+    },
+    /// Smart Shuffle on (shuffle too, with new suggestions each time) or off (its songs leave).
+    SetSmartShuffle {
         enabled: bool,
     },
     #[serde(rename_all = "camelCase")]
@@ -5697,6 +5820,11 @@ pub enum ConnectCommand {
         /// The repeat mode that goes with a moved player.
         #[serde(default)]
         repeat: Option<RepeatMode>,
+        /// Smart Shuffle's songs among `items` (indexes) and whether it's on, with a moved player.
+        #[serde(default)]
+        suggested: Option<Vec<u32>>,
+        #[serde(default)]
+        smart_shuffle: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
     Enqueue {

@@ -172,6 +172,9 @@ pub struct Remembered {
     pub at: i64,
     /// Links that failed lately, newest first.
     pub dead: Vec<DeadLink>,
+    /// How long the link that played lasted, when the player said (what links are measured
+    /// against next time: `picking`).
+    pub length_ms: Option<i64>,
 }
 
 impl Remembered {

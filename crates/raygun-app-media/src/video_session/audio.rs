@@ -243,6 +243,10 @@ pub struct AudioOffer {
     pub url: String,
     pub headers: BTreeMap<String, String>,
     pub format: Option<String>,
+    /// Smart Subtitles: whether its stream lasts as long as the video playing (`matching`) or
+    /// not (`mightNotMatch`), when both were measured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fit: Option<&'static str>,
 }
 
 /// Whether a link's sound can be played beside another stream's picture: a web address the
@@ -361,6 +365,14 @@ pub fn audio_offers(session: &Session, now: i64) -> Vec<AudioOffer> {
                 url: link.request.url.clone(),
                 headers: link.request.headers.clone(),
                 format: link.request.format.clone(),
+                fit: session
+                    .picking
+                    .smart
+                    .then(|| {
+                        let length = session.picking.lengths.get(&link.request.url)?.1;
+                        super::smart_subtitles::audio_fit(session.duration_ms?, length)
+                    })
+                    .flatten(),
             }
         })
         .collect()

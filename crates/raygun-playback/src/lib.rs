@@ -6,6 +6,7 @@
 //! lets any engine (webview `<audio>`, YouTube embed, native player) sit behind the same protocol.
 
 mod shuffle;
+pub mod smart;
 
 use raygun_model::{
     EngineCommand, EngineEvent, EngineReport, PlayContext, PlaybackState, PlaybackStatus,
@@ -106,6 +107,10 @@ pub struct PlaybackCore {
     /// The current load plays a file on this device (set by the service): it never waits for the
     /// network, so the player doesn't say it waits while it starts (M46.53).
     on_device: bool,
+    /// Smart Shuffle is on (only counts with `shuffle`).
+    smart_shuffle: bool,
+    /// Ids of the items Smart Shuffle added, kept apart from the list's own.
+    suggested: std::collections::HashSet<String>,
 }
 
 impl PlaybackCore {
@@ -137,6 +142,8 @@ impl PlaybackCore {
             looking: false,
             skipped: None,
             on_device: false,
+            smart_shuffle: false,
+            suggested: std::collections::HashSet::new(),
         }
     }
 
@@ -343,6 +350,7 @@ impl PlaybackCore {
             looking_for_source: self.looking,
             skipped_item_id: self.skipped.clone(),
             waiting: self.waiting(),
+            smart_shuffle: self.smart_shuffle && self.shuffle,
         }
     }
 
@@ -477,6 +485,12 @@ impl PlaybackCore {
             items: self.items.clone(),
             order: self.order.iter().map(|&index| index as u32).collect(),
             context: self.context.clone().filter(|_| !self.items.is_empty()),
+            suggested: self
+                .items
+                .iter()
+                .filter(|item| self.suggested.contains(&item.id))
+                .map(|item| item.id.clone())
+                .collect(),
         }
     }
 
@@ -564,6 +578,9 @@ impl PlaybackCore {
         self.context = None;
         self.items.clear();
         self.order.clear();
+        self.suggested.clear();
+        // Smart Shuffle carries on into a shuffled list (its songs come for the new list).
+        self.smart_shuffle &= shuffle;
         self.cursor = None;
         self.consecutive_errors = 0;
         self.shuffle = false;
@@ -603,6 +620,8 @@ impl PlaybackCore {
         }
         self.items.clear();
         self.order.clear();
+        self.suggested.clear();
+        self.smart_shuffle = false;
         self.cursor = None;
         self.consecutive_errors = 0;
         self.shuffle = false;
@@ -744,6 +763,11 @@ impl PlaybackCore {
         if enabled == self.shuffle {
             return Vec::new();
         }
+        if !enabled {
+            // Shuffle off ends Smart Shuffle: its songs leave (the one playing finishes).
+            self.smart_shuffle = false;
+            self.drop_suggested();
+        }
         self.shuffle = enabled;
         let current = self.cursor.map(|cursor| self.order[cursor]);
         if enabled {
@@ -782,7 +806,8 @@ impl PlaybackCore {
             PlaybackStatus::Playing | PlaybackStatus::Loading | PlaybackStatus::Buffering
         );
 
-        self.items.remove(index);
+        let removed = self.items.remove(index);
+        self.suggested.remove(&removed.id);
         self.order.remove(removed_position);
         for entry in &mut self.order {
             if *entry > index {
@@ -807,6 +832,7 @@ impl PlaybackCore {
 
     pub fn clear(&mut self) -> Vec<Effect> {
         self.context = None;
+        self.suggested.clear();
         self.items.clear();
         self.order.clear();
         let mut effects = vec![Effect::QueueChanged];
@@ -845,6 +871,9 @@ impl PlaybackCore {
         for entry in &mut self.order {
             *entry = moved_to[*entry];
         }
+        let ids: std::collections::HashSet<&str> =
+            self.items.iter().map(|item| item.id.as_str()).collect();
+        self.suggested.retain(|id| ids.contains(id.as_str()));
         vec![Effect::QueueChanged]
     }
 

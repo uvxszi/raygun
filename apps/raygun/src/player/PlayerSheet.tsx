@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useTrackActionsStore } from '../collections/trackActionsStore';
 import { ExplicitMark } from '../music/ExplicitMark';
+import { SuggestedButton } from './SuggestedMark';
 import { fromQueueItem } from '../collections/useCollections';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ArtistLinks } from '../music/ArtistLinks';
@@ -732,11 +733,13 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
               text={item?.title ?? t('player.nothingPlaying')}
               className={`min-w-0 font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
             />
+            <SuggestedButton itemId={item?.id} />
             {item?.explicit && <ExplicitMark />}
           </span>
         )}
-        <div className="flex w-full items-center gap-1">
-          <div className="title-gap flex min-w-0 flex-1 flex-col">
+        {/* The names keep room for a few words: at large sizes the song's buttons go under them. */}
+        <div className="flex w-full flex-wrap items-center justify-end gap-1">
+          <div className="title-gap flex min-w-[min(9rem,100%)] flex-1 flex-col">
             {wide && (
               <span className="flex w-full min-w-0 items-center gap-2">
                 <Marquee
@@ -744,6 +747,7 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
                   text={item?.title ?? t('player.nothingPlaying')}
                   className={`min-w-0 font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
                 />
+                <SuggestedButton itemId={item?.id} />
                 {item?.explicit && <ExplicitMark />}
               </span>
             )}
