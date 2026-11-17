@@ -830,14 +830,15 @@ img[data-fade]:not([data-loaded]),
     }
   }
 
-  /* Icons drawn at a size in px (lucide's `size`) follow Interface size on phones too, where it
-     scales the root font size instead of zooming (`data-ui-scaled`, settings/useApplySize).
-     Icons sized by a class follow the root already, and utilities win over this layer. */
-  @supports (width: calc(attr(width type(<number>), 0) * 1px)) {
-    :root[data-ui-scaled] svg.lucide[width] {
-      width: calc(attr(width type(<number>), 24) * var(--ui-scale, 1) * 1px);
-      height: calc(attr(height type(<number>), 24) * var(--ui-scale, 1) * 1px);
-    }
+  /* Icons drawn at a size in px (lucide's `size`) scale as the buttons around them: by Interface
+     size where it doesn't zoom the window (the web), and on phones with the root font size the
+     screen and Interface size set (`data-root-sized`, settings/useApplySize), one px of an icon
+     being 1/16 rem there. The rules themselves are shell/iconSizes.ts. */
+  :root {
+    --icon-unit: calc(var(--ui-scale, 1) * 1px);
+  }
+  :root[data-root-sized] {
+    --icon-unit: calc(1rem / 16);
   }
 }
 

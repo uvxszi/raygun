@@ -737,8 +737,9 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
             {item?.explicit && <ExplicitMark />}
           </span>
         )}
-        <div className="flex w-full items-center gap-1">
-          <div className="title-gap flex min-w-0 flex-1 flex-col">
+        {/* The names keep room for a few words: at large sizes the song's buttons go under them. */}
+        <div className="flex w-full flex-wrap items-center justify-end gap-1">
+          <div className="title-gap flex min-w-[min(9rem,100%)] flex-1 flex-col">
             {wide && (
               <span className="flex w-full min-w-0 items-center gap-2">
                 <Marquee

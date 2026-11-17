@@ -44,6 +44,9 @@ struct PlayerPrefs {
     keep_music_playing: bool,
     /// The accent, as the player draws it (`#rrggbb`).
     accent: String,
+    /// Interface size and Text size as factors: the player's own views follow the app's.
+    ui_scale: f64,
+    text_scale: f64,
     /// Controls, gestures, tracks and tools (M45).
     video_player: VideoPlayerPrefs,
 }
@@ -126,6 +129,8 @@ async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
         next_prompt_ms: settings.next_prompt_seconds * 1000,
         keep_music_playing: settings.keep_music_playing,
         accent: accent_color(&settings),
+        ui_scale: f64::from(settings.zoom) / 100.0,
+        text_scale: 1.0 + f64::from(settings.text_size) / 100.0,
         video_player: settings.video_player.clone(),
     }
 }
@@ -140,6 +145,8 @@ fn with_shared_fields(mut payload: Value, prefs: &PlayerPrefs) -> Value {
         fields.insert("subtitleMode".into(), json!(prefs.subtitle_mode));
         fields.insert("keepMusicPlaying".into(), json!(prefs.keep_music_playing));
         fields.insert("accent".into(), json!(prefs.accent));
+        fields.insert("uiScale".into(), json!(prefs.ui_scale));
+        fields.insert("textScale".into(), json!(prefs.text_scale));
         // What sources were asked with: some links only play for the same User-Agent.
         fields.insert("userAgent".into(), json!(raygun_net::user_agent()));
     }
@@ -1509,6 +1516,8 @@ mod tests {
             next_prompt_ms: 10_000,
             keep_music_playing: false,
             accent: "#65adff".into(),
+            ui_scale: 1.25,
+            text_scale: 0.9,
             video_player: video_player.clone(),
         };
         let update = prefs_update(serde_json::to_value(&video_player).unwrap(), &prefs);
@@ -1969,6 +1978,8 @@ mod tests {
             next_prompt_ms: 10_000,
             keep_music_playing: true,
             accent: "#65adff".into(),
+            ui_scale: 1.25,
+            text_scale: 0.9,
             video_player: VideoPlayerPrefs::default(),
         };
         let payload = with_shared_fields(json!({ "id": "url:a" }), &prefs);
@@ -1979,6 +1990,9 @@ mod tests {
         assert_eq!(payload["subtitleMode"], "always");
         assert_eq!(payload["keepMusicPlaying"], true);
         assert_eq!(payload["accent"], "#65adff");
+        // The player's own views take the app's Interface size and Text size.
+        assert_eq!(payload["uiScale"], 1.25);
+        assert_eq!(payload["textScale"], 0.9);
         assert!(
             payload["userAgent"]
                 .as_str()
