@@ -31,8 +31,8 @@
     "version": "1.0.0",
     "package": {
       "url": "https://raw.githubusercontent.com/uvxszi/raygun/main/chips/packages/smooth-motion-1.0.0.tar.gz",
-      "sha256": "05f3730f04fab98e7687152d353cfba6b1a1a089b4c84ff5669bad0b4274dbcd",
-      "size": 3044
+      "sha256": "eb56f95ff20ff6e7ff64ce623a2b7576f21a61423c99fafec79d9955ece1685f",
+      "size": 3345
     }
   }
 ]
