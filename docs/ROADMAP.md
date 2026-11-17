@@ -206,6 +206,7 @@ The goal is the full depth of the reference apps, researched per app in `docs/re
   - The developer test pack and its sources removed.
 - M46.52 **Sources in one place**: repositories, Stremio addons, servers and extensions in one list with kind and media pills; one Add that works out what an address is (every repository format, GitHub project pages, one extension on its own, servers) and shows it first; Mihon repositories listed; a button beside link fields picks a file or a folder; an Audio section in Browse → Sources.
 - M46.56 **Split raygun-app into crates** (next version, planned in `docs/phases/phase-6/M46.56-split-raygun-app.md`): a shared base crate, then the app's parts as crates of 5,000 to 15,000 lines each, so they compile side by side and a change rebuilds only its part.
+- M46.57 **Raygun 2.0.0** (spec `docs/phases/phase-6/M46.57-v2.0.0.md`): Smart Chips (Smart Shuffle, Smart Subtitles, Smooth Motion as a chip), unlimited and better song imports, video source picking by length and steadiness, pitch/tempo/EQ for any audio, a watermark remover, file sync between devices, barcode scanning, adding sources on the web, icon sizes.
 - **Queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;
