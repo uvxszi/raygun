@@ -1,4 +1,4 @@
-import script from '../../../../crates/raygun-app/src/youtube_embed/player.js?raw';
+import script from '../../../../crates/raygun-app-music/src/youtube_embed/player.js?raw';
 
 /**
  * Raygun's player script inside YouTube's frame, run against a stand-in for the frame: its
