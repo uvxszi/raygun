@@ -1990,7 +1990,10 @@ mod tests {
         };
         let payload = with_shared_fields(json!({ "id": "url:a" }), &prefs);
         assert_eq!(payload["id"], "url:a");
-        assert_eq!(payload["musicEq"]["eqBands"].as_array().map(Vec::len), Some(10));
+        assert_eq!(
+            payload["musicEq"]["eqBands"].as_array().map(Vec::len),
+            Some(10)
+        );
         assert_eq!(payload["seekStepMs"], 10_000);
         assert_eq!(payload["appLanguage"], "pt-BR");
         assert_eq!(payload["subtitleLanguage"], "");

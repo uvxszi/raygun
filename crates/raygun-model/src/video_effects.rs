@@ -94,7 +94,9 @@ impl WatermarkRemoval {
             || self.contrast.abs() > PICTURE_ADJUST_RANGE
             || self.feather > PICTURE_STRENGTH_MAX
         {
-            return Err("The watermark's corrections go from −100 to 100, its feather to 100".into());
+            return Err(
+                "The watermark's corrections go from −100 to 100, its feather to 100".into(),
+            );
         }
         Ok(())
     }
