@@ -10,6 +10,7 @@ rust-version.workspace = true
 raygun-app-base.workspace = true
 raygun-app-answers.workspace = true
 raygun-app-export.workspace = true
+raygun-app-reading.workspace = true
 raygun-model.workspace = true
 raygun-paths.workspace = true
 raygun-db.workspace = true

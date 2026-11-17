@@ -32,12 +32,7 @@ use crate::epub::{self, Epub};
 use crate::manga_downloads::MangaDownloadService;
 
 const KIND: &str = "novel";
-/// The source id of imported EPUB books.
-pub const LOCAL_EPUB: &str = "local.epub";
-/// The source id of imported PDF books.
-pub const LOCAL_PDF: &str = "local.pdf";
-/// Folder under the downloads root holding unpacked books.
-pub(crate) const BOOKS: &str = "books";
+pub use raygun_app_reading::books::{BOOKS, LOCAL_EPUB, LOCAL_PDF};
 /// An imported PDF's file, and its cover, in its folder under [`BOOKS`].
 const PDF_FILE: &str = "document.pdf";
 const PDF_COVER: &str = "cover.png";

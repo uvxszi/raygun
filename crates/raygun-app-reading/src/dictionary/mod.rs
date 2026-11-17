@@ -14,7 +14,7 @@
 //! (`ran`) shows the other's entry. Answers are kept on the device (`cache.rs`), so a word looked
 //! up before opens offline.
 
-mod book_search;
+pub mod book_search;
 pub(crate) use raygun_app_base::lookup_cache as cache;
 mod forms;
 mod free_dictionary;
@@ -30,8 +30,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use raygun_model::{
-    BookSearch, DictionaryEntry, DictionaryFormOf, DictionaryLookup, DictionaryPrefs,
-    DictionaryRequest, DictionarySourceInfo, ProviderInfo,
+    DictionaryEntry, DictionaryFormOf, DictionaryLookup, DictionaryPrefs, DictionaryRequest,
+    DictionarySourceInfo, ProviderInfo,
 };
 use tauri::{AppHandle, Manager};
 
@@ -254,11 +254,11 @@ impl DictionaryService {
     }
 
     fn db(&self) -> Arc<raygun_db::Db> {
-        self.app.state::<crate::startup::AppDb>().inner().0.clone()
+        self.app.state::<raygun_app_base::AppDb>().inner().0.clone()
     }
 
     async fn prefs(&self) -> DictionaryPrefs {
-        crate::settings::load(&self.db())
+        raygun_app_base::settings::load(&self.db())
             .await
             .map(|settings| settings.dictionary)
             .unwrap_or_default()
@@ -269,7 +269,7 @@ impl DictionaryService {
         let mut sources = vec![Source::Wiktionary, Source::FreeDictionary];
         if let Some(extensions) = self
             .app
-            .try_state::<Arc<crate::extensions::ExtensionService>>()
+            .try_state::<raygun_app_base::extension_access::Extensions>()
         {
             let (_ready, host) = extensions.ready().await;
             sources.extend(
@@ -295,7 +295,7 @@ impl DictionaryService {
     }
 
     /// The language a book says it's written in: an imported EPUB's own, or its source's.
-    pub(crate) async fn book_language(&self, title_id: &str) -> Option<String> {
+    pub async fn book_language(&self, title_id: &str) -> Option<String> {
         if let Some(known) = self
             .book_languages
             .lock()
@@ -309,19 +309,19 @@ impl DictionaryService {
             .ok()
             .flatten()?;
         let source = title.fields.source_id.clone();
-        let language = if source == crate::novel::LOCAL_EPUB {
+        let language = if source == crate::books::LOCAL_EPUB {
             let dir = self
                 .app
-                .state::<crate::startup::AppPaths>()
+                .state::<raygun_app_base::AppPaths>()
                 .0
                 .downloads()
-                .join(crate::novel::BOOKS)
+                .join(crate::books::BOOKS)
                 .join(&title.fields.remote_id);
             tauri::async_runtime::spawn_blocking(move || crate::epub::unpacked_language(&dir))
                 .await
                 .ok()
                 .flatten()
-        } else if source == crate::novel::LOCAL_PDF {
+        } else if source == crate::books::LOCAL_PDF {
             None
         } else {
             self.source_language(&source).await
@@ -343,7 +343,7 @@ impl DictionaryService {
         let extension_id = source_id.split('/').next().unwrap_or(source_id);
         let extensions = self
             .app
-            .try_state::<Arc<crate::extensions::ExtensionService>>()?;
+            .try_state::<raygun_app_base::extension_access::Extensions>()?;
         let listed = extensions
             .catalog(false)
             .await
@@ -377,7 +377,9 @@ impl DictionaryService {
             Source::Wiktionary => wiktionary::look_up(&self.polite, word, language, target).await,
             Source::FreeDictionary => free_dictionary::look_up(&self.polite, word).await,
             Source::Extension(provider) => {
-                let extensions = self.app.state::<Arc<crate::extensions::ExtensionService>>();
+                let extensions = self
+                    .app
+                    .state::<raygun_app_base::extension_access::Extensions>();
                 let (_ready, host) = extensions.ready().await;
                 let args = serde_json::json!({ "word": word, "language": language });
                 match host.call_interactive(&provider.id, "define", args).await {
@@ -557,35 +559,4 @@ pub async fn dictionary_sources(
     dictionary: tauri::State<'_, Arc<DictionaryService>>,
 ) -> Result<Vec<DictionarySourceInfo>, String> {
     Ok(dictionary.sources().await)
-}
-
-/// Opens a dictionary's page (an entry, a search) in Raygun's browser.
-#[tauri::command]
-#[specta::specta]
-pub async fn dictionary_open_page(
-    websites: tauri::State<'_, Arc<crate::websites::WebsiteService>>,
-    url: String,
-) -> Result<(), String> {
-    let url = url.trim();
-    if !url.starts_with("https://") {
-        return Err("That isn't a web address".into());
-    }
-    websites
-        .inner()
-        .clone()
-        .open_page(&format!("{}dictionary", crate::websites::PAGE_PREFIX), url)
-        .await
-}
-
-/// Where words appear in a book: every chapter of an imported book, a source's downloaded
-/// chapters and the one open (`chapter_id`).
-#[tauri::command]
-#[specta::specta]
-pub async fn novel_search_book(
-    app: AppHandle,
-    title_id: String,
-    chapter_id: Option<String>,
-    query: String,
-) -> Result<BookSearch, String> {
-    book_search::search(&app, &title_id, chapter_id.as_deref(), &query).await
 }

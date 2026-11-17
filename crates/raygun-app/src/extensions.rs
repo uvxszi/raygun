@@ -227,6 +227,15 @@ impl raygun_app_base::extension_access::ExtensionAccess for ExtensionService {
     > {
         Box::pin(ExtensionService::ready(self))
     }
+
+    fn catalog(
+        &self,
+        refresh: bool,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Vec<RepoCatalog>, String>> + Send + '_>,
+    > {
+        Box::pin(ExtensionService::catalog(self, refresh))
+    }
 }
 
 pub struct ExtensionService {

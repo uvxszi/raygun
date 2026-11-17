@@ -7437,6 +7437,7 @@ dependencies = [
  "raygun-app-answers",
  "raygun-app-base",
  "raygun-app-export",
+ "raygun-app-reading",
  "raygun-db",
  "raygun-ext-host",
  "raygun-library",
@@ -7568,6 +7569,29 @@ dependencies = [
  "tracing",
  "uuid",
  "windows",
+ "zip",
+]
+
+[[package]]
+name = "raygun-app-reading"
+version = "1.9.7"
+dependencies = [
+ "ego-tree",
+ "futures-util",
+ "raygun-app-base",
+ "raygun-db",
+ "raygun-ext-host",
+ "raygun-model",
+ "raygun-net",
+ "scraper",
+ "serde",
+ "serde_json",
+ "specta",
+ "tauri",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
  "zip",
 ]
 

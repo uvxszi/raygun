@@ -10,6 +10,7 @@ mod app_window;
 mod artist_profiles;
 mod background;
 mod backup;
+mod book_search;
 mod browser_check;
 mod caches;
 mod captions;
@@ -25,10 +26,8 @@ mod crash_log;
 mod details;
 mod device_link;
 mod device_sync;
-mod dictionary;
 mod discovery;
 mod durations;
-mod epub;
 mod export;
 mod extension_installs;
 mod extensions;
@@ -104,6 +103,7 @@ mod ytdlp;
 
 use raygun_app_answers as answers;
 use raygun_app_base::{device_state, events, local_network, network, picker, privacy};
+use raygun_app_reading::{dictionary, epub};
 
 use std::path::Path;
 
@@ -603,8 +603,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             network_mode::network_status,
             dictionary::dictionary_lookup,
             dictionary::dictionary_sources,
-            dictionary::dictionary_open_page,
-            dictionary::novel_search_book,
+            commands::dictionary_open_page,
+            book_search::novel_search_book,
             answers::commands::answers_ask,
             commands::answers_open_page,
             network_mode::network_set_offline,

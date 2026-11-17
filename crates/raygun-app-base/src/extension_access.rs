@@ -18,6 +18,13 @@ pub trait ExtensionAccess: Send + Sync {
             dyn Future<Output = (tokio::sync::RwLockReadGuard<'_, ()>, &ExtensionHost)> + Send + '_,
         >,
     >;
+
+    /// Every repository's listing (fetched again with `refresh`).
+    #[allow(clippy::type_complexity)]
+    fn catalog(
+        &self,
+        refresh: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<raygun_model::RepoCatalog>, String>> + Send + '_>>;
 }
 
 /// The extension service, as Tauri state.

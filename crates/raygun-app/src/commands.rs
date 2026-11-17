@@ -6396,3 +6396,21 @@ pub async fn answers_open_page(
         .open_page(&format!("{}answers", crate::websites::PAGE_PREFIX), url)
         .await
 }
+
+/// Opens a dictionary's page (an entry, a search) in Raygun's browser.
+#[tauri::command]
+#[specta::specta]
+pub async fn dictionary_open_page(
+    websites: tauri::State<'_, std::sync::Arc<crate::websites::WebsiteService>>,
+    url: String,
+) -> Result<(), String> {
+    let url = url.trim();
+    if !url.starts_with("https://") {
+        return Err("That isn't a web address".into());
+    }
+    websites
+        .inner()
+        .clone()
+        .open_page(&format!("{}dictionary", crate::websites::PAGE_PREFIX), url)
+        .await
+}

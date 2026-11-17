@@ -1,0 +1,29 @@
+[package]
+name = "raygun-app-reading"
+description = "Raygun's reading: the book reader's word lookups and EPUB books"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-app-base.workspace = true
+raygun-model.workspace = true
+raygun-db.workspace = true
+raygun-net.workspace = true
+raygun-ext-host.workspace = true
+tauri.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+specta.workspace = true
+tracing.workspace = true
+tokio = { version = "1", features = ["sync", "time", "fs", "rt", "macros"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+scraper = "0.24"
+ego-tree = "0.10"
+url = "2"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
