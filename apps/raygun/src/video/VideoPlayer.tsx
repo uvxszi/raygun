@@ -2130,6 +2130,7 @@ const PROBLEM_TEXT: Record<StreamProblem, string> = {
   unsupported: 'desktopPlayer.cantPlayHere',
   network: 'videoPlayer.problemNetwork',
   refused: 'videoPlayer.problemRefused',
+  busy: 'videoPlayer.problemBusy',
   gone: 'videoPlayer.problemGone',
   server: 'videoPlayer.problemServer',
   other: 'videoPlayer.problemOther',

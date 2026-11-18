@@ -3288,6 +3288,7 @@
     "volume": "Volume",
     "problemNetwork": "Couldn't reach the video's server. Check the connection and try again.",
     "problemRefused": "The video's server refused to send it. The link may have expired.",
+    "problemBusy": "The video's server is getting too many requests. Try again in a minute.",
     "problemGone": "The video isn't on its server any more.",
     "problemServer": "The video's server had a problem. Try again in a while.",
     "problemNoAccess": "Raygun isn't allowed to open this file.",

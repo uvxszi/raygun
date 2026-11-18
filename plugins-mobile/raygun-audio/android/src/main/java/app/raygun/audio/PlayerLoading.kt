@@ -321,6 +321,7 @@ internal fun describeProblem(error: PlaybackException, label: (String, String) -
         -> label("problemNetwork", "Couldn't reach the video's server. Check the connection and try again.")
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> when (http?.responseCode ?: 0) {
             404, 410 -> label("problemGone", "The video isn't on its server any more.")
+            429 -> label("problemBusy", "The video's server is getting too many requests. Try again in a minute.")
             in 500..599 -> label("problemServer", "The video's server had a problem. Try again in a while.")
             else -> label("problemRefused", "The video's server refused to send it. The link may have expired.")
         }

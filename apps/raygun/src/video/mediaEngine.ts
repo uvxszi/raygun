@@ -83,7 +83,8 @@ const rangeOf = (videoRange: string | undefined, codecs: string | undefined): Qu
 
 /** Why a stream can't play, in the viewer's terms: its format or codec, the network, or its
  * server (refusing it, not having it, failing). */
-export type StreamProblem = 'unsupported' | 'network' | 'refused' | 'gone' | 'server' | 'other';
+export type StreamProblem =
+  'unsupported' | 'network' | 'refused' | 'busy' | 'gone' | 'server' | 'other';
 
 export type EngineEvents = {
   /** Tracks or qualities became known or changed. */
@@ -96,6 +97,7 @@ export type EngineEvents = {
 const httpProblem = (status: number | undefined): StreamProblem => {
   if (status === 401 || status === 403) return 'refused';
   if (status === 404 || status === 410) return 'gone';
+  if (status === 429) return 'busy';
   if (status !== undefined && status >= 500) return 'server';
   return 'network';
 };
