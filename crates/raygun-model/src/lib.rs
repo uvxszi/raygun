@@ -5949,6 +5949,90 @@ pub struct SyncStatus {
     pub error: Option<String>,
 }
 
+// ---- Files to linked devices (M46.57) ----
+
+/// What a device may send another as files (or, for song edits, as synced rows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DeviceFileKind {
+    /// Downloaded songs.
+    Songs,
+    /// Downloaded comic and book chapters.
+    Chapters,
+    /// Downloaded podcast episodes and audiobook chapters.
+    Episodes,
+    /// Covers picked in Edit details (with the details they belong to).
+    Covers,
+    /// Trims, volume, lyrics and their timing: synced rows, not files.
+    SongEdits,
+}
+
+/// What this device sends one linked device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceFilesPrefs {
+    pub kinds: Vec<DeviceFileKind>,
+    /// Files go only while this device is on Wi-Fi (or Ethernet), never on mobile data.
+    pub wifi_only: bool,
+}
+
+impl Default for DeviceFilesPrefs {
+    fn default() -> Self {
+        Self {
+            kinds: Vec::new(),
+            wifi_only: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DeviceFilesDirection {
+    Sending,
+    Receiving,
+}
+
+/// A transfer going on now.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceFilesTransfer {
+    pub device_id: String,
+    pub device_name: String,
+    pub direction: DeviceFilesDirection,
+    /// What goes now, and its kind (`song`, `chapter`, `episode`, `cover`).
+    pub item_name: String,
+    pub item_kind: String,
+    /// Its place among those going this time (from 1), and how many go.
+    pub index: u32,
+    pub count: u32,
+    pub done_bytes: f64,
+    pub total_bytes: f64,
+}
+
+/// One linked device's file sending: the choices and how the last round went.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceFilesPeer {
+    pub device_id: String,
+    pub name: String,
+    pub prefs: DeviceFilesPrefs,
+    /// Unix ms the last round ended.
+    pub last_at: Option<f64>,
+    /// Items it has from this device, and items waiting to go.
+    pub delivered: u32,
+    pub waiting: u32,
+    /// Why the last round stopped, or what's holding files back now (Offline Mode, battery
+    /// saver, mobile data).
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceFilesStatus {
+    pub peers: Vec<DeviceFilesPeer>,
+    pub transfer: Option<DeviceFilesTransfer>,
+}
+
 // ---- Manga (M24) ----
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

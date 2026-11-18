@@ -119,6 +119,24 @@ pub const TABLES: &[TableSpec] = &[
         ],
         kind: SyncKind::History,
     },
+    // Song edits (M46.57): trims, volume, the lyrics offset and edited lyrics, by track key.
+    // Each device may leave them out for a linked device (`raygun_sync::Engine::set_row_filter`).
+    TableSpec {
+        name: "song_edit",
+        key: "track_key",
+        columns: &[
+            "track_key",
+            "start_ms",
+            "end_ms",
+            "gain",
+            "lyrics_offset_ms",
+            "lyrics",
+            STAMP[0],
+            STAMP[1],
+            STAMP[2],
+        ],
+        kind: SyncKind::Library,
+    },
 ];
 
 pub fn table(name: &str) -> Option<&'static TableSpec> {

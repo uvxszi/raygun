@@ -17,6 +17,10 @@ const PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
 pub(crate) const MAX_NOISE: usize = 65_535;
 /// Plaintext per frame, leaving room for the flag byte and the 16-byte tag.
 const CHUNK: usize = 60_000;
+/// Raw bytes per frame; the flag byte marks them ([`BYTES`]).
+pub const BYTES_PER_FRAME: usize = CHUNK;
+/// The flag of a frame holding raw bytes (messages use 1 for "more follows", 0 for the last).
+const BYTES: u8 = 2;
 /// Largest message accepted, against a peer that never ends one.
 const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 /// A peer that goes quiet this long is gone.
@@ -169,7 +173,27 @@ impl<S: Stream> Channel<S> {
         (self.stream, self.transport)
     }
 
+    /// Sends raw bytes in one frame (a file's piece, `files`): at most [`BYTES_PER_FRAME`].
+    pub async fn send_bytes(&mut self, data: &[u8]) -> Result<(), SyncError> {
+        if data.len() > BYTES_PER_FRAME {
+            return Err(SyncError::Protocol("piece too large".into()));
+        }
+        let mut plain = Vec::with_capacity(data.len() + 1);
+        plain.push(BYTES);
+        plain.extend_from_slice(data);
+        let length = self.transport.write_message(&plain, &mut self.buffer)?;
+        write_frame(&mut self.stream, &self.buffer[..length]).await
+    }
+
     pub async fn recv(&mut self) -> Result<Message, SyncError> {
+        match self.recv_any().await? {
+            Incoming::Message(message) => Ok(message),
+            Incoming::Bytes(_) => Err(SyncError::Protocol("unexpected bytes".into())),
+        }
+    }
+
+    /// The next message, or a frame of raw bytes.
+    pub async fn recv_any(&mut self) -> Result<Incoming, SyncError> {
         let mut message = Vec::new();
         loop {
             let frame = read_frame(&mut self.stream).await?;
@@ -177,6 +201,12 @@ impl<S: Stream> Channel<S> {
             let Some((&more, data)) = self.buffer[..length].split_first() else {
                 return Err(SyncError::Protocol("empty frame".into()));
             };
+            if more == BYTES {
+                if !message.is_empty() {
+                    return Err(SyncError::Protocol("bytes inside a message".into()));
+                }
+                return Ok(Incoming::Bytes(data.to_vec()));
+            }
             message.extend_from_slice(data);
             if message.len() > MAX_MESSAGE {
                 return Err(SyncError::Protocol("message too large".into()));
@@ -185,8 +215,17 @@ impl<S: Stream> Channel<S> {
                 break;
             }
         }
-        serde_json::from_slice(&message).map_err(|error| SyncError::Protocol(error.to_string()))
+        serde_json::from_slice(&message)
+            .map(Incoming::Message)
+            .map_err(|error| SyncError::Protocol(error.to_string()))
     }
+}
+
+/// What a frame (or frames) carried: a message, or a piece of a file.
+#[derive(Debug)]
+pub enum Incoming {
+    Message(Message),
+    Bytes(Vec<u8>),
 }
 
 pub(crate) async fn write_frame(

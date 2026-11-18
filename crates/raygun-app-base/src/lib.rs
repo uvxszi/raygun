@@ -35,3 +35,12 @@ pub fn now_ms() -> i64 {
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or_default()
 }
+
+/// Moves a file: a rename, or a copy and a delete when `to` is on another disk.
+pub async fn move_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    if tokio::fs::rename(from, to).await.is_ok() {
+        return Ok(());
+    }
+    tokio::fs::copy(from, to).await?;
+    tokio::fs::remove_file(from).await
+}

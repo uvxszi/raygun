@@ -434,6 +434,84 @@ impl SongDownloadService {
         }
     }
 
+    /// Saved songs whose copy plays, with their files: what linked devices may be sent
+    /// (M46.57).
+    pub async fn shareable(&self) -> Vec<(SongDownloadRow, PathBuf)> {
+        let rows = store::done(&self.db()).await.unwrap_or_default();
+        rows.into_iter()
+            .filter(|row| row.state == store::DONE && row.problem.is_none())
+            .filter_map(|row| {
+                let path = self.dir(&row.id).join(row.file.as_deref()?);
+                path.is_file().then_some((row, path))
+            })
+            .collect()
+    }
+
+    /// Whether this device has `track_key` saved, or is saving it.
+    pub async fn has_song(&self, track_key: &str) -> bool {
+        store::by_key(&self.db(), track_key)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|row| {
+                matches!(row.state.as_str(), store::DONE | store::DOWNLOADING)
+                    && (row.state != store::DONE
+                        || row
+                            .file
+                            .as_deref()
+                            .is_some_and(|file| self.dir(&row.id).join(file).is_file()))
+            })
+    }
+
+    /// Keeps a song another device sent (M46.57): `file` moves to its own folder and it plays
+    /// offline at once, as if downloaded here. A song saved or downloading here stays as it is.
+    pub async fn add_received(
+        &self,
+        song: NewSong,
+        mut saved: store::Saved,
+        file: &Path,
+    ) -> Result<(), String> {
+        let db = self.db();
+        if self.has_song(&song.track_key).await {
+            return Ok(());
+        }
+        let name = Path::new(&saved.file)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty() && *name != "." && *name != "..")
+            .unwrap_or("track")
+            .to_owned();
+        saved.file = name.clone();
+        let (id, kept) = store::put_received(&db, &song, &saved, now_ms())
+            .await
+            .map_err(to_message)?;
+        if !kept {
+            return Ok(());
+        }
+        let dir = self.dir(&id);
+        let target = dir.join(&name);
+        let moved = async {
+            tokio::fs::create_dir_all(&dir).await?;
+            raygun_app_base::move_file(file, &target).await
+        }
+        .await;
+        if let Err(error) = moved {
+            let _ = store::remove(&db, &id).await;
+            return Err(format!("Couldn't keep the song: {error}"));
+        }
+        if let Some(row) = store::get(&db, &id).await.map_err(to_message)?
+            && self.plays_whole(&row)
+        {
+            self.note_youtube_file(&target, &row.origin);
+            self.offline
+                .lock()
+                .expect("offline index poisoned")
+                .insert(song.track_key.clone(), target);
+        }
+        self.announce(&id).await;
+        Ok(())
+    }
+
     /// The YouTube video a saved file is the sound of, when it is one's.
     pub fn youtube_video_of_file(&self, path: &str) -> Option<String> {
         self.youtube_files

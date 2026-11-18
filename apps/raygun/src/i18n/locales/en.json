@@ -1763,6 +1763,27 @@
   },
   "devices": {
     "title": "Devices",
+    "files": {
+      "sendTo": "Send to {{name}}",
+      "kind": {
+        "songs": "Downloaded songs",
+        "chapters": "Downloaded chapters",
+        "episodes": "Downloaded episodes",
+        "covers": "Picked covers",
+        "songEdits": "Song edits"
+      },
+      "songEditsSummary": "Trims, volume, lyrics and their timing",
+      "wifiOnly": "Only on Wi-Fi",
+      "sendNow": "Send now",
+      "counts": "{{delivered}} there, {{waiting}} waiting",
+      "failed": "Couldn't change what goes",
+      "transferTitle": "Files",
+      "sendingTo": "Sending to {{name}}",
+      "receivingFrom": "Receiving from {{name}}",
+      "item": "{{name}} ({{index}} of {{count}})",
+      "bytes": "{{done}} of {{total}} MB",
+      "stop": "Stop"
+    },
     "webBackend": {
       "title": "Sources from your apps",
       "summary": "While a linked Raygun app is reachable, its sources, searches, catalogues and downloads work here. Your library and settings stay in this browser.",

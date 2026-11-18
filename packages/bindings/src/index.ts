@@ -1788,6 +1788,14 @@ export const commands = {
 	answersAsk: (request: AnswerRequest) => typedError<Answers, string>(__TAURI_INVOKE("answers_ask", { request })),
 	/**  Every chip in the catalogue, with what this device has of it. */
 	chipsList: () => __TAURI_INVOKE<ChipInfo[]>("chips_list"),
+	/**  Each linked device's file choices, and the transfer going on. */
+	deviceFilesStatus: () => typedError<DeviceFilesStatus, string>(__TAURI_INVOKE("device_files_status")),
+	/**  Sets what goes to a linked device. */
+	deviceFilesSetPrefs: (deviceId: string, prefs: DeviceFilesPrefs) => typedError<DeviceFilesStatus, string>(__TAURI_INVOKE("device_files_set_prefs", { deviceId, prefs })),
+	/**  Sends what's waiting to a linked device now. */
+	deviceFilesSendNow: (deviceId: string) => typedError<DeviceFilesStatus, string>(__TAURI_INVOKE("device_files_send_now", { deviceId })),
+	/**  Stops the transfer going on. */
+	deviceFilesCancel: () => typedError<DeviceFilesStatus, string>(__TAURI_INVOKE("device_files_cancel")),
 	/**
 	 *  Downloads and installs a chip (or its update) and switches it on; progress comes as
 	 *  `ChipsEvent`s, and the answer once it's done.
@@ -2026,6 +2034,7 @@ export const events = {
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
 	coverOptionsEvent: makeEvent<CoverOptionsEvent>("cover-options-event"),
+	deviceFilesEvent: makeEvent<DeviceFilesEvent>("device-files-event"),
 	deviceStateEvent: makeEvent<DeviceStateEvent>("device-state-event"),
 	engineCommandEvent: makeEvent<EngineCommandEvent>("engine-command-event"),
 	exportEvent: makeEvent<ExportEvent>("export-event"),
@@ -3455,6 +3464,68 @@ export type DetectedSource = {
 	entries: CatalogEntry[],
 	/**  Why its extensions can't run here (a Kodi or Mihon repository), when they can't. */
 	note: string | null,
+};
+
+/**  What a device may send another as files (or, for song edits, as synced rows). */
+export type DeviceFileKind = 
+/**  Downloaded songs. */
+"songs" | 
+/**  Downloaded comic and book chapters. */
+"chapters" | 
+/**  Downloaded podcast episodes and audiobook chapters. */
+"episodes" | 
+/**  Covers picked in Edit details (with the details they belong to). */
+"covers" | 
+/**  Trims, volume, lyrics and their timing: synced rows, not files. */
+"songEdits";
+
+export type DeviceFilesDirection = "sending" | "receiving";
+
+/**  Files to or from linked devices moved on (M46.57): choices, progress, a round's end. */
+export type DeviceFilesEvent = DeviceFilesStatus;
+
+/**  One linked device's file sending: the choices and how the last round went. */
+export type DeviceFilesPeer = {
+	deviceId: string,
+	name: string,
+	prefs: DeviceFilesPrefs,
+	/**  Unix ms the last round ended. */
+	lastAt: number | null,
+	/**  Items it has from this device, and items waiting to go. */
+	delivered: number,
+	waiting: number,
+	/**
+	 *  Why the last round stopped, or what's holding files back now (Offline Mode, battery
+	 *  saver, mobile data).
+	 */
+	note: string | null,
+};
+
+/**  What this device sends one linked device. */
+export type DeviceFilesPrefs = {
+	kinds: DeviceFileKind[],
+	/**  Files go only while this device is on Wi-Fi (or Ethernet), never on mobile data. */
+	wifiOnly: boolean,
+};
+
+export type DeviceFilesStatus = {
+	peers: DeviceFilesPeer[],
+	transfer: DeviceFilesTransfer | null,
+};
+
+/**  A transfer going on now. */
+export type DeviceFilesTransfer = {
+	deviceId: string,
+	deviceName: string,
+	direction: DeviceFilesDirection,
+	/**  What goes now, and its kind (`song`, `chapter`, `episode`, `cover`). */
+	itemName: string,
+	itemKind: string,
+	/**  Its place among those going this time (from 1), and how many go. */
+	index: number,
+	count: number,
+	doneBytes: number | null,
+	totalBytes: number | null,
 };
 
 /**  The device's state as the UI sees it. */

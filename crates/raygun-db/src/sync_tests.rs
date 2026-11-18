@@ -346,3 +346,31 @@ async fn peers_and_sessions() {
     remove_peer(&db, "dev-b").await.unwrap();
     assert!(peers(&db).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn song_edits_travel_with_the_library() {
+    let temp = TempDir::new().unwrap();
+    let (phone, laptop) = (open(&temp, "phone").await, open(&temp, "laptop").await);
+    let edit = crate::song_edits::SongEditRow {
+        track_key: "bts|swim".into(),
+        start_ms: 1_500,
+        end_ms: Some(150_000),
+        gain: -30,
+        lyrics_offset_ms: 400,
+        lyrics: Some(r#"{"synced":[],"plain":"Swim"}"#.into()),
+    };
+    crate::song_edits::put(&phone, &edit).await.unwrap();
+    let (_, applied) = push(&phone, &laptop).await;
+    assert_eq!(applied.changed, 1);
+    assert_eq!(
+        crate::song_edits::get(&laptop, "bts|swim").await.unwrap(),
+        Some(edit)
+    );
+    // A reset is a tombstone that reaches the other device too.
+    crate::song_edits::remove(&phone, "bts|swim").await.unwrap();
+    push(&phone, &laptop).await;
+    assert_eq!(
+        crate::song_edits::get(&laptop, "bts|swim").await.unwrap(),
+        None
+    );
+}

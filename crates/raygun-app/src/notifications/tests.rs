@@ -1069,7 +1069,7 @@ fn a_model_downloading_can_be_cancelled_from_its_notification() {
 #[test]
 fn only_news_channels_alert() {
     for channel in super::CHANNELS {
-        let alerts = channel.id != super::PLAYBACK.id;
+        let alerts = ![super::PLAYBACK.id, super::DEVICES.id].contains(&channel.id);
         assert_eq!(channel.alerts, alerts, "{}", channel.id);
     }
     const { assert!(super::RELEASES.alerts) };

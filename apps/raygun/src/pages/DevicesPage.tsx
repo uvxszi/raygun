@@ -3,6 +3,7 @@ import { Undo2 } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { DeviceFiles } from '../devices/DeviceFiles';
 import { LinkedDevices } from '../devices/LinkedDevices';
 import { WebBackendCard } from '../devices/WebBackend';
 import {
@@ -116,8 +117,8 @@ const SyncHistory: FC<{ status: SyncStatus }> = ({ status }) => {
 
 /**
  * Devices (M21; one link since M46.47): your devices first (letting them find this one, linking
- * by QR code or on this network, playing on one, syncing), then this device's name and what
- * syncs, and what syncing did.
+ * by QR code or on this network, playing on one, syncing), the files each gets, then this
+ * device's name and what syncs, and what syncing did.
  */
 export const DevicesPage: FC = () => {
   const { t } = useTranslation();
@@ -129,6 +130,7 @@ export const DevicesPage: FC = () => {
     <section data-testid="devices-page" className="flex max-w-2xl flex-col">
       <TopBar back fallback="/settings" title={t('devices.title')} />
       <LinkedDevices />
+      <DeviceFiles />
       <WebBackendCard />
       {data && <ThisDevice status={data} />}
       {(data?.error || status.error) && (

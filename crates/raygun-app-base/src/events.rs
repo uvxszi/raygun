@@ -42,6 +42,10 @@ pub struct LibraryScanEvent(pub raygun_model::LibraryScanProgress);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SyncChangedEvent(pub u32);
 
+/// Files to or from linked devices moved on (M46.57): choices, progress, a round's end.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct DeviceFilesEvent(pub raygun_model::DeviceFilesStatus);
+
 /// A manga library update made progress or finished (M28).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct MangaUpdateEvent(pub raygun_model::MangaUpdateStatus);

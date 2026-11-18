@@ -6,6 +6,7 @@
 
 pub mod channel;
 pub mod discovery;
+pub mod files;
 pub mod protocol;
 pub mod remote;
 pub mod web;
@@ -76,7 +77,14 @@ pub struct Engine {
     on_synced: RwLock<Option<SyncedHook>>,
     /// Takes paired browsers' back-end channels (emote).
     remote: RwLock<Option<remote::RemoteHandler>>,
+    /// Keeps files paired devices send (`files`).
+    files: RwLock<Option<Arc<dyn files::FileSink>>>,
+    /// Which synced tables go to which device (the rest go everywhere).
+    row_filter: RwLock<Option<RowFilter>>,
 }
+
+/// Whether rows of a table (second) go to a device (first, its sync id).
+pub type RowFilter = Arc<dyn Fn(&str, &str) -> bool + Send + Sync>;
 
 /// Called after each successful session, whichever device started it.
 pub type SyncedHook = Arc<dyn Fn(&Peer, &Summary) + Send + Sync>;
@@ -126,7 +134,16 @@ impl Engine {
             clock,
             on_synced: RwLock::new(None),
             remote: RwLock::new(None),
+            files: RwLock::new(None),
+            row_filter: RwLock::new(None),
         }
+    }
+
+    /// Leaves some tables' rows out of what goes to some devices. Rows left out still count as
+    /// sent: when a table is let through again, reset that device's place
+    /// (`raygun_db::sync::set_sent_seq` to 0) so everything goes again.
+    pub fn set_row_filter(&self, filter: Option<RowFilter>) {
+        *self.row_filter.write().expect("filter lock poisoned") = filter;
     }
 
     /// Runs `hook` after every successful session (the app refreshes its views from it).
@@ -444,6 +461,9 @@ impl Engine {
                     .await?;
                 result.map(|_| ())
             }
+            Message::Files { device_id, .. } => {
+                self.receive_files(channel, &remote, &device_id).await
+            }
             other => Err(SyncError::Protocol(format!("{other:?}"))),
         }
     }
@@ -464,11 +484,21 @@ impl Engine {
         let mut sent = 0;
         let mut batch: Vec<SyncRow> = Vec::new();
         let mut batch_bytes = 0;
+        let filter = self
+            .row_filter
+            .read()
+            .expect("filter lock poisoned")
+            .clone();
         loop {
             let (rows, last) =
                 sync::changes_since(&self.db, seq, kinds, BATCH_ROWS, Some(&peer.device_id))
                     .await?;
             for row in rows {
+                if let Some(filter) = &filter
+                    && !filter(&peer.device_id, &row.table)
+                {
+                    continue;
+                }
                 batch_bytes += row.row.to_string().len();
                 batch.push(row);
                 if batch_bytes >= BATCH_BYTES {

@@ -370,6 +370,63 @@ pub async fn set_done(db: &Db, id: &str, saved: &Saved, now_ms: i64) -> Result<b
     Ok(updated > 0)
 }
 
+/// A song another device sent (M46.57): kept as done at once, never queued. A song this device
+/// already has saved or is downloading is left alone (false); one queued or failed takes the copy
+/// (its id stays). Returns the download's id and whether it was kept.
+pub async fn put_received(
+    db: &Db,
+    song: &NewSong,
+    saved: &Saved,
+    now_ms: i64,
+) -> Result<(String, bool), DbError> {
+    let id = Uuid::now_v7().to_string();
+    let kept = sqlx::query(
+        "INSERT INTO local_music_download
+             (id, track_key, title, artist, album, duration_ms, artwork_url, source, state,
+              kind, provider, file, done_bytes, total_bytes, created_at, queued_at, finished_at,
+              file_ms, origin_provider, origin_stream, origin_source, origin_title, origin_artist)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'done', ?9, ?10, ?11, ?12, ?12, ?13, ?13, ?13,
+                 ?14, ?15, ?16, ?17, ?18, ?19)
+         ON CONFLICT(track_key) DO UPDATE SET state = 'done', kind = excluded.kind,
+             provider = excluded.provider, file = excluded.file,
+             done_bytes = excluded.done_bytes, total_bytes = excluded.total_bytes,
+             error = NULL, error_detail = NULL, finished_at = excluded.finished_at,
+             file_ms = excluded.file_ms, origin_provider = excluded.origin_provider,
+             origin_stream = excluded.origin_stream, origin_source = excluded.origin_source,
+             origin_title = excluded.origin_title, origin_artist = excluded.origin_artist,
+             replacing = NULL, problem = NULL
+         WHERE local_music_download.state IN ('queued', 'failed')",
+    )
+    .bind(&id)
+    .bind(&song.track_key)
+    .bind(&song.title)
+    .bind(&song.artist)
+    .bind(&song.album)
+    .bind(song.duration_ms)
+    .bind(&song.artwork_url)
+    .bind(&song.source)
+    .bind(&saved.kind)
+    .bind(&saved.provider)
+    .bind(&saved.file)
+    .bind(saved.bytes)
+    .bind(now_ms)
+    .bind(saved.file_ms)
+    .bind(&saved.origin.provider)
+    .bind(&saved.origin.stream)
+    .bind(&saved.origin.source)
+    .bind(&saved.origin.title)
+    .bind(&saved.origin.artist)
+    .execute(db.pool())
+    .await?
+    .rows_affected()
+        > 0;
+    let row = sqlx::query("SELECT id FROM local_music_download WHERE track_key = ?1")
+        .bind(&song.track_key)
+        .fetch_one(db.pool())
+        .await?;
+    Ok((row.get("id"), kept))
+}
+
 /// A download that stopped with `error` (and the sources' own errors in `detail`). A song that
 /// was downloading again stays saved as it was, the error saying why it wasn't replaced.
 pub async fn set_failed(
@@ -1027,5 +1084,34 @@ mod tests {
         assert_eq!((row.error, row.queued_at), (None, 10));
         assert_eq!(get(&db, &other).await.unwrap().unwrap().state, FAILED);
         assert_eq!(requeue_youtube_failures(&db, 11).await.unwrap(), 0, "once");
+    }
+
+    #[tokio::test]
+    async fn a_song_from_another_device_is_kept_done_unless_saved_or_running_here() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let (id, kept) = put_received(&db, &song("new"), &saved("a.m4a", 10), 5)
+            .await
+            .unwrap();
+        assert!(kept);
+        assert_eq!(playable(&db).await, [(id, "new".into(), "a.m4a".into())]);
+        assert!(next_queued(&db, false).await.unwrap().is_none());
+        // Queued here: the copy takes its place, under its id.
+        let (queued, _) = enqueue(&db, &song("queued"), 1).await.unwrap();
+        let (id, kept) = put_received(&db, &song("queued"), &saved("b.m4a", 10), 6)
+            .await
+            .unwrap();
+        assert!(kept && id == queued);
+        // Saved here, or downloading: left alone.
+        let (_, again) = put_received(&db, &song("new"), &saved("c.m4a", 10), 7)
+            .await
+            .unwrap();
+        assert!(!again);
+        let (running, _) = enqueue(&db, &song("running"), 1).await.unwrap();
+        set_state(&db, &running, DOWNLOADING).await.unwrap();
+        let (_, kept) = put_received(&db, &song("running"), &saved("d.m4a", 10), 8)
+            .await
+            .unwrap();
+        assert!(!kept);
     }
 }

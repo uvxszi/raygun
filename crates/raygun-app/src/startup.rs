@@ -441,6 +441,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let sync = tauri::async_runtime::block_on(crate::device_sync::SyncService::start(
         app.handle().clone(),
     ))?;
+    // Files to linked devices (M46.57) go over sync's connections.
+    let files = crate::file_sync::FileSyncService::new(app.handle().clone(), sync.engine());
+    tauri::async_runtime::block_on(files.start());
+    app.manage(files);
     app.manage(sync);
     // Linked devices keep each other in sync (M46.47).
     crate::device_link::start_auto_sync(app.handle().clone());

@@ -40,6 +40,76 @@ pub enum Message {
     Refused {
         reason: String,
     },
+    /// Opens a file transfer (`files`): the sender's first message, and the receiver's answer.
+    #[serde(rename_all = "camelCase")]
+    Files {
+        device_id: String,
+        name: String,
+    },
+    /// What the sender has for the receiver.
+    FilesOffered {
+        items: Vec<FileItem>,
+    },
+    /// What the receiver wants of them, and how much of each file it already holds.
+    FilesWanted {
+        wanted: Vec<WantedItem>,
+    },
+    /// A file's bytes follow from `offset` as raw frames, up to its size.
+    FileStart {
+        item: String,
+        file: u32,
+        offset: u64,
+    },
+    /// A file is complete: its SHA-256 (hex), checked by the receiver.
+    FileEnd {
+        item: String,
+        file: u32,
+        sha256: String,
+    },
+    /// The sender can't send an item after all (it changed or went).
+    ItemSkipped {
+        item: String,
+        reason: String,
+    },
+    /// The receiver kept an item (or says why not).
+    ItemStored {
+        item: String,
+        error: Option<String>,
+    },
+    /// Nothing more this time (all sent, or cancelled).
+    FilesDone,
+}
+
+/// Something one device sends another as files: a downloaded song, a chapter's pages, an
+/// episode, a picked cover. `meta` is what the receiver needs to keep it as its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FileItem {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    #[serde(default)]
+    pub meta: serde_json::Value,
+    pub files: Vec<ItemFile>,
+}
+
+impl FileItem {
+    pub fn size(&self) -> u64 {
+        self.files.iter().map(|file| file.size).sum()
+    }
+}
+
+/// One file of an item: its name in the item (`/`-separated) and size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemFile {
+    pub name: String,
+    pub size: u64,
+}
+
+/// An item the receiver wants: per file, the bytes it already holds (a transfer cut off before).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WantedItem {
+    pub id: String,
+    pub from: Vec<u64>,
 }
 
 /// What a joiner needs to pair: where the host is, the one-time code, and the host's key, which

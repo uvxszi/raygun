@@ -55,6 +55,33 @@ pub async fn enqueue(db: &Db, unit_id: &str, title_id: &str, now_ms: i64) -> Res
     Ok(result.rows_affected() > 0)
 }
 
+/// A chapter another device sent (M46.57), its files already in place: done at once. One that
+/// is downloading here is left alone (false).
+pub async fn put_done(
+    db: &Db,
+    unit_id: &str,
+    title_id: &str,
+    pages: i64,
+    now_ms: i64,
+) -> Result<bool, DbError> {
+    let result = sqlx::query(
+        "INSERT INTO local_manga_download
+             (unit_id, title_id, state, pages_done, pages_total, queued_at, finished_at)
+         VALUES (?1, ?2, 'done', ?3, ?3, ?4, ?4)
+         ON CONFLICT (unit_id) DO UPDATE SET
+             state = 'done', pages_done = excluded.pages_done, pages_total = excluded.pages_total,
+             error = NULL, finished_at = excluded.finished_at
+         WHERE local_manga_download.state <> 'downloading'",
+    )
+    .bind(unit_id)
+    .bind(title_id)
+    .bind(pages)
+    .bind(now_ms)
+    .execute(db.pool())
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 /// The oldest queued unit.
 pub async fn next_queued(db: &Db) -> Result<Option<DownloadRow>, DbError> {
     let row = sqlx::query(sqlx::AssertSqlSafe(format!(

@@ -84,6 +84,71 @@ impl DetailService {
         }
     }
 
+    /// Edits with a picked cover file, and the file: what linked devices may be sent (M46.57).
+    pub async fn shareable(&self) -> Vec<(DetailEditRow, std::path::PathBuf)> {
+        store::all(self.db())
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| {
+                let relative = row.artwork.as_deref()?.strip_prefix(LOCAL)?;
+                let path = self.downloads.join(relative);
+                path.is_file().then_some((row, path))
+            })
+            .collect()
+    }
+
+    /// Whether this device shows the cover file `name` for an edit of `kind`/`key`.
+    pub fn has_cover(&self, kind: &str, key: &str, name: &str) -> bool {
+        self.row(kind, key)
+            .and_then(|row| row.artwork)
+            .is_some_and(|art| {
+                art == format!("{LOCAL}{COVERS}/{name}")
+                    && self.downloads.join(COVERS).join(name).is_file()
+            })
+    }
+
+    /// Keeps a cover another device's edit picked (M46.57): the file goes with this device's
+    /// picked covers and the edit takes it; names and titles edited here stay, those edited there
+    /// fill only what this device left as the source said.
+    pub async fn add_received(
+        &self,
+        sent: DetailEditRow,
+        name: &str,
+        file: &std::path::Path,
+    ) -> Result<(), String> {
+        let name = std::path::Path::new(name)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.starts_with('.'))
+            .ok_or("A cover's name can't be used")?
+            .to_owned();
+        let dir = self.downloads.join(COVERS);
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|error| error.to_string())?;
+        raygun_app_base::move_file(file, &dir.join(&name))
+            .await
+            .map_err(|error| format!("Couldn't keep the cover: {error}"))?;
+        let here = self.row(&sent.kind, &sent.key).unwrap_or_default();
+        let row = DetailEditRow {
+            kind: sent.kind.clone(),
+            key: sent.key.clone(),
+            title: here.title.or(sent.title),
+            artist: here.artist.or(sent.artist),
+            album: here.album.or(sent.album),
+            artwork: Some(format!("{LOCAL}{COVERS}/{name}")),
+        };
+        store::put(self.db(), &row, crate::catalog::now_ms())
+            .await
+            .map_err(|error| error.to_string())?;
+        self.edits
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert((row.kind.clone(), row.key.clone()), row);
+        Ok(())
+    }
+
     fn row(&self, kind: &str, key: &str) -> Option<DetailEditRow> {
         self.edits
             .read()

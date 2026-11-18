@@ -47,9 +47,23 @@ pub const PLAYBACK: NoticeChannel = NoticeChannel {
     alerts: false,
 };
 
+/// Files going to or coming from a linked device (M46.57).
+pub const DEVICES: NoticeChannel = NoticeChannel {
+    id: "raygun.devices",
+    name: "Linked devices",
+    description: "Files sent to and from your devices",
+    alerts: false,
+};
+
 /// Every channel [`Notice`]s use.
 #[cfg_attr(not(test), allow(dead_code))]
-pub const CHANNELS: [&NoticeChannel; 4] = [&RELEASES, &LIBRARY_UPDATES, &APP_UPDATES, &PLAYBACK];
+pub const CHANNELS: [&NoticeChannel; 5] = [
+    &RELEASES,
+    &LIBRARY_UPDATES,
+    &APP_UPDATES,
+    &PLAYBACK,
+    &DEVICES,
+];
 
 /// Channel ids no longer used (made with a sound before they went quiet): the plugin deletes them.
 pub const RETIRED_CHANNELS: [&str; 1] = ["raygun.playback"];
