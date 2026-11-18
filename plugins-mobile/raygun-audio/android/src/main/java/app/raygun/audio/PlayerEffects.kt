@@ -842,10 +842,16 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
                 reset.alpha = if (next == 0) 0.4f else 1f
             }
 
-            override fun onStartTrackingTouch(bar: SeekBar) {}
+            private var presetBefore = -1
+
+            override fun onStartTrackingTouch(bar: SeekBar) {
+                presetBefore = EffectMath.matchingPreset(picture)
+            }
 
             override fun onStopTrackingTouch(bar: SeekBar) {
                 host.remember(JSONObject().put("pictureEffects", picture.toJson()))
+                // Off a preset (Custom) or onto one: the presets row says so.
+                if (EffectMath.matchingPreset(picture) != presetBefore) open()
             }
         })
         reset.setOnClickListener {

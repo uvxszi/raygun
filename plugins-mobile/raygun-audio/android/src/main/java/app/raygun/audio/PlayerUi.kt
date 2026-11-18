@@ -40,6 +40,9 @@ internal const val SCRIM = 0x66000000
 
 internal fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
+/** Where a row of chips scrolls so the chip from `left` to `right` ends at its `width`'s edge. */
+internal fun chipScroll(left: Int, right: Int, width: Int): Int = (right - width).coerceIn(0, left.coerceAtLeast(0))
+
 /** Sets the text only when it changes: setting it lays the view out again even when the same. */
 internal fun TextView.show(value: CharSequence) {
     if (text?.toString() != value.toString()) text = value
@@ -425,10 +428,17 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         labels.forEachIndexed { index, label ->
             line.addView(context.pill(label, filled = index == selected) { onPick(index) })
         }
-        body.addView(HorizontalScrollView(context).apply {
+        val scroller = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             addView(line)
-        }, LinearLayout.LayoutParams(-1, -2))
+        }
+        body.addView(scroller, LinearLayout.LayoutParams(-1, -2))
+        // The picked chip is in view (Custom comes last, past the screen's edge).
+        line.getChildAt(selected)?.let { chip ->
+            scroller.post {
+                if (chip.right > scroller.width) scroller.scrollTo(chipScroll(chip.left, chip.right, scroller.width), 0)
+            }
+        }
     }
 
     /** A row with a name, its value, and pills that change it. */
