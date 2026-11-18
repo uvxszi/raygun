@@ -660,6 +660,8 @@ private fun Cue.atTop(): Cue = buildUpon()
  */
 internal class SecondSubtitles(private val host: VideoPlayerActivity, private val view: StyledCues) {
     private var timed: List<TimedCues> = emptyList()
+    /** [timed] joined ([joinedCues]), made when first drawn so. */
+    private var joined: List<TimedCues>? = null
     private var generation = 0
     var current: Sidecar? = null
         private set
@@ -680,7 +682,12 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
             val result = runCatching { SubtitleFiles.parse(SubtitleFiles.read(host, sidecar.uri), sidecar.mime) }
             host.runOnUiThread {
                 if (mine != generation) return@runOnUiThread
-                result.onSuccess { timed = it }.onFailure {
+                result.onSuccess {
+                    timed = it
+                    joined = null
+                    // Its lines change on the subtitle clock's looks.
+                    host.subtitleClock.refresh()
+                }.onFailure {
                     current = null
                     onFailed(it.message ?: it.javaClass.simpleName)
                 }
@@ -713,8 +720,17 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
         }
         if (timed.isEmpty()) return
         val at = (positionMs - delayMs) * 1000
-        view.set(together(timed.filter { at >= it.startUs && at < it.endUs }.flatMap { it.cues }).map { it.atTop() })
+        view.set(together(timedAt(shownTimed(), at).flatMap { it.cues }).map { it.atTop() })
     }
+
+    /** The file's lines as drawn: joined when Smart Subtitles joins close lines ([joinedCues]). */
+    private fun shownTimed(): List<TimedCues> {
+        if (!host.joinCloseLines) return timed
+        return joined ?: joinedCues(timed).also { joined = it }
+    }
+
+    /** When the file's lines change next after `atUs` (null for a live track, looked at every tick). */
+    fun nextEdgeUs(atUs: Long): Long? = if (liveId != null || timed.isEmpty()) null else app.raygun.audio.nextEdgeUs(shownTimed(), atUs)
 
     /**
      * Cues showing at once as one, their lines one under the other: each is put on the same top

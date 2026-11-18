@@ -61,7 +61,12 @@ type Props = {
   /** Changing the chosen track's lines, when it can be. */
   editor: ReactNode;
   /** Smart Subtitles' switch, while its Smart Chip is on; null hides it. */
-  smart?: { on: boolean; onToggle: () => void } | null;
+  smart?: {
+    on: boolean;
+    onToggle: () => void;
+    /** Join lines close together: shown while Smart Subtitles is on. */
+    join?: { on: boolean; onToggle: () => void };
+  } | null;
 };
 
 const TOOL =
@@ -299,6 +304,15 @@ export const SubtitlesPanel: FC<Props> = ({
           selected={smart.on}
           toggle
           onSelect={smart.onToggle}
+        />
+      )}
+      {smart?.on && smart.join && (
+        <PanelOption
+          label={t('videoPlayer.joinCloseLines')}
+          hint={t('videoPlayer.joinCloseLinesHint')}
+          selected={smart.join.on}
+          toggle
+          onSelect={smart.join.onToggle}
         />
       )}
       <PanelOption

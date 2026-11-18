@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { smartOrder } from './smartOrder';
 import { steadySpan, subtitleTimeMs, useSubtitleClock } from './subtitleClock';
@@ -79,6 +79,98 @@ describe('the subtitle clock', () => {
     move(0, 'seeked');
     expect(result.current).toBe(5_000);
     expect(cuesAt(cues, result.current)).toEqual(['two']);
+  });
+});
+
+describe('the subtitle clock over a long play', () => {
+  /** A video that plays: its time moves each frame at its speed unless paused or waiting. */
+  const playingVideo = () => {
+    const video = document.createElement('video');
+    let time = 0;
+    let paused = false;
+    Object.defineProperty(video, 'currentTime', {
+      get: () => time,
+      set: (next: number) => (time = next),
+    });
+    Object.defineProperty(video, 'paused', { get: () => paused });
+    const frames = new Map<number, FrameRequestCallback>();
+    let next = 1;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(next, callback);
+      return next++;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const state = { stalled: false };
+    /** One frame of `ms`: time moves on, then the frame's callbacks run. */
+    const frame = (ms: number) =>
+      act(() => {
+        if (!paused && !state.stalled) time += (ms / 1000) * video.playbackRate;
+        const due = [...frames.entries()];
+        frames.clear();
+        for (const [, callback] of due) callback(0);
+      });
+    const fire = (type: string, change: () => void) =>
+      act(() => {
+        change();
+        video.dispatchEvent(new Event(type));
+      });
+    return {
+      video,
+      frame,
+      stall: (on: boolean) => fire(on ? 'waiting' : 'playing', () => (state.stalled = on)),
+      seek: (seconds: number) => fire('seeked', () => (time = seconds)),
+      speed: (rate: number) => fire('ratechange', () => (video.playbackRate = rate)),
+      pause: (on: boolean) => fire(on ? 'pause' : 'play', () => (paused = on)),
+      now: () => time * 1000,
+    };
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows every line on time through stalls, seeks, speed and delay changes', () => {
+    // Two hundred lines of varied lengths and gaps, some overlapping.
+    const many: Cue[] = Array.from({ length: 200 }, (_, index) => {
+      const startMs = 1_000 + index * 1_517 + (index % 7) * 113;
+      return { startMs, endMs: startMs + 400 + (index % 5) * 531, lines: [`line ${index}`] };
+    });
+    const player = playingVideo();
+    const ref = { current: player.video };
+    const { result, rerender } = renderHook(
+      ({ delay, list }: { delay: number; list: Cue[] }) => useSubtitleClock(ref, list, [], delay),
+      { initialProps: { delay: 0, list: many } },
+    );
+    let delay = 0;
+    const steps: Record<number, () => void> = {
+      400: () => player.stall(true),
+      460: () => player.stall(false),
+      900: () => player.seek(150),
+      1200: () => player.speed(1.5),
+      1500: () => {
+        delay = 1_500;
+        rerender({ delay, list: many });
+      },
+      1800: () => player.speed(0.75),
+      2000: () => player.pause(true),
+      2030: () => player.pause(false),
+      2200: () => player.seek(40),
+      // A new list each render (lines edited, joined): the clock keeps reading.
+      2400: () => rerender({ delay, list: [...many] }),
+      2600: () => {
+        delay = -800;
+        rerender({ delay, list: many });
+        player.speed(2);
+      },
+      2800: () => player.stall(true),
+      2810: () => player.stall(false),
+    };
+    for (let step = 0; step < 3_000; step += 1) {
+      player.frame(50);
+      steps[step]?.();
+      // What shows is what the playhead less the delay shows, at every frame.
+      expect(cuesAt(many, result.current)).toEqual(
+        cuesAt(many, subtitleTimeMs(player.now(), delay)),
+      );
+    }
   });
 });
 

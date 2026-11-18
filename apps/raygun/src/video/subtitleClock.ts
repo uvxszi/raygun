@@ -53,11 +53,29 @@ export const embeddedLinesAt = (video: HTMLVideoElement, atMs: number): string[]
   return lines;
 };
 
+/** The player's events after which the clock reads the playhead at once. */
+const CLOCK_EVENTS = [
+  'play',
+  'playing',
+  'pause',
+  'waiting',
+  'seeking',
+  'seeked',
+  'ratechange',
+  'loadedmetadata',
+] as const;
+
 /**
  * The subtitle clock: the video's time minus `delayMs`, kept in state only when it leaves the
- * stretch where the lines of `main` and `second` stay the same (so the player draws again only when a line
- * changes). Read every animation frame while the video plays, and at once on seeks, pauses,
- * speed changes and delay changes.
+ * stretch where the lines of `main` and `second` stay the same (so the player draws again only
+ * when a line changes). Read every animation frame while the video plays (also while it waits
+ * for data: its time then stands still, and so do the lines), on every `timeupdate` (frames don't
+ * come in a hidden window), and at once on seeks, pauses, stalls, speed changes and delay
+ * changes. Nothing is counted between reads: each one is the playhead itself, so no stall, seek
+ * or speed change can leave the lines behind.
+ *
+ * The frame loop lives as long as the video element; the lines and the delay reach it through
+ * refs, so new lists (a track chosen, edits, lines joined) never restart it.
  */
 export const useSubtitleClock = (
   videoRef: RefObject<HTMLVideoElement | null>,
@@ -67,49 +85,58 @@ export const useSubtitleClock = (
 ): number => {
   // Set from the video once its effect runs.
   const [clockMs, setClockMs] = useState(() => subtitleTimeMs(0, delayMs));
+  const clock = useRef(clockMs);
   const span = useRef({ from: 0, until: 0 });
-  const usedDelay = useRef(delayMs);
+  const lists = useRef<readonly (readonly Cue[])[]>([main, second]);
+  const delay = useRef(delayMs);
+  /** Reads the playhead now; `force` sets the clock even inside the stretch. */
+  const read = useRef<(force: boolean) => void>(() => {});
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     let frame = 0;
-    // New lines (a track chosen, edits) only move the stretch; a new delay moves the clock.
-    const delayChanged = usedDelay.current !== delayMs;
-    usedDelay.current = delayMs;
     const check = (force: boolean) => {
-      const now = subtitleTimeMs(video.currentTime * 1000, delayMs);
+      const now = subtitleTimeMs(video.currentTime * 1000, delay.current);
       const { from, until } = span.current;
       if (force || now < from || now >= until) {
-        span.current = steadySpan([main, second], now);
+        span.current = steadySpan(lists.current, now);
+        clock.current = now;
         setClockMs(now);
       }
     };
     const loop = () => {
       check(false);
-      if (!video.paused) frame = requestAnimationFrame(loop);
+      frame = video.paused ? 0 : requestAnimationFrame(loop);
     };
     const restart = () => {
       cancelAnimationFrame(frame);
       check(true);
-      if (!video.paused) frame = requestAnimationFrame(loop);
+      frame = video.paused ? 0 : requestAnimationFrame(loop);
     };
+    read.current = check;
     const passing = () => check(false);
-    const types = ['play', 'playing', 'pause', 'seeking', 'seeked', 'ratechange'];
-    for (const type of types) video.addEventListener(type, restart);
-    // A paused video moved by hand (frame steps) is read as it goes.
+    for (const type of CLOCK_EVENTS) video.addEventListener(type, restart);
+    // A paused video moved by hand (frame steps), and a window whose frames stopped.
     video.addEventListener('timeupdate', passing);
-    // The delay or the lines changed: what shows is read again now (the clock itself moves only
-    // when the delay did, or when it left the lines' new stretch).
-    span.current = steadySpan([main, second], clockMs);
-    check(delayChanged);
-    if (!video.paused) frame = requestAnimationFrame(loop);
+    restart();
     return () => {
       cancelAnimationFrame(frame);
-      for (const type of types) video.removeEventListener(type, restart);
+      read.current = () => {};
+      for (const type of CLOCK_EVENTS) video.removeEventListener(type, restart);
       video.removeEventListener('timeupdate', passing);
     };
-  }, [videoRef, delayMs, main, second, clockMs]);
+  }, [videoRef]);
+
+  // New lines (a track chosen, edits) only move the stretch around the clock; a new delay moves
+  // the clock itself at once.
+  useEffect(() => {
+    const delayChanged = delay.current !== delayMs;
+    delay.current = delayMs;
+    lists.current = [main, second];
+    span.current = steadySpan(lists.current, clock.current);
+    read.current(delayChanged);
+  }, [delayMs, main, second]);
 
   return clockMs;
 };

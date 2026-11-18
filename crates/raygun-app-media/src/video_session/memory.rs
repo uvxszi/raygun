@@ -11,6 +11,7 @@ use raygun_model::VideoResolution;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use super::habits::{SourceHabits, WatchKind};
 use super::{Group, Link};
 use crate::video_quality;
 
@@ -234,6 +235,8 @@ pub struct Ranking<'a> {
     failing: HashSet<String>,
     resolution: VideoResolution,
     now: i64,
+    /// The sources chosen for this kind of video ([`SourceHabits`]), when known.
+    habits: Option<(&'a SourceHabits, WatchKind)>,
 }
 
 /// A sort key: lower plays first. (Names another episode, standing, not the remembered source,
@@ -257,7 +260,20 @@ impl<'a> Ranking<'a> {
             failing: health.failing(now),
             resolution,
             now,
+            habits: None,
         }
+    }
+
+    /// Sources the person keeps choosing for kind rank ahead of others of their standing.
+    pub fn with_habits(mut self, habits: &'a SourceHabits, kind: WatchKind) -> Self {
+        self.habits = Some((habits, kind));
+        self
+    }
+
+    /// The source usually chosen for this kind of video.
+    pub fn usual(&self) -> Option<&'a str> {
+        self.habits
+            .and_then(|(habits, kind)| habits.usual(kind, self.now))
     }
 
     pub fn is_failing(&self, group: &str) -> bool {
@@ -273,8 +289,12 @@ impl<'a> Ranking<'a> {
         self.remembered(group) && self.memory.at > 0
     }
 
+    /// How well a source worked lately, and how often it was chosen for this kind of video.
     fn score(&self, group: &str) -> i64 {
-        (self.health.score(group, self.now) * 1000.0) as i64
+        let chosen = self
+            .habits
+            .map_or(0.0, |(habits, kind)| habits.weight(kind, group, self.now));
+        ((self.health.score(group, self.now) + chosen) * 1000.0) as i64
     }
 
     pub fn group_standing(&self, group: &str) -> Standing {

@@ -352,6 +352,8 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         })
     }
     var onDismiss: (() -> Unit)? = null
+    /** Back while it shows: true when the sheet closed something of its own (a menu in it). */
+    var onBack: (() -> Boolean)? = null
 
     fun header(text: String) {
         body.addView(TextView(context).apply {

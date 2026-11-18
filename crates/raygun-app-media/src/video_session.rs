@@ -248,10 +248,12 @@ impl Group {
 }
 
 mod audio;
+pub mod habits;
 mod memory;
 pub mod picking;
 pub mod smart_subtitles;
 
+use habits::{HABITS_KEY, SourceHabits, WatchKind};
 use picking::{LeftOut, Picking};
 
 use memory::WORKED_AFTER_MS;
@@ -369,6 +371,11 @@ struct Session {
     arriving: Arriving,
     /// Lengths, the Sources toggles and sources turned off for this title (`picking`).
     picking: Picking,
+    /// The sources chosen for videos of this kind, across titles ([`habits`]), and the kind.
+    habits: SourceHabits,
+    kind: WatchKind,
+    /// The episode whose watching through was counted for its source (once each).
+    habit_counted: Option<String>,
 }
 
 impl Session {
@@ -431,6 +438,7 @@ impl Session {
 
     fn ranking(&self, now: i64) -> Ranking<'_> {
         Ranking::new(&self.memory, &self.health, self.resolution, now)
+            .with_habits(&self.habits, self.kind)
     }
 
     /// The best untried link: what played last time, the same release, sources that worked,
@@ -823,6 +831,12 @@ fn sources_update(session: &Session, now: i64) -> Value {
         "leaveOutTrailers": session.picking.prefs.leave_out_trailers,
         "leaveOutShort": session.picking.prefs.leave_out_short,
         "groups": groups,
+        // The preferred resolution's options from every source, listed first ("Preferred").
+        "preferred": preferred_update(&session.offers(now), session.resolution),
+        // The source usually chosen for this kind of video, when it's among these.
+        "usual": ranking
+            .usual()
+            .filter(|name| session.groups.iter().any(|group| group.name == *name)),
         "order": source_order(session, &ranking),
         // A link played on its own: its own links come first, and with nothing else to switch
         // to the sheet says so ("Only this link") instead of the player hiding it. Without
@@ -908,6 +922,44 @@ fn source_kind(session: &Session, group: &Group) -> &'static str {
     }
 }
 
+/// The preferred resolution's options among `offers` (in the order a session tries them): the
+/// tier a session would play at that preference (the highest at or below it, else the lowest
+/// above), every link with it whichever source has it. Empty when it would only repeat the whole
+/// list (every option is of that tier and from one source).
+fn preferred_options(offers: &[Offer], resolution: VideoResolution) -> (Option<u32>, Vec<&Offer>) {
+    let Some(tier) = offers
+        .iter()
+        .map(|offer| offer.key.height)
+        .min_by_key(|height| video_quality::rank(Some(*height), resolution))
+    else {
+        return (None, Vec::new());
+    };
+    let options: Vec<&Offer> = offers
+        .iter()
+        .filter(|offer| offer.key.height == tier)
+        .collect();
+    let sources: HashSet<usize> = options.iter().map(|offer| offer.group).collect();
+    if options.len() == offers.len() && sources.len() < 2 {
+        return (Some(tier), Vec::new());
+    }
+    (Some(tier), options)
+}
+
+/// The `preferred` part of the `sources` update: the tier and its options as `{group, link}`.
+fn preferred_update(offers: &[Offer], resolution: VideoResolution) -> Value {
+    let (tier, options) = preferred_options(offers, resolution);
+    if options.is_empty() {
+        return Value::Null;
+    }
+    json!({
+        "height": tier,
+        "options": options
+            .iter()
+            .map(|offer| json!({ "group": offer.group, "link": offer.link }))
+            .collect::<Vec<_>>(),
+    })
+}
+
 /// Whether a link ranked `new` is worth leaving one ranked `playing` for: it names the episode
 /// where the other doesn't, stands better (played before, its release, a source that works), or
 /// stands the same with a picture nearer the preferred resolution. Ties of health or memory
@@ -923,6 +975,46 @@ fn ended_early_at(judged: &Picking, link: &Link, from: i64, position: i64) -> Op
     judged
         .measured_short(&link.request.url)
         .then_some(position.max(from))
+}
+
+/// The source of the link playing, when this report says its episode was watched through for
+/// the first time (most of its length, or to its end; never a live stream or a link's own
+/// videos): noted in the session, and returned to be kept.
+fn watched_through(
+    session: &mut Session,
+    key: &str,
+    position: i64,
+    ended: bool,
+    heard: Heard,
+) -> Option<(WatchKind, String)> {
+    let episode = session.episode().key.clone();
+    if episode != key || heard.live || session.habit_counted.as_deref() == Some(key) {
+        return None;
+    }
+    let length = session.duration_ms.filter(|length| *length > 0);
+    let through = match length {
+        Some(length) => {
+            length >= picking::SHORTEST_TITLE_MS
+                && (ended || position as f64 >= length as f64 * habits::WATCHED_SHARE)
+        }
+        None => false,
+    };
+    if !through {
+        return None;
+    }
+    let (group, _) = session.current?;
+    let link_session = session.link.is_some();
+    let name = session
+        .groups
+        .get(group)
+        .filter(|entry| !own_group(link_session, entry))?
+        .name
+        .clone();
+    session.habit_counted = Some(episode);
+    session
+        .habits
+        .note(session.kind, &name, habits::WATCHED, now_ms());
+    Some((session.kind, name))
 }
 
 fn clearly_better(new: memory::RankKey, playing: memory::RankKey) -> bool {
@@ -1153,6 +1245,11 @@ impl VideoSessions {
         }
         .unwrap_or_default();
         let health = self.health().await;
+        let habits = self.habits().await;
+        let kind = match &origin {
+            Origin::Stremio { kind, .. } => WatchKind::of(Some(kind), episodes.len()),
+            _ => WatchKind::of(None, episodes.len()),
+        };
         let resolution = self.resolution().await;
         let picking = self.picking_for(&origin, &memory, &title).await;
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1191,6 +1288,9 @@ impl VideoSessions {
             link_error: None,
             player_waits: false,
             arriving: Arriving::default(),
+            habits,
+            kind,
+            habit_counted: None,
         });
         let label = if video_match::adds_to_title(&title, &label) {
             label
@@ -1225,6 +1325,7 @@ impl VideoSessions {
         };
         let memory = self.recall(&origin.memory_key()).await.unwrap_or_default();
         let health = self.health().await;
+        let habits = self.habits().await;
         let resolution = self.resolution().await;
         let picking = self.picking_for(&origin, &memory, &request.title).await;
         let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1276,6 +1377,9 @@ impl VideoSessions {
             player_waits: false,
             arriving: Arriving::default(),
             picking,
+            habits,
+            kind: WatchKind::Movie,
+            habit_counted: None,
         });
         let mut shell = crate::video::session_shell(&self.app, &title, &subtitle).await;
         // A torrent's details come from peers first.
@@ -1537,6 +1641,17 @@ impl VideoSessions {
             self.pass_over(generation, Some(at)).await;
             return;
         }
+        // Watched through (most of it, or to its end): its source counts toward what's chosen
+        // for this kind of video, once an episode.
+        let watched = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            guard
+                .as_mut()
+                .and_then(|session| watched_through(session, key, position, ended, heard))
+        };
+        if let Some((kind, name)) = watched {
+            self.note_habit(kind, &name, habits::WATCHED).await;
+        }
         let worked = {
             let mut guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_mut() else {
@@ -1645,6 +1760,11 @@ impl VideoSessions {
                     .and_then(Value::as_str)
                     .and_then(QualityKey::parse)
                 {
+                    // The row playing tapped while automatic: the player holds the variant it
+                    // plays; the session keeps that step without loading anything.
+                    Some(key) if report.get("keep").and_then(Value::as_bool) == Some(true) => {
+                        self.keep_quality(key).await
+                    }
                     Some(key) => self.choose_quality(key, position).await,
                     // Automatic: the session picks by itself again.
                     None => self.forget_quality().await,
@@ -1790,8 +1910,22 @@ impl VideoSessions {
             session.wanted = None;
             session.arriving.picked = true;
             session.quality_tried.clear();
-            session.generation
+            // A source picked by hand counts toward what's chosen for this kind of video (a
+            // link's own videos don't: they're that link's).
+            let picked = session
+                .groups
+                .get(group)
+                .filter(|entry| !own_group(session.link.is_some(), entry))
+                .map(|entry| (session.kind, entry.name.clone()));
+            if let Some((kind, name)) = &picked {
+                session.habits.note(*kind, name, habits::PICKED, now_ms());
+            }
+            (session.generation, picked)
         };
+        let (generation, picked) = generation;
+        if let Some((kind, name)) = picked {
+            self.note_habit(kind, &name, habits::PICKED).await;
+        }
         self.play(generation, group, link).await;
     }
 
@@ -1845,6 +1979,22 @@ impl VideoSessions {
                 let _ = crate::video::update_player(&self.app, &update);
             }
         }
+    }
+
+    /// The step playing kept as it is: asked for from now on (no source loads; the player holds
+    /// its variant), so a later source answering doesn't take over.
+    async fn keep_quality(&self, key: QualityKey) {
+        let update = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_mut() else {
+                return;
+            };
+            session.wanted = Some(key);
+            session.arriving.picked = true;
+            session.quality_tried.clear();
+            session.quality_update(now_ms(), None)
+        };
+        let _ = crate::video::update_player(&self.app, &update);
     }
 
     /// Automatic quality: no step is asked for anymore.
@@ -2189,6 +2339,28 @@ impl VideoSessions {
             .flatten()
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_default()
+    }
+
+    async fn habits(&self) -> SourceHabits {
+        raygun_db::local_value(&self.db(), HABITS_KEY)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    /// `name` was chosen for a video of `kind` (picked by hand, or watched through): kept for
+    /// every title from now on.
+    async fn note_habit(&self, kind: WatchKind, name: &str, weight: f64) {
+        let now = now_ms();
+        let mut habits = self.habits().await;
+        habits.note(kind, name, weight, now);
+        if let Ok(text) = serde_json::to_string(&habits)
+            && let Err(error) = raygun_db::set_local_value(&self.db(), HABITS_KEY, &text).await
+        {
+            tracing::warn!(%error, "could not keep the sources chosen");
+        }
     }
 
     async fn note_health(&self, change: impl FnOnce(&mut SourceHealth)) {
@@ -3555,6 +3727,9 @@ mod tests {
             player_waits: false,
             arriving: Arriving::default(),
             picking: Picking::default(),
+            habits: SourceHabits::default(),
+            kind: WatchKind::Series,
+            habit_counted: None,
         }
     }
 
@@ -4011,6 +4186,156 @@ mod tests {
         let capped = Ranking::new(&memory, &health, VideoResolution::P720, NOW);
         order_groups(&mut groups, &capped);
         assert_eq!(groups[0].links[0].label, "720p · Episode 4");
+    }
+
+    #[test]
+    fn the_source_usually_chosen_for_the_kind_comes_first_across_titles() {
+        let nothing = Remembered::default();
+        let mut health = SourceHealth::default();
+        // Both worked before; Alpha worked more often.
+        for at in 0..4 {
+            health.worked("Alpha", NOW - 10_000 + at);
+        }
+        health.worked("Beta", NOW - 10_000);
+        let mut habits = SourceHabits::default();
+        // Series are watched from Beta: picked by hand and watched through.
+        habits.note(WatchKind::Series, "Beta", habits::PICKED, NOW - 3_000);
+        habits.note(WatchKind::Series, "Beta", habits::WATCHED, NOW - 2_000);
+        habits.note(WatchKind::Series, "Beta", habits::WATCHED, NOW - 1_000);
+        let groups = || {
+            vec![
+                Group::finished("a".into(), "Alpha".into(), vec![link("1080p", None)], None),
+                Group::finished("b".into(), "Beta".into(), vec![link("720p", None)], None),
+            ]
+        };
+        // A new series: Beta first, though Alpha worked more and has the better picture.
+        let series = Ranking::new(&nothing, &health, VideoResolution::default(), NOW)
+            .with_habits(&habits, WatchKind::Series);
+        assert_eq!(series.usual(), Some("Beta"));
+        let mut ordered = groups();
+        order_groups(&mut ordered, &series);
+        assert_eq!(names(&ordered), ["Beta", "Alpha"]);
+        // Movies keep their own habits: none yet, so health and the picture decide.
+        let movies = Ranking::new(&nothing, &health, VideoResolution::default(), NOW)
+            .with_habits(&habits, WatchKind::Movie);
+        assert_eq!(movies.usual(), None);
+        let mut ordered = groups();
+        order_groups(&mut ordered, &movies);
+        assert_eq!(names(&ordered), ["Alpha", "Beta"]);
+        // What played for the title itself still comes first.
+        let memory = worked_memory("Alpha", "1080p", None);
+        let title = Ranking::new(&memory, &health, VideoResolution::default(), NOW)
+            .with_habits(&habits, WatchKind::Series);
+        let mut ordered = groups();
+        order_groups(&mut ordered, &title);
+        assert_eq!(names(&ordered), ["Alpha", "Beta"]);
+        // A usual source that failed lately goes last all the same.
+        health.failed("Beta", NOW - 500);
+        let failing = Ranking::new(&nothing, &health, VideoResolution::default(), NOW)
+            .with_habits(&habits, WatchKind::Series);
+        let mut ordered = groups();
+        order_groups(&mut ordered, &failing);
+        assert_eq!(names(&ordered), ["Alpha", "Beta"]);
+    }
+
+    #[test]
+    fn the_habit_fades_when_the_source_isnt_chosen_anymore() {
+        let nothing = Remembered::default();
+        let health = SourceHealth::default();
+        let mut habits = SourceHabits::default();
+        habits.note(WatchKind::Movie, "Beta", habits::PICKED, NOW);
+        habits.note(WatchKind::Movie, "Beta", habits::WATCHED, NOW);
+        let day = 24 * 60 * 60 * 1000;
+        let soon = Ranking::new(&nothing, &health, VideoResolution::default(), NOW + day)
+            .with_habits(&habits, WatchKind::Movie);
+        assert_eq!(soon.usual(), Some("Beta"));
+        let later = Ranking::new(
+            &nothing,
+            &health,
+            VideoResolution::default(),
+            NOW + 30 * day,
+        )
+        .with_habits(&habits, WatchKind::Movie);
+        assert_eq!(later.usual(), None);
+    }
+
+    #[test]
+    fn the_preferred_resolutions_options_come_from_every_source() {
+        let offer = |group: usize, link: usize, height: u32| Offer {
+            group,
+            link,
+            key: QualityKey::of(height, video_quality::Range::Sdr),
+            codec: None,
+            picture: None,
+            rank: group * 10 + link,
+        };
+        // 2160p, 1440p, 1080p from two sources: both 1080p options, in play order.
+        let offers = [
+            offer(0, 0, 2160),
+            offer(0, 1, 1080),
+            offer(1, 0, 1440),
+            offer(1, 1, 1080),
+        ];
+        let (tier, options) = preferred_options(&offers, VideoResolution::P1080);
+        assert_eq!(tier, Some(1080));
+        let places: Vec<(usize, usize)> = options.iter().map(|o| (o.group, o.link)).collect();
+        assert_eq!(places, [(0, 1), (1, 1)]);
+        // A preference no source has: the tier a session would play (the highest below it).
+        let (tier, options) = preferred_options(&offers, VideoResolution::P720);
+        assert_eq!(tier, Some(1080));
+        assert_eq!(options.len(), 2);
+        let (tier, options) = preferred_options(&offers, VideoResolution::Highest);
+        assert_eq!(tier, Some(2160));
+        assert_eq!(options.len(), 1);
+        // Everything of that tier from one source: nothing to set apart.
+        let one = [offer(0, 0, 1080), offer(0, 1, 1080)];
+        assert!(preferred_options(&one, VideoResolution::P1080).1.is_empty());
+        assert_eq!(preferred_update(&one, VideoResolution::P1080), Value::Null);
+        let update = preferred_update(&offers, VideoResolution::P1080);
+        assert_eq!(update["height"], 1080);
+        assert_eq!(update["options"][1], json!({ "group": 1, "link": 1 }));
+    }
+
+    #[test]
+    fn a_source_counts_once_an_episode_when_watched_through() {
+        let mut state = session(
+            vec![Group::finished(
+                "b".into(),
+                "Beta".into(),
+                vec![link("1080p", None)],
+                None,
+            )],
+            vec![episode("e1", None)],
+        );
+        state.current = Some((0, 0));
+        state.duration_ms = Some(40 * 60 * 1000);
+        let key = state.episode().key.clone();
+        let heard = Heard::default();
+        // Not far enough in yet.
+        assert_eq!(
+            watched_through(&mut state, &key, 10 * 60 * 1000, false, heard),
+            None
+        );
+        // Most of it: counted, once.
+        assert_eq!(
+            watched_through(&mut state, &key, 30 * 60 * 1000, false, heard),
+            Some((WatchKind::Series, "Beta".to_owned()))
+        );
+        assert_eq!(
+            watched_through(&mut state, &key, 39 * 60 * 1000, true, heard),
+            None
+        );
+        assert!(state.habits.count(WatchKind::Series, "Beta", now_ms()) > 0.9);
+        // A live stream never counts.
+        state.habit_counted = None;
+        let live = Heard {
+            live: true,
+            ..Heard::default()
+        };
+        assert_eq!(
+            watched_through(&mut state, &key, 39 * 60 * 1000, true, live),
+            None
+        );
     }
 
     #[test]

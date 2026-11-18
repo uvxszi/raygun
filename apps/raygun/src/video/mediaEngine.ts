@@ -42,6 +42,9 @@ export type MediaEngine = {
   qualities: () => EngineTrack[];
   quality: () => number;
   setQuality: (id: number) => void;
+  /** Holds the variant playing now (adaptive switching stops) without dropping what's buffered;
+   * false when there's no variant to hold. */
+  keepQuality: () => boolean;
   /** Keeps what played buffered behind the playhead (while looping, so the start is there when
    * the stream goes round). */
   keepStart: (keep: boolean) => void;
@@ -128,6 +131,7 @@ const NONE = {
   qualities: () => [],
   quality: () => -1,
   setQuality: () => {},
+  keepQuality: () => false,
   keepStart: () => {},
   liveAnchor: () => null,
   livePoint: () => null,
@@ -296,6 +300,14 @@ const attachHls = async (
     quality: () => (hls.autoLevelEnabled ? -1 : hls.currentLevel),
     setQuality: (id) => {
       hls.currentLevel = id;
+    },
+    // `loadLevel` fixes the level for the next fragments without flushing the buffer
+    // (`currentLevel` switches at once, loading again what's buffered).
+    keepQuality: () => {
+      const playing = hls.currentLevel;
+      if (playing < 0 || hls.levels.length < 2) return false;
+      hls.loadLevel = playing;
+      return true;
     },
     keepStart: (keep) => {
       hls.config.backBufferLength = keep ? Infinity : backBuffer;

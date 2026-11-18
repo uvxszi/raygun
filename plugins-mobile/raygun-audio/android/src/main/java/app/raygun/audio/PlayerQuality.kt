@@ -156,6 +156,7 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
             if (host.session) host.request("quality", JSONObject().put("key", JSONObject.NULL))
             sheet.dismiss()
         }
+        if (host.session && preferredRows(sheet, auto)) sheet.header(host.label("allQualities", "All qualities"))
         if (rows.length() == 0) {
             sheet.row(host.label("qualityWaiting", "Finding qualities…"), onClick = null)
         }
@@ -174,7 +175,12 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
             }
             val onClick: (() -> Unit)? = when (state) {
                 "variant" -> { { pickVariant(row); sheet.dismiss() } }
-                "playing" -> if (host.session) { { ask(row, again = true); sheet.dismiss() } } else null
+                // While automatic, the row playing is kept as it is (nothing loads again).
+                "playing" -> when {
+                    auto -> { { keepPlaying(row); sheet.dismiss() } }
+                    host.session -> { { ask(row, again = true); sheet.dismiss() } }
+                    else -> null
+                }
                 else -> { { ask(row, again = false); sheet.dismiss() } }
             }
             val playing = state == "playing"
@@ -188,6 +194,40 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
             if (playing) sheet.reveal(shown)
         }
         sheet.show()
+    }
+
+    /**
+     * The preferred resolution's options from every source (the Sources sheet's "Preferred"),
+     * before the tiers; a tap plays that source's link from where the video is. False when
+     * there are none.
+     */
+    private fun preferredRows(sheet: PlayerSheet, auto: Boolean): Boolean {
+        val preferred = host.preferredOptions ?: return false
+        val options = preferred.optJSONArray("options") ?: return false
+        var any = false
+        for (index in 0 until options.length()) {
+            val place = options.optJSONObject(index) ?: continue
+            val group = place.optInt("group", -1)
+            val link = place.optInt("link", -1)
+            val server = host.sources.optJSONObject(group) ?: continue
+            val entry = server.optJSONArray("links")?.optJSONObject(link) ?: continue
+            if (!any) sheet.header(host.label("preferredOptions", "Preferred") + " · ${preferred.optInt("height")}p")
+            any = true
+            val current = entry.optBoolean("current")
+            val height = entry.optJSONObject("facts")?.number("height")?.toInt()
+            val name = height?.let { qualityName(it, entry.optJSONObject("facts")?.text("exact"), null) }
+                ?: entry.optString("label").substringBefore(" · ").take(60)
+            sheet.row(
+                name + " · " + server.optString("name"),
+                if (current) host.label("qualityPlaying", "Playing") else null,
+                selected = current && !auto,
+                highlighted = current,
+            ) {
+                sheet.dismiss()
+                if (!current) host.chooseSource(group, link)
+            }
+        }
+        return any
     }
 
     /** The stream's own variant of this row: the best of those it holds ([heldVariants]). */
@@ -204,6 +244,28 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
             { rangeOf(it.format) },
         ).maxByOrNull { it.format.bitrate } ?: return
         host.tracks.selectQuality(track)
+    }
+
+    /**
+     * The row playing kept: the variant on screen is held (a track override on it, which Media3
+     * applies without dropping what's buffered, as the same track keeps playing), so adaptive
+     * switching stops; a session keeps the step without loading anything (`keep`).
+     */
+    private fun keepPlaying(row: JSONObject) {
+        val playing = host.player.videoFormat
+        val tracks = host.tracks.qualities()
+        val track = playing?.let { format ->
+            tracks.firstOrNull { it.format == format }
+                ?: tracks.firstOrNull { format.id != null && it.format.id == format.id }
+                ?: tracks.firstOrNull {
+                    it.format.width == format.width && it.format.height == format.height &&
+                        (format.bitrate <= 0 || it.format.bitrate == format.bitrate)
+                }
+        }
+        if (track != null && tracks.size > 1) host.tracks.selectQuality(track)
+        if (host.session) {
+            host.request("quality", JSONObject().put("key", row.optString("key")).put("keep", true))
+        }
     }
 
     /** Asks Rust for another link with this step; the ring names the source while it loads. */

@@ -76,6 +76,7 @@ import type { Box as WatermarkBox } from './effects/watermarkBox';
 import { useMotionSources } from './effects/motionSources';
 import { useChipEnabled } from '../chips/useChips';
 import type { CueEdit, CueEdits } from './cueEdits';
+import { joinCloseCues } from './joinLines';
 import { embeddedLinesAt, subtitleTimeMs, useSubtitleClock } from './subtitleClock';
 import { cuesAt, latestCueAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
@@ -1374,7 +1375,25 @@ const VideoStage: FC<StageProps> = ({
   // The subtitle clock: the playhead less the delay, read every frame while playing, so lines
   // change on their own times at any speed, after seeks and as the delay changes.
   const secondCues = secondKey ? cuesOf(secondKey, secondLoaded) : NO_CUES;
-  const subtitleNowMs = useSubtitleClock(videoRef, currentCues, secondCues, delayMs);
+  // Smart Subtitles' "Join lines close together": files' lines changing quickly show as one
+  // (AI subtitles and translations already show one cue at a time).
+  const joining = smartAvailable && prefs.smartSubtitles && prefs.joinCloseLines;
+  const joinable = (key: string | null) =>
+    joining && key !== null && key !== 'ai' && !key.startsWith('translated:');
+  const editsOfTrack = trackEditKey ? cueEdits[trackEditKey] : undefined;
+  const joinMain = joinable(subtitleKey);
+  const joinedMain = useMemo(
+    () => (joinMain ? joinCloseCues(applyCueEdits(originalCues, editsOfTrack ?? [])) : null),
+    [joinMain, originalCues, editsOfTrack],
+  );
+  const joinSecond = joinable(secondKey);
+  const joinedSecond = useMemo(
+    () => (joinSecond ? joinCloseCues(secondCues) : null),
+    [joinSecond, secondCues],
+  );
+  const mainShown = joinedMain ?? currentCues;
+  const secondShown = joinedSecond ?? secondCues;
+  const subtitleNowMs = useSubtitleClock(videoRef, mainShown, secondShown, delayMs);
   // AI subtitles and translations show one cue at a time (`latestCueAt`): a stretch heard again
   // would otherwise show twice, one line under the other.
   const linesOf = (key: string, cues: Cue[]) =>
@@ -1385,8 +1404,8 @@ const VideoStage: FC<StageProps> = ({
     ? []
     : subtitleKey.startsWith('embedded:')
       ? embeddedLines
-      : linesOf(subtitleKey, currentCues);
-  const secondLines = secondKey ? linesOf(secondKey, secondCues) : [];
+      : linesOf(subtitleKey, mainShown);
+  const secondLines = secondKey ? linesOf(secondKey, secondShown) : [];
   // Translating the main subtitles: their lines as shown (with edits), or the AI subtitles,
   // which Rust follows as they grow. The video's own tracks can't be read as text.
   const translateSource = (): SubtitleSource | null => {
@@ -1940,6 +1959,14 @@ const VideoStage: FC<StageProps> = ({
                         ...(on ? {} : { subtitleRanks: [] }),
                       });
                       savePrefs({ smartSubtitles: on });
+                    },
+                    join: {
+                      on: prefs.joinCloseLines,
+                      onToggle: () => {
+                        const on = !prefs.joinCloseLines;
+                        useVideoPlayerStore.setState({ prefs: { ...prefs, joinCloseLines: on } });
+                        savePrefs({ joinCloseLines: on });
+                      },
                     },
                   }
                 : null

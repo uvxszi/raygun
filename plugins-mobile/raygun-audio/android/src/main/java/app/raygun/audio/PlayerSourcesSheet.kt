@@ -150,6 +150,16 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         }
         val sheet = PlayerSheet(host, label("sources", "Sources"), wide = true)
         this.sheet = sheet
+        // Back closes a source's settings first, then the sheet.
+        sheet.onBack = {
+            if (settingsOf != null) {
+                settingsOf = null
+                build()
+                true
+            } else {
+                false
+            }
+        }
         sheet.chips(
             listOf(label("sourcesTab", "Sources"), label("sourcesRaw", "Raw details")),
             if (raw) 1 else 0,
@@ -158,8 +168,10 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             build()
         }
         host.playingFrom?.let { sheet.header(label("playingFrom", "Playing from {n}", it)) }
+        host.usualSource?.let { sheet.header(label("usualSource", "You usually watch from {n}", it)) }
         toggles(sheet)
         sourceSettings(sheet)
+        if (!raw) preferredList(sheet)
         if (raw) rawList(sheet) else cleanList(sheet)
         sheet.show()
     }
@@ -186,7 +198,23 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
     private fun sourceSettings(sheet: PlayerSheet) {
         val group = settingsOf ?: return
         val server = groups.optJSONObject(group) ?: return
-        sheet.header(server.optString("name"))
+        // Its name with a close button: the menu closes without doing anything.
+        sheet.custom(LinearLayout(host).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(host).apply {
+                text = server.optString("name")
+                setTextColor(0xB3FFFFFF.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(host.dp(20), host.dp(12), host.dp(8), host.dp(4))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(host.iconButton(R.drawable.raygun_ic_close, label("closeSourceSettings", "Close settings")) {
+                settingsOf = null
+                build()
+            })
+            setPadding(0, 0, host.dp(8), 0)
+        })
         fun act(scope: String) {
             settingsOf = null
             host.request("sourceOff", JSONObject().put("group", group).put("scope", scope))
@@ -203,6 +231,34 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             sheet.dismiss()
             // The app shows them while the video waits in its small window.
             host.openAppSettings("sourceSettings", JSONObject().put("group", group))
+        }
+    }
+
+    /**
+     * The preferred resolution's options from every source, first ("Preferred · 1080p"); each
+     * stays in its own source's list too.
+     */
+    private fun preferredList(sheet: PlayerSheet) {
+        val preferred = host.preferredOptions ?: return
+        val options = preferred.optJSONArray("options") ?: return
+        val rows = (0 until options.length()).mapNotNull { index ->
+            val place = options.optJSONObject(index) ?: return@mapNotNull null
+            val group = place.optInt("group", -1)
+            val link = place.optInt("link", -1)
+            val server = groups.optJSONObject(group) ?: return@mapNotNull null
+            val entry = server.optJSONArray("links")?.optJSONObject(link) ?: return@mapNotNull null
+            Triple(group, link, server to entry)
+        }
+        if (rows.isEmpty()) return
+        sheet.header(label("preferredOptions", "Preferred") + " · ${preferred.optInt("height")}p")
+        rows.forEach { (group, link, pair) ->
+            val (server, entry) = pair
+            val current = entry.optBoolean("current")
+            sheet.row(
+                optionTitle(entry) + " · " + server.optString("name"),
+                optionDetail(entry, server),
+                selected = current,
+            ) { choose(group, link, current) }
         }
     }
 

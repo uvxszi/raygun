@@ -236,6 +236,9 @@ export type SourceGroup = {
   kind?: SourceKind;
 };
 
+/** The preferred resolution's tier and its options, as places in the sources' links. */
+export type PreferredOptions = { height: number; options: { group: number; link: number }[] };
+
 export type PlayerUpdate =
   | { type: 'load'; request: PlayerRequest }
   | { type: 'loading'; text: string }
@@ -264,6 +267,10 @@ export type PlayerUpdate =
       /** The Sources toggles. */
       leaveOutTrailers?: boolean;
       leaveOutShort?: boolean;
+      /** The preferred resolution's options from every source, listed first. */
+      preferred?: PreferredOptions | null;
+      /** The source usually chosen for this kind of video. */
+      usual?: string | null;
     }
   /** Subtitle files that came after the video was loaded (slow subtitle addons): they join its
    * tracks. */
