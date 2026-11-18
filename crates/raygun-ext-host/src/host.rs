@@ -95,6 +95,50 @@ pub fn is_background() -> bool {
     BACKGROUND.try_with(|()| ()).is_ok()
 }
 
+/// Calls [`in_background`] start at most this often per extension (one site, often scraped):
+/// work nobody waits on (lengths, covers, songs found ahead) never hammers one source.
+pub const BACKGROUND_SPACING: Duration = Duration::from_secs(8);
+
+/// When each extension's next background call may start.
+static BACKGROUND_TURNS: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<String, std::time::Instant>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// Takes the next background turn of `key` in `turns` at `now`: how long to wait for it. Turns
+/// are handed out in order, `spacing` apart.
+fn background_turn(
+    turns: &mut HashMap<String, std::time::Instant>,
+    key: &str,
+    now: std::time::Instant,
+    spacing: Duration,
+) -> Duration {
+    let start = turns.get(key).map_or(now, |next| (*next).max(now));
+    turns.insert(key.to_owned(), start + spacing);
+    // Turns long past are forgotten, so the map stays small.
+    turns.retain(|_, next| *next + spacing > now);
+    start - now
+}
+
+/// Waits for `provider`'s extension's next background turn ([`BACKGROUND_SPACING`]).
+async fn wait_background_turn(provider: &str) {
+    let extension = provider.split_once('/').map_or(provider, |(id, _)| id);
+    let wait = {
+        let mut turns = BACKGROUND_TURNS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        background_turn(
+            &mut turns,
+            extension,
+            std::time::Instant::now(),
+            BACKGROUND_SPACING,
+        )
+    };
+    if !wait.is_zero() {
+        tracing::trace!(%extension, ?wait, "a background call waits its turn");
+        tokio::time::sleep(wait).await;
+    }
+}
+
 /// How long a call someone may be waiting on gives a source: [`INTERACTIVE_TIMEOUT`], or
 /// [`BACKGROUND_TIMEOUT`] [`in_background`].
 pub fn waiting_limit() -> Duration {
@@ -1152,7 +1196,8 @@ impl ExtensionHost {
     /// the others. A source still working then goes on in the background, up to
     /// [`BACKGROUND_TIMEOUT`], and [`CallError::StillWorking`] says so; asking the same again gets
     /// its answer (`crate::late`). Counted while someone waits ([`interactive_calls`]).
-    /// [`in_background`], it's an ordinary call with [`BACKGROUND_TIMEOUT`].
+    /// [`in_background`], it's an ordinary call with [`BACKGROUND_TIMEOUT`], started no sooner
+    /// than the extension's next background turn ([`BACKGROUND_SPACING`]).
     pub async fn call_interactive(
         &self,
         provider: &str,
@@ -1160,6 +1205,7 @@ impl ExtensionHost {
         args: serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
         if is_background() {
+            wait_background_turn(provider).await;
             return self
                 .call_within(provider, method, args, BACKGROUND_TIMEOUT)
                 .await;
@@ -3621,4 +3667,38 @@ pub(crate) fn key_label(key: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod background_turn_tests {
+    use super::*;
+
+    #[test]
+    fn background_calls_to_one_source_take_turns_apart() {
+        let mut turns = HashMap::new();
+        let start = std::time::Instant::now();
+        let spacing = Duration::from_secs(3);
+        // The first goes at once, the next two wait their turns.
+        assert_eq!(
+            background_turn(&mut turns, "tube", start, spacing),
+            Duration::ZERO
+        );
+        assert_eq!(background_turn(&mut turns, "tube", start, spacing), spacing);
+        assert_eq!(
+            background_turn(&mut turns, "tube", start, spacing),
+            spacing * 2
+        );
+        // Another source isn't held up by it.
+        assert_eq!(
+            background_turn(&mut turns, "other", start, spacing),
+            Duration::ZERO
+        );
+        // Long after, a call goes at once again, and old turns are forgotten.
+        let later = start + Duration::from_secs(60);
+        assert_eq!(
+            background_turn(&mut turns, "tube", later, spacing),
+            Duration::ZERO
+        );
+        assert!(!turns.contains_key("other"));
+    }
 }

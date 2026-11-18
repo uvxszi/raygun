@@ -390,7 +390,12 @@ impl DiscoveryService {
                     album: song.album.clone(),
                     duration_ms: song.duration_ms.and_then(|ms| u32::try_from(ms).ok()),
                 };
-                match self.fetch_tags(&query, song.file_genre.as_deref()).await {
+                // Nobody waits on these: paced per source as background work.
+                let fetched = raygun_ext_host::in_background(
+                    self.fetch_tags(&query, song.file_genre.as_deref()),
+                )
+                .await;
+                match fetched {
                     Ok(tags) => {
                         failures = 0;
                         if let Err(error) = self.store(&song.track_key, &tags).await {

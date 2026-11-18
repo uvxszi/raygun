@@ -207,7 +207,7 @@ impl CoverSearch {
                     pacer.interrupted();
                     break;
                 }
-                let looked = self.look_up(&song).await;
+                let looked = raygun_ext_host::in_background(self.look_up(&song)).await;
                 let rest = pacer.after(looked);
                 crate::device_state::rest(rest.length()).await;
                 if rest != Rest::Song {

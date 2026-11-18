@@ -23,8 +23,31 @@ use crate::startup::AppDb;
 
 /// Songs waiting for a lookup, at most.
 const QUEUE_LIMIT: usize = 200;
-/// Between lookups, to stay polite to the sources.
-const LOOKUP_GAP: Duration = Duration::from_millis(500);
+/// Between lookups, to stay polite to the sources (each asks every music source; scrapers among
+/// them read a whole page).
+const LOOKUP_GAP: Duration = Duration::from_secs(6);
+/// Lookups in a row before a longer rest ([`ROUND_GAP`]): a long list's lengths come in rounds,
+/// a few sources' requests a minute on average rather than a steady stream.
+const PER_ROUND: u32 = 8;
+const ROUND_GAP: Duration = Duration::from_secs(2 * 60);
+/// How often a lookup waiting for a quiet moment looks again.
+const QUIET_CHECK: Duration = Duration::from_secs(5);
+
+/// What else is happening, as lookups see it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Quiet {
+    power_save: bool,
+    /// A song loads or another source is looked for.
+    loading: bool,
+    /// Calls someone waits on running at the sources.
+    source_calls: usize,
+}
+
+impl Quiet {
+    fn is_quiet(&self) -> bool {
+        !self.power_save && !self.loading && self.source_calls == 0
+    }
+}
 /// A lookup that found nothing isn't tried again for a day.
 const MISS_RETRY_MS: i64 = 24 * 60 * 60 * 1000;
 /// Playback corrects a stored length only when it's this close (a music video's intro isn't the
@@ -234,6 +257,7 @@ impl DurationService {
     pub fn start(self: &Arc<Self>) {
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
+            let mut in_round = 0;
             loop {
                 // Offline Mode, or Data Saver's part for background lookups: queued until they end.
                 crate::network_mode::wait_for_lookups().await;
@@ -246,15 +270,53 @@ impl DurationService {
                     service.wake.notified().await;
                     continue;
                 };
-                service.look_up(&key, &track).await;
+                // Nobody waits on a length: it waits for a quiet moment, and the sources it asks
+                // take it as background work (paced per source, `BACKGROUND_SPACING`).
+                service.wait_until_quiet().await;
+                raygun_ext_host::in_background(service.look_up(&key, &track)).await;
                 service
                     .queued
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .remove(&key);
-                crate::device_state::rest(LOOKUP_GAP).await;
+                in_round += 1;
+                let rest = if in_round >= PER_ROUND {
+                    in_round = 0;
+                    ROUND_GAP
+                } else {
+                    LOOKUP_GAP
+                };
+                crate::device_state::rest(rest).await;
             }
         });
+    }
+
+    /// Returns once nothing someone waits on runs: no song loading or looked for, no searches
+    /// or lookups at the sources, and battery saver off.
+    async fn wait_until_quiet(&self) {
+        loop {
+            let loading = self
+                .app
+                .try_state::<crate::playback::PlaybackService>()
+                .is_some_and(|playback| {
+                    let state = playback.state();
+                    state.looking_for_source
+                        || matches!(
+                            state.status,
+                            raygun_model::PlaybackStatus::Loading
+                                | raygun_model::PlaybackStatus::Buffering
+                        )
+                });
+            let quiet = Quiet {
+                power_save: crate::device_state::current().power_save,
+                loading,
+                source_calls: raygun_ext_host::interactive_calls(),
+            };
+            if quiet.is_quiet() {
+                return;
+            }
+            crate::device_state::rest(QUIET_CHECK).await;
+        }
     }
 
     async fn look_up(&self, key: &str, track: &TrackQuery) {
@@ -274,6 +336,32 @@ impl DurationService {
             _ => {
                 let _ = store::put_miss(self.db(), key, now_ms()).await;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookups_wait_while_anything_someone_waits_on_runs() {
+        assert!(Quiet::default().is_quiet());
+        for busy in [
+            Quiet {
+                power_save: true,
+                ..Quiet::default()
+            },
+            Quiet {
+                loading: true,
+                ..Quiet::default()
+            },
+            Quiet {
+                source_calls: 1,
+                ..Quiet::default()
+            },
+        ] {
+            assert!(!busy.is_quiet(), "{busy:?}");
         }
     }
 }

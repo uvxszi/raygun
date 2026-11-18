@@ -721,7 +721,9 @@ impl ImportService {
                 let import = app.state::<ImportService>();
                 for song in pending {
                     let key = key_of(&song);
-                    let matched = import.match_one(song).await;
+                    // Nobody waits on these once saved: the sources take them as background
+                    // work, paced per source.
+                    let matched = raygun_ext_host::in_background(import.match_one(song)).await;
                     let db = &app.state::<crate::startup::AppDb>().inner().0;
                     if matched.matched_by.is_some() {
                         let found = raygun_db::collections::TrackFields {
