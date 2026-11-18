@@ -907,6 +907,19 @@ fn source_kind(session: &Session, group: &Group) -> &'static str {
 /// where the other doesn't, stands better (played before, its release, a source that works), or
 /// stands the same with a picture nearer the preferred resolution. Ties of health or memory
 /// alone aren't.
+/// Where the next link starts when `link`, which started at `from`, ended at `position` far
+/// before the title would: where it started for a trailer (its minutes aren't the title's), else
+/// where it ended (a part of the title, say). `None` when it isn't a trailer and didn't measure
+/// far shorter than the title.
+fn ended_early_at(judged: &Picking, link: &Link, from: i64, position: i64) -> Option<i64> {
+    if picking::names_trailer(&link.label, &judged.title) {
+        return Some(from);
+    }
+    judged
+        .measured_short(&link.request.url)
+        .then_some(position.max(from))
+}
+
 fn clearly_better(new: memory::RankKey, playing: memory::RankKey) -> bool {
     let (new_mismatch, new_standing, _, _, new_size) = new;
     let (playing_mismatch, playing_standing, _, _, playing_size) = playing;
@@ -1398,10 +1411,41 @@ impl VideoSessions {
         short.then_some(session.generation)
     }
 
+    /// The link playing ended far before the title would (it's named a trailer, or it measured
+    /// far shorter than the title) while it plays because the Sources toggles let it, not
+    /// because it was picked: the session's generation and where the next link starts (where
+    /// this one was asked to start for a trailer, else where it ended), for the next source to
+    /// carry on. A link picked by hand, a download and a link played on its own just end.
+    fn ended_early(&self, key: &str, position: i64) -> Option<(u64, i64)> {
+        let guard = self.session.lock().expect("session poisoned");
+        let session = guard.as_ref()?;
+        if session.episode().key != key || session.arriving.picked || session.arriving.live {
+            return None;
+        }
+        let (group, link) = session.current?;
+        let entry = session.groups.get(group)?;
+        if entry.id == DOWNLOAD_GROUP || own_group(session.link.is_some(), entry) {
+            return None;
+        }
+        let chosen = entry.links.get(link)?;
+        let from = session
+            .watching
+            .filter(|watching| watching.at == (group, link))
+            .map_or(0, |watching| watching.from.max(0));
+        let at = ended_early_at(&session.picking, chosen, from, position)?;
+        // With nothing else to play, it just ends.
+        let more = session.next_candidate(now_ms()).is_some()
+            || session
+                .groups
+                .iter()
+                .any(|group| group.state == GroupState::Resolving);
+        more.then_some((session.generation, at))
+    }
+
     /// The link playing is far shorter than the title: it's marked so (not tried again, and not
     /// first for this title next time; its source isn't blamed) and the next one plays from where
-    /// this one started.
-    async fn pass_over(&self, generation: u64) {
+    /// this one started (or from `start`).
+    async fn pass_over(&self, generation: u64, start: Option<i64>) {
         let reason = self.label(
             "linkTooShort",
             "Far shorter than the title: a trailer, sample or placeholder",
@@ -1418,8 +1462,14 @@ impl VideoSessions {
             let Some((group, link)) = session.current.take() else {
                 return;
             };
-            if let Some(from) = watching.map(|watching| watching.from).filter(|at| *at > 0) {
-                session.start_at = Some(from);
+            match start {
+                Some(at) => session.start_at = Some(at),
+                None => {
+                    if let Some(from) = watching.map(|watching| watching.from).filter(|at| *at > 0)
+                    {
+                        session.start_at = Some(from);
+                    }
+                }
             }
             let now = now_ms();
             let Some(entry) = session.groups.get_mut(group) else {
@@ -1455,7 +1505,13 @@ impl VideoSessions {
     async fn on_progress(&self, key: &str, position: i64, ended: bool, heard: Heard) {
         self.note_heard(key, heard).await;
         if let Some(generation) = self.note_length(key, heard) {
-            self.pass_over(generation).await;
+            self.pass_over(generation, None).await;
+            return;
+        }
+        // A trailer or short clip played through (the Sources toggles let it): the next source
+        // carries on.
+        if ended && let Some((generation, at)) = self.ended_early(key, position) {
+            self.pass_over(generation, Some(at)).await;
             return;
         }
         let worked = {
@@ -4615,6 +4671,31 @@ mod tests {
     }
 
     #[test]
+    fn worked_last_time_means_a_play_before_this_session() {
+        let mut state = quality_session();
+        // A first play of the title: Alpha's link played long enough just now.
+        state.before = Some(state.memory.clone());
+        state.memory = worked_memory("Alpha", "a 1080p", None);
+        let update = sources_update(&state, NOW);
+        let alpha = &update["groups"][0];
+        assert_eq!(alpha["worked"], false);
+        assert_eq!(alpha["links"][0]["worked"], false);
+        assert_eq!(alpha["links"][0]["current"], true);
+
+        // Beta played the title before; Alpha plays now.
+        state.before = Some(worked_memory("Beta", "b 720p", None));
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["groups"][0]["worked"], false);
+        assert_eq!(update["groups"][1]["worked"], true);
+        assert_eq!(update["groups"][1]["links"][1]["worked"], true);
+
+        // Nothing played long enough yet in this session: what's remembered is from before.
+        state.before = None;
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["groups"][0]["links"][0]["worked"], true);
+    }
+
+    #[test]
     fn torrents_in_the_sources_sheet_say_their_seeds() {
         let mut state = quality_session();
         let mut torrent = link(
@@ -4651,31 +4732,6 @@ mod tests {
         // A speed alone keeps a source for as long as a success would.
         health.worked("Beta", NOW + 61 * 24 * 60 * 60 * 1000);
         assert_eq!(health.speed("Alpha"), None);
-    }
-
-    #[test]
-    fn worked_last_time_means_a_play_before_this_session() {
-        let mut state = quality_session();
-        // A first play of the title: Alpha's link played long enough just now.
-        state.before = Some(state.memory.clone());
-        state.memory = worked_memory("Alpha", "a 1080p", None);
-        let update = sources_update(&state, NOW);
-        let alpha = &update["groups"][0];
-        assert_eq!(alpha["worked"], false);
-        assert_eq!(alpha["links"][0]["worked"], false);
-        assert_eq!(alpha["links"][0]["current"], true);
-
-        // Beta played the title before; Alpha plays now.
-        state.before = Some(worked_memory("Beta", "b 720p", None));
-        let update = sources_update(&state, NOW);
-        assert_eq!(update["groups"][0]["worked"], false);
-        assert_eq!(update["groups"][1]["worked"], true);
-        assert_eq!(update["groups"][1]["links"][1]["worked"], true);
-
-        // Nothing played long enough yet in this session: what's remembered is from before.
-        state.before = None;
-        let update = sources_update(&state, NOW);
-        assert_eq!(update["groups"][0]["links"][0]["worked"], true);
     }
 
     #[test]
@@ -4850,6 +4906,31 @@ mod tests {
         assert_eq!(update["leaveOutTrailers"], true);
         state.picking.prefs.leave_out_trailers = false;
         assert_eq!(state.next_candidate(NOW), Some((0, 0)));
+    }
+
+    #[test]
+    fn a_trailer_or_short_clip_that_ends_hands_over_at_its_start_or_its_end() {
+        let mut state = three_sources();
+        state.picking.prefs.leave_out_trailers = false;
+        state.picking.prefs.leave_out_short = false;
+        let trailer = link("Official Trailer 1080p", None);
+        // A trailer: the next source starts where the trailer was asked to start.
+        assert_eq!(ended_early_at(&state.picking, &trailer, 0, 30_000), Some(0));
+        assert_eq!(
+            ended_early_at(&state.picking, &trailer, 45 * MIN, 45 * MIN + 30_000),
+            Some(45 * MIN)
+        );
+        // A link that isn't known to be short: it ended where the title does.
+        let film = state.groups[0].links[0].clone();
+        assert_eq!(ended_early_at(&state.picking, &film, 0, 2 * MIN), None);
+        // Far shorter than what the other sources measured: the next one carries on from there.
+        measure(&mut state, (0, 0), 2 * MIN);
+        measure(&mut state, (1, 0), 92 * MIN);
+        measure(&mut state, (2, 0), 91 * MIN);
+        assert_eq!(
+            ended_early_at(&state.picking, &film, 0, 2 * MIN),
+            Some(2 * MIN)
+        );
     }
 
     #[test]
