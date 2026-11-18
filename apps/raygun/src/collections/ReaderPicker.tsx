@@ -35,8 +35,8 @@ export const ReaderPicker: FC<{
   const working = busy || prepare.isPending;
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2 text-sm">
-        <label className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
+        <label className="flex min-w-[min(100%,16rem)] flex-1 items-center gap-2">
           <span className="text-muted shrink-0">{t('import.tryAnother')}</span>
           <select
             value={pick?.id ?? ''}
@@ -69,7 +69,7 @@ export const ReaderPicker: FC<{
           {working && <LoaderCircle aria-hidden size={14} className="animate-spin" />}
           {t(
             prepare.isPending
-              ? 'import.downloadingReader'
+              ? 'import.downloadingAnother'
               : busy
                 ? 'import.reading'
                 : pick && !pick.ready

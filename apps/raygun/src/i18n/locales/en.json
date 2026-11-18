@@ -4896,6 +4896,7 @@
     "tryAnother": "Try another reader",
     "readAgain": "Read again",
     "downloadAndRead": "Download and read",
+    "downloadingAnother": "Downloading…",
     "inspect": "Look at the picture of {{title}}",
     "inspectShot": "Look at screenshot {{number}}",
     "shotTitle": "Screenshot {{number}}",
