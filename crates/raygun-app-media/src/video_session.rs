@@ -849,7 +849,11 @@ fn sources_update(session: &Session, now: i64) -> Value {
                 "unreliable": ranking.is_failing(&group.name),
                 "worked": earlier.played_last(&group.name),
                 "best": best,
-                "options": group.links.iter().filter(|link| usable(link)).count(),
+                // As its options list shows them: links alike (tier and range) count once.
+                "options": qualities
+                    .iter()
+                    .filter(|row| row.links.iter().any(|index| usable(&group.links[*index])))
+                    .count(),
                 "speedKbps": session.speed_of(&group.name),
                 "links": links,
                 // Its button: turned off for this title, and what its settings are.
@@ -4998,6 +5002,17 @@ mod tests {
         assert_eq!(playing["sizes"], json!([{ "width": 1920, "height": 800 }]));
         assert_eq!(row("720:sdr").unwrap()["state"], "variant");
         assert_eq!(items.len(), 3, "only the tiers the stream has");
+    }
+
+    #[test]
+    fn a_sources_option_count_counts_links_alike_once() {
+        let mut state = quality_session();
+        // Alpha: 1080p twice and 720p, as its options list shows them: two rows.
+        state.groups[0].links.push(link("a 1080p mirror", None));
+        let update = sources_update(&state, NOW);
+        let alpha = &update["groups"][0];
+        assert_eq!(alpha["qualities"].as_array().unwrap().len(), 2);
+        assert_eq!(alpha["options"], 2);
     }
 
     #[test]
