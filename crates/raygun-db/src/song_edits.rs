@@ -1,6 +1,6 @@
 //! A song's own sound and lyrics (M46.12), by track key, and the loudness songs measured while
-//! they played. Edits are stamped like the synced tables; a reset is a tombstone. Loudness is
-//! device-local.
+//! they played. Edits sync with the library (M46.57, `sync::TABLES`); a reset is a tombstone.
+//! Loudness is device-local.
 
 use sqlx::Row;
 

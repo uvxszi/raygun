@@ -43,6 +43,7 @@ import type { CommandAnswers } from './fallback';
 import { PlaybackService, queueInputOf } from './playback';
 import type { Found } from './playback';
 import { SETTINGS_DEFAULTS, SettingsService } from './settings';
+import { WebSources } from './sources';
 import { Store } from './store';
 import type { Backend } from './store';
 
@@ -146,6 +147,7 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     (request) => context.emit('videoPlayerEvent', { kind: 'open', json: JSON.stringify(request) }),
   );
   const charts = new ChartsService(extensions);
+  const sources = new WebSources(context, extensions);
 
   const find = async (item: QueueItem): Promise<Found> => {
     const source = item.source;
@@ -499,6 +501,16 @@ export const createWebCore = async (options: WebCoreOptions): Promise<WebCore> =
     extension_installs_cancel_all: () => extensions.cancel(null),
     extension_installs_retry: () => extensions.retry(),
     extension_repo_preview: ({ url }) => extensions.preview(String(url)),
+    // Sources → Add (sources.ts): read by the page; a linked app in use answers these itself.
+    sources_detect: ({ address }) => sources.detect(String(address)),
+    sources_add: ({ address }) => sources.add(String(address)),
+    sources_queue_status: () => sources.status(),
+    sources_queue_add: ({ text }) => sources.enqueue(String(text)),
+    sources_queue_cancel: ({ id }) => sources.cancel((id as number | null) ?? null),
+    sources_queue_retry: () => sources.retry(),
+    sources_queue_dismiss: ({ id }) => sources.dismiss((id as number | null) ?? null),
+    sources_queue_signed_in: () => sources.status(),
+    sources_queue_local_address: () => null,
     extension_catalog_refresh_repo: async ({ repoId }) => {
       const repo = extensions.repos().find((candidate) => candidate.id === repoId);
       if (repo) await extensions.catalog(true, [repo]);

@@ -196,6 +196,12 @@ pub fn start_auto_sync(app: AppHandle) {
             sync.sync_quietly().await;
             // What came in counts as seen: no round trip just to send it back.
             seen = raygun_db::sync::latest_seq(&db).await.unwrap_or(seen);
+            // Then files that wait for linked devices (M46.57).
+            // A round already going on is left to finish.
+            if let Some(files) = app.try_state::<Arc<crate::file_sync::FileSyncService>>() {
+                let files = files.inner().clone();
+                tauri::async_runtime::spawn(async move { files.send_all().await });
+            }
         }
     });
 }

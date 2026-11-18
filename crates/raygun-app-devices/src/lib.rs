@@ -3,6 +3,7 @@
 pub mod connect;
 pub mod device_link;
 pub mod device_sync;
+pub mod file_sync;
 pub mod mcp;
 pub mod remote;
 pub mod web_remote;

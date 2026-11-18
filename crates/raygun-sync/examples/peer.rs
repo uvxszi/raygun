@@ -9,6 +9,7 @@
 //! cargo run -p raygun-sync --example peer -- <dir> playlist <name> <title> <artist>
 //! cargo run -p raygun-sync --example peer -- <dir> rename <old name> <new name>
 //! cargo run -p raygun-sync --example peer -- <dir> list
+//! cargo run -p raygun-sync --example peer -- <dir> send-song <file> <title> <artist>
 //! ```
 //!
 //! An emulator reaches the PC at 10.0.2.2. The PC reaches the emulator's sync port through
@@ -20,15 +21,21 @@
 //! `test_echo` with its arguments, `video_play` opening the page's player on a tone with subtitles
 //! (and taking its reports), songs found as that tone (or an HLS playlist for one titled "Hls");
 //! every other command is refused, so the page answers it. Proxy paths are served with ranges.
+//!
+//! Files (M46.57): serve keeps what linked devices send under <dir>/received/ and prints each
+//! item; send-song sends a file as a downloaded song to every paired device (the app keeps it as
+//! downloaded there when Devices lets files come).
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use raygun_db::collections::{self, TrackFields};
 use raygun_db::sync::{self, SyncKind};
 use raygun_db::{Db, local_value, set_local_value};
-use raygun_sync::protocol::Offer;
+use raygun_sync::files::{BoxFuture, FileSink, Outgoing as FilesOut, ProgressHook};
+use raygun_sync::protocol::{FileItem, ItemFile, Offer};
 use raygun_sync::remote::{BODY_PART, Outgoing, RemoteSession};
 use raygun_sync::{Engine, Identity, fingerprint, to_hex};
 use serde_json::json;
@@ -41,7 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (Some(dir), Some(command)) = (args.first(), args.get(1)) else {
-        eprintln!("usage: peer <dir> <serve|join|sync|favorite|playlist|rename|list> ...");
+        eprintln!(
+            "usage: peer <dir> <serve|join|sync|favorite|playlist|rename|list|send-song> ..."
+        );
         std::process::exit(2);
     };
     let rest = &args[2..];
@@ -71,6 +80,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let bind: IpAddr =
                 option("--bind").map_or(Ok(Ipv4Addr::LOCALHOST.into()), |bind| bind.parse())?;
             let _server = engine.serve_on(bind, port..=port).await?;
+            engine.set_file_sink(Some(Arc::new(PrintSink {
+                root: dir.join("received"),
+            })));
             if rest.iter().any(|arg| arg == "--remote") {
                 engine.on_remote(Some(Arc::new(|session| {
                     tokio::spawn(stand_in(session));
@@ -192,9 +204,123 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  {} {} at {:?}", peer.name, peer.device_id, peer.address);
             }
         }
+        "send-song" => {
+            let (file, title, artist) = (
+                rest.first().ok_or("file")?,
+                rest.get(1).ok_or("title")?,
+                rest.get(2).ok_or("artist")?,
+            );
+            let path = PathBuf::from(file);
+            let size = std::fs::metadata(&path)?.len();
+            let name = path
+                .file_name()
+                .ok_or("a file name")?
+                .to_string_lossy()
+                .into_owned();
+            let key = format!("{}|{}", artist.to_lowercase(), title.to_lowercase());
+            let item = FileItem {
+                id: format!("song:{key}:{size}"),
+                kind: "song".into(),
+                name: format!("{title} - {artist}"),
+                meta: json!({
+                    "trackKey": key, "title": title, "artist": artist, "album": null,
+                    "durationMs": null, "artworkUrl": null, "source": null, "file": name,
+                    "fileKind": "file", "provider": "PC test peer", "fileMs": null,
+                    "originProvider": null, "originStream": null, "originSource": null,
+                    "originTitle": null, "originArtist": null,
+                }),
+                files: vec![ItemFile { name, size }],
+            };
+            for peer in sync::peers(&db).await? {
+                let progress: ProgressHook = Arc::new(|progress| {
+                    eprint!(
+                        "\r{} of {} bytes",
+                        progress.done_bytes, progress.total_bytes
+                    );
+                });
+                let sent = engine
+                    .send_files(
+                        &peer.device_id,
+                        vec![FilesOut {
+                            item: item.clone(),
+                            paths: vec![path.clone()],
+                        }],
+                        progress,
+                        Arc::new(AtomicBool::new(false)),
+                    )
+                    .await;
+                eprintln!();
+                match sent {
+                    Ok(report) => println!("{}: {report:?}", peer.name),
+                    Err(error) => println!("{}: failed: {error}", peer.name),
+                }
+            }
+        }
         other => return Err(format!("unknown command {other}").into()),
     }
     Ok(())
+}
+
+/// Keeps what paired devices send under `root/<kind>/<n>/`, printing each item.
+struct PrintSink {
+    root: PathBuf,
+}
+
+impl PrintSink {
+    fn dir(&self, item: &FileItem) -> PathBuf {
+        let safe: String = item
+            .id
+            .chars()
+            .map(|char| {
+                if char.is_ascii_alphanumeric() {
+                    char
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        self.root.join(&item.kind).join(safe)
+    }
+}
+
+impl FileSink for PrintSink {
+    fn staging(&self) -> PathBuf {
+        self.root.join(".incoming")
+    }
+
+    fn wanted<'a>(
+        &'a self,
+        from: &'a sync::Peer,
+        items: &'a [FileItem],
+    ) -> BoxFuture<'a, Vec<bool>> {
+        println!("{} offers {} items", from.name, items.len());
+        Box::pin(async move { items.iter().map(|item| !self.dir(item).exists()).collect() })
+    }
+
+    fn store<'a>(
+        &'a self,
+        from: &'a sync::Peer,
+        item: &'a FileItem,
+        files: &'a [PathBuf],
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let dir = self.dir(item);
+            for (file, path) in item.files.iter().zip(files) {
+                let target = dir.join(file.name.replace(['/', '\\'], "_"));
+                std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+                std::fs::rename(path, &target).map_err(|error| error.to_string())?;
+            }
+            println!(
+                "received {} \"{}\" ({} bytes) from {}: {}",
+                item.kind,
+                item.name,
+                item.size(),
+                from.name,
+                item.meta
+            );
+            Ok(())
+        })
+    }
 }
 
 /// The peer's key pair, kept in the same device-local keys the app uses.

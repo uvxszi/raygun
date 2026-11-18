@@ -9,6 +9,7 @@ import type {
   ConnectRequest,
   ConnectStatus,
   CoverOption,
+  DeviceFilesStatus,
   DeviceState,
   EngineCommand,
   ImportProgress,
@@ -87,6 +88,7 @@ type EventPayloads = {
   stremioStreamsEvent: [string, StremioStreamGroup[]];
   audiobooksElsewhereEvent: [string, AudiobookResult[]];
   syncChangedEvent: number;
+  deviceFilesEvent: DeviceFilesStatus;
   mangaUpdateEvent: MangaUpdateStatus;
   mangaDownloadsEvent: string;
   ttsEvent: TtsUpdate;
@@ -658,6 +660,12 @@ export const bindingsMock = {
     remoteSetEnabled: vi.fn(),
     remoteNewCode: vi.fn(),
     syncStatus: vi.fn(),
+    deviceFilesStatus: vi.fn(() =>
+      Promise.resolve<unknown>({ status: 'ok', data: { peers: [], transfer: null } }),
+    ),
+    deviceFilesSetPrefs: vi.fn(),
+    deviceFilesSendNow: vi.fn(),
+    deviceFilesCancel: vi.fn(),
     syncSetEnabled: vi.fn(),
     syncOpenPairing: vi.fn(),
     syncJoin: vi.fn(),
@@ -940,6 +948,7 @@ export const bindingsMock = {
     stremioStreamsEvent: makeEvent('stremioStreamsEvent'),
     audiobooksElsewhereEvent: makeEvent('audiobooksElsewhereEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
+    deviceFilesEvent: makeEvent('deviceFilesEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
     mangaDownloadsEvent: makeEvent('mangaDownloadsEvent'),
     ttsEvent: makeEvent('ttsEvent'),

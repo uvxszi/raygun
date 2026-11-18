@@ -16,7 +16,7 @@ mod updates;
 
 use raygun_app_answers as answers;
 use raygun_app_base::{device_state, events, local_network, network, picker, privacy};
-use raygun_app_devices::{connect, device_link, device_sync, mcp, remote, web_remote};
+use raygun_app_devices::{connect, device_link, device_sync, file_sync, mcp, remote, web_remote};
 #[cfg(not(target_os = "android"))]
 use raygun_app_media::video_desktop;
 use raygun_app_media::{
@@ -545,6 +545,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             book_search::novel_search_book,
             answers::commands::answers_ask,
             raygun_app_base::chips::commands::chips_list,
+            file_sync::device_files_status,
+            file_sync::device_files_set_prefs,
+            file_sync::device_files_send_now,
+            file_sync::device_files_cancel,
             raygun_app_base::chips::commands::chips_install,
             raygun_app_base::chips::commands::chips_cancel,
             raygun_app_base::chips::commands::chips_remove,
@@ -633,6 +637,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::StremioStreamsEvent,
             events::AudiobooksElsewhereEvent,
             events::SyncChangedEvent,
+            events::DeviceFilesEvent,
             events::MangaUpdateEvent,
             events::MangaDownloadsEvent,
             events::TtsEvent,

@@ -63,6 +63,13 @@ impl SyncService {
             }
             // Settings that came in take effect at once, as if changed here.
             crate::settings::apply_stored(&events);
+            // Song edits too (M46.57).
+            let app = events.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(sound) = app.try_state::<Arc<crate::sound::SoundService>>() {
+                    sound.reload_edits().await;
+                }
+            });
             if let Err(error) = SyncChangedEvent(summary.changed as u32).emit(&events) {
                 tracing::warn!(%error, "failed to emit sync event");
             }
@@ -79,6 +86,11 @@ impl SyncService {
             service.sync_all_in_background();
         }
         Ok(service)
+    }
+
+    /// The sync engine, for files sent over its connections (`file_sync`).
+    pub fn engine(&self) -> Arc<Engine> {
+        self.engine.clone()
     }
 
     /// This device's sync id and name, as linked devices know it.
@@ -212,6 +224,12 @@ impl SyncService {
         store::remove_peer(&self.db(), device_id)
             .await
             .map_err(to_message)?;
+        if let Some(files) = self
+            .app
+            .try_state::<Arc<crate::file_sync::FileSyncService>>()
+        {
+            files.forget(device_id).await;
+        }
         self.status().await
     }
 

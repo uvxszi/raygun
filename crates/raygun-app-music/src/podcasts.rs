@@ -1722,6 +1722,132 @@ impl PodcastService {
     fn db(&self) -> Arc<raygun_db::Db> {
         self.app.state::<AppDb>().0.clone()
     }
+
+    /// Downloaded episodes with their show and file: what linked devices may be sent (M46.57).
+    pub async fn shareable(&self) -> Vec<(PodcastRow, EpisodeRow, PathBuf)> {
+        let db = self.db();
+        let mut shared = Vec::new();
+        for download in store::downloads(&db).await.unwrap_or_default() {
+            let Some(path) = download
+                .path
+                .as_deref()
+                .filter(|_| download.state == "done")
+                .map(|path| self.downloads_dir.join(path))
+                .filter(|path| path.is_file())
+            else {
+                continue;
+            };
+            let Ok(Some(episode)) = store::episode(&db, &download.episode_id).await else {
+                continue;
+            };
+            if let Ok(Some(podcast)) = store::podcast(&db, &episode.podcast_id).await {
+                shared.push((podcast, episode, path));
+            }
+        }
+        shared
+    }
+
+    /// The episode of the feed at `feed_url` with `guid`, when this device knows it.
+    async fn episode_of(&self, feed_url: &str, guid: &str) -> Option<EpisodeRow> {
+        let db = self.db();
+        let podcast = store::podcast_by_feed(&db, feed_url).await.ok()??;
+        store::episodes(&db, &podcast.id)
+            .await
+            .ok()?
+            .into_iter()
+            .find(|episode| episode.fields.guid == guid)
+    }
+
+    /// Whether this device has the episode downloaded (or downloading).
+    pub async fn has_episode(&self, feed_url: &str, guid: &str) -> bool {
+        let Some(episode) = self.episode_of(feed_url, guid).await else {
+            return false;
+        };
+        store::download(&self.db(), &episode.id)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|download| download.state != "failed")
+    }
+
+    /// Keeps an episode another device sent (M46.57): the show and episode are added when
+    /// unknown (the show followed when it was there), the file moves under this device's
+    /// downloads, and it plays from there as if downloaded here.
+    pub async fn add_received(
+        &self,
+        podcast: &PodcastFields,
+        subscribed: bool,
+        episode: &EpisodeFields,
+        name: &str,
+        file: &Path,
+    ) -> Result<(), String> {
+        let db = self.db();
+        if self.has_episode(&podcast.feed_url, &episode.guid).await {
+            return Ok(());
+        }
+        let known = store::podcast_by_feed(&db, &podcast.feed_url)
+            .await
+            .map_err(|error| error.to_string())?;
+        let podcast_id = match known {
+            Some(row) => row.id,
+            None => {
+                let id = store::upsert_podcast(&db, podcast, now_ms())
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if subscribed {
+                    let _ = store::set_subscribed(&db, &id, Some(now_ms())).await;
+                }
+                id
+            }
+        };
+        if self
+            .episode_of(&podcast.feed_url, &episode.guid)
+            .await
+            .is_none()
+        {
+            store::sync_episodes(&db, &podcast_id, std::slice::from_ref(episode), now_ms())
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        let row = self
+            .episode_of(&podcast.feed_url, &episode.guid)
+            .await
+            .ok_or("The episode couldn't be kept")?;
+        let name = Path::new(name)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("episode");
+        let relative = format!("{FOLDER}/{podcast_id}/{}-{name}", row.id);
+        let target = self.downloads_dir.join(&relative);
+        if let Some(parent) = target.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        raygun_app_base::move_file(file, &target)
+            .await
+            .map_err(|error| format!("Couldn't keep the episode: {error}"))?;
+        let size = tokio::fs::metadata(&target)
+            .await
+            .map(|meta| meta.len() as i64)
+            .unwrap_or_default();
+        store::put_download(
+            &db,
+            &store::EpisodeDownload {
+                episode_id: row.id.clone(),
+                state: "done".into(),
+                path: Some(relative),
+                received_bytes: size,
+                total_bytes: Some(size),
+                error: None,
+            },
+            now_ms(),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        self.changed(&podcast_id);
+        Ok(())
+    }
 }
 
 enum Key {

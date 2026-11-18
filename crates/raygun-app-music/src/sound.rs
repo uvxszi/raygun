@@ -85,6 +85,18 @@ impl SoundService {
         }
     }
 
+    /// Reads the song edits again: a sync brought some from a linked device (M46.57).
+    pub async fn reload_edits(&self) {
+        let Ok(edits) = store::all(&self.db()).await else {
+            return;
+        };
+        let mut cache = self.cache.lock().expect("sound cache poisoned");
+        cache.edits = edits
+            .into_iter()
+            .map(|row| (row.track_key.clone(), from_row(row)))
+            .collect();
+    }
+
     pub fn edit(&self, key: &str) -> SongEdit {
         self.cache
             .lock()

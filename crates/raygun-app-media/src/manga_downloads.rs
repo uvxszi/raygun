@@ -608,6 +608,199 @@ impl MangaDownloadService {
     fn db(&self) -> Arc<raygun_db::Db> {
         self.app.state::<AppDb>().inner().0.clone()
     }
+
+    /// Downloaded comic and book chapters with their title, the title's chapters and the
+    /// chapter's files (names relative to its folder): what linked devices may be sent (M46.57).
+    pub async fn shareable(&self) -> Vec<SharedChapter> {
+        let db = self.db();
+        let mut shared = Vec::new();
+        let mut units_of: HashMap<String, Vec<titles::UnitRow>> = HashMap::new();
+        for entry in manga_downloads::entries(&db).await.unwrap_or_default() {
+            let row = entry.download;
+            if row.state != manga_downloads::DONE {
+                continue;
+            }
+            let Ok(Some(title)) = titles::title(&db, &row.title_id).await else {
+                continue;
+            };
+            let dir = match title.fields.kind.as_str() {
+                "manga" => self.chapter_dir(&row.title_id, &row.unit_id),
+                "novel" => self.novel_dir(&row.title_id, &row.unit_id),
+                _ => continue,
+            };
+            let listed = dir.clone();
+            let files = tokio::task::spawn_blocking(move || files_under(&listed))
+                .await
+                .unwrap_or_default();
+            if files.is_empty() {
+                continue;
+            }
+            if !units_of.contains_key(&row.title_id) {
+                let units = titles::units(&db, &row.title_id).await.unwrap_or_default();
+                units_of.insert(row.title_id.clone(), units);
+            }
+            let units = units_of[&row.title_id].clone();
+            let Some(unit) = units.iter().find(|unit| unit.id == row.unit_id).cloned() else {
+                continue;
+            };
+            shared.push(SharedChapter {
+                title,
+                units,
+                unit,
+                files,
+            });
+        }
+        shared
+    }
+
+    /// The chapter `unit_remote` of the title a source lists as `remote_id`, when it's downloaded
+    /// (or downloading) here.
+    pub async fn has_chapter(&self, source_id: &str, remote_id: &str, unit_remote: &str) -> bool {
+        let db = self.db();
+        let Ok(Some(title)) = titles::find_title(&db, source_id, remote_id).await else {
+            return false;
+        };
+        let units = titles::units(&db, &title.id).await.unwrap_or_default();
+        let Some(unit) = units
+            .iter()
+            .find(|unit| unit.fields.remote_id == unit_remote)
+        else {
+            return false;
+        };
+        manga_downloads::get(&db, &unit.id)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|row| row.state != manga_downloads::FAILED)
+    }
+
+    /// Keeps a chapter another device sent (M46.57): its title and chapters are stored when this
+    /// device lacks them (in the library when it was there), its files move to the chapter's
+    /// folder, and it reads offline as if downloaded here.
+    pub async fn add_received(
+        &self,
+        title: &titles::TitleFields,
+        in_library: bool,
+        units: &[titles::UnitFields],
+        unit_remote: &str,
+        files: &[(String, PathBuf)],
+    ) -> Result<(), String> {
+        if !matches!(title.kind.as_str(), "manga" | "novel") {
+            return Err("Only comic and book chapters are kept".into());
+        }
+        let db = self.db();
+        if self
+            .has_chapter(&title.source_id, &title.remote_id, unit_remote)
+            .await
+        {
+            return Ok(());
+        }
+        let title_id = match titles::find_title(&db, &title.source_id, &title.remote_id)
+            .await
+            .map_err(to_message)?
+        {
+            Some(row) => row.id,
+            None => {
+                let id = titles::upsert_title(&db, title, now_ms())
+                    .await
+                    .map_err(to_message)?;
+                if in_library {
+                    let _ = titles::set_in_library(&db, &id, Some(now_ms())).await;
+                }
+                id
+            }
+        };
+        let mut known = titles::units(&db, &title_id).await.map_err(to_message)?;
+        if !known
+            .iter()
+            .any(|unit| unit.fields.remote_id == unit_remote)
+        {
+            titles::sync_units(&db, &title_id, units, &title.kind, now_ms())
+                .await
+                .map_err(to_message)?;
+            known = titles::units(&db, &title_id).await.map_err(to_message)?;
+        }
+        let unit = known
+            .iter()
+            .find(|unit| unit.fields.remote_id == unit_remote)
+            .ok_or("The chapter couldn't be kept")?;
+        let dir = if title.kind == "novel" {
+            self.novel_dir(&title_id, &unit.id)
+        } else {
+            self.chapter_dir(&title_id, &unit.id)
+        };
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        for (name, path) in files {
+            let Some(target) = safe_join(&dir, name) else {
+                return Err(format!("A file name can't be used: {name}"));
+            };
+            if let Some(parent) = target.parent() {
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(to_message)?;
+            }
+            raygun_app_base::move_file(path, &target)
+                .await
+                .map_err(|error| format!("Couldn't keep the chapter: {error}"))?;
+        }
+        let pages = files.len() as i64;
+        manga_downloads::put_done(&db, &unit.id, &title_id, pages, now_ms())
+            .await
+            .map_err(to_message)?;
+        self.changed(&unit.id);
+        Ok(())
+    }
+}
+
+/// A downloaded chapter as it goes to another device.
+#[derive(Debug, Clone)]
+pub struct SharedChapter {
+    pub title: titles::TitleRow,
+    /// Every chapter of the title, so the other device lists them as here.
+    pub units: Vec<titles::UnitRow>,
+    pub unit: titles::UnitRow,
+    /// Its files: names relative to its folder (`/`-separated), and paths.
+    pub files: Vec<(String, PathBuf)>,
+}
+
+/// Every file under `dir`, by name relative to it, sorted.
+fn files_under(dir: &std::path::Path) -> Vec<(String, PathBuf)> {
+    fn walk(dir: &std::path::Path, prefix: &str, found: &mut Vec<(String, PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = entry.path();
+            let relative = format!("{prefix}{name}");
+            if path.is_dir() {
+                walk(&path, &format!("{relative}/"), found);
+            } else if path.is_file() && !name.ends_with(".part") {
+                found.push((relative, path));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(dir, "", &mut found);
+    found.sort();
+    found
+}
+
+/// `dir` joined with a `/`-separated name from another device, refusing anything that leaves it.
+pub fn safe_join(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
+    let mut path = dir.to_path_buf();
+    for part in name.split('/') {
+        if part.is_empty()
+            || part == "."
+            || part == ".."
+            || part.contains(['\\', ':'])
+            || part.starts_with('.')
+        {
+            return None;
+        }
+        path.push(part);
+    }
+    Some(path)
 }
 
 enum Failure {

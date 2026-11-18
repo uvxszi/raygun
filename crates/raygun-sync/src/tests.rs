@@ -7,14 +7,14 @@ use super::*;
 
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
-struct Device {
-    engine: Arc<Engine>,
-    db: Arc<Db>,
+pub(crate) struct Device {
+    pub(crate) engine: Arc<Engine>,
+    pub(crate) db: Arc<Db>,
     _server: Running,
     clock: Arc<AtomicI64>,
 }
 
-async fn device(temp: &TempDir, name: &str) -> Device {
+pub(crate) async fn device(temp: &TempDir, name: &str) -> Device {
     let db = Arc::new(
         Db::open(&temp.path().join(format!("{name}.db")))
             .await
@@ -51,7 +51,7 @@ fn song(key: &str) -> TrackFields {
     }
 }
 
-async fn pair(host: &Device, joiner: &Device) {
+pub(crate) async fn pair(host: &Device, joiner: &Device) {
     let offer = host.engine.open_pairing(LOCALHOST).unwrap();
     joiner.engine.join(&offer).await.unwrap();
 }
