@@ -228,7 +228,9 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
             hint={
               link.failed
                 ? t('videoPlayer.failed')
-                : link.worked
+                : link.current
+                  ? t('videoPlayer.sourcePlaying')
+                  : link.worked
                   ? t('videoPlayer.workedLastTime')
                   : leftOutText(link, t)
             }

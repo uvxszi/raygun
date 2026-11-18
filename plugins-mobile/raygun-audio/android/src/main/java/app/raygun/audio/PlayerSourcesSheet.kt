@@ -223,6 +223,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
                 val current = entry.optBoolean("current")
                 val note = when {
                     entry.optBoolean("failed") -> label("failed", "failed")
+                    current -> label("sourcePlaying", "Playing")
                     entry.optBoolean("worked") -> label("workedLastTime", "worked last time")
                     else -> leftOutText(entry.text("leftOut"), entry.number("lengthMs"), ::label)
                 }

@@ -320,6 +320,9 @@ struct Session {
     start_at: Option<i64>,
     /// What played last for the title or show, and its links that failed.
     memory: Remembered,
+    /// What was remembered before a link of this session played long enough to be kept: what
+    /// "worked last time" means in the Sources sheet (a link that worked only now is "Playing").
+    before: Option<Remembered>,
     /// Where the show's source is remembered across its entries ("Title" and "Title II" are one
     /// show's seasons on anime sites and Kitsu).
     show_memory: Option<String>,
@@ -727,6 +730,10 @@ fn quality_name(key: QualityKey) -> String {
 /// list shows the sources in ([`source_order`]).
 fn sources_update(session: &Session, now: i64) -> Value {
     let ranking = session.ranking(now);
+    // "Worked last time" is about plays before this session: what played long enough now is
+    // "Playing" (and kept for next time).
+    let before = session.before.as_ref().unwrap_or(&session.memory);
+    let earlier = Ranking::new(before, &session.health, session.resolution, now);
     let sizes = session.sizes();
     // "Playing from <source>" once the current link has played a while.
     let playing_from = session
@@ -771,8 +778,8 @@ fn sources_update(session: &Session, now: i64) -> Value {
                         "label": link.label,
                         "current": session.current == Some((group_index, link_index)),
                         "failed": !usable(link),
-                        "worked": ranking.played_last(&group.name)
-                            && session.memory.label.as_deref() == Some(link.label.as_str()),
+                        "worked": earlier.played_last(&group.name)
+                            && before.label.as_deref() == Some(link.label.as_str()),
                         "facts": facts,
                         "bitrateKbps": video_quality::bitrate_kbps(facts.size_bytes, session.duration_ms),
                         "speedKbps": session.link_speeds.get(&link.request.url),
@@ -793,7 +800,7 @@ fn sources_update(session: &Session, now: i64) -> Value {
                 // A link played on its own: shown whatever its state (why it failed included).
                 "own": session.link.is_some() && own_group(true, group),
                 "unreliable": ranking.is_failing(&group.name),
-                "worked": ranking.played_last(&group.name),
+                "worked": earlier.played_last(&group.name),
                 "best": best,
                 "options": group.links.iter().filter(|link| usable(link)).count(),
                 "speedKbps": session.speed_of(&group.name),
@@ -1145,6 +1152,7 @@ impl VideoSessions {
             tried: HashSet::new(),
             start_at,
             memory,
+            before: None,
             show_memory,
             health,
             resolution,
@@ -1227,6 +1235,7 @@ impl VideoSessions {
             tried: HashSet::new(),
             start_at,
             memory,
+            before: None,
             show_memory: None,
             health,
             resolution,
@@ -1493,6 +1502,9 @@ impl VideoSessions {
             let now = now_ms();
             let name = entry.name.clone();
             let chosen = chosen.clone();
+            if session.before.is_none() {
+                session.before = Some(session.memory.clone());
+            }
             session.memory.worked(&name, &chosen, now);
             // What it lasted is what links are measured against next time (a length unlike the
             // title's isn't kept).
@@ -1645,6 +1657,8 @@ impl VideoSessions {
             };
             session.generation = generation;
             session.index = index;
+            // The episode before played in this session: for this one, that was last time.
+            session.before = None;
             session.groups.clear();
             session.current = None;
             session.tried.clear();
@@ -3435,6 +3449,7 @@ mod tests {
             tried: HashSet::new(),
             start_at: None,
             memory: Remembered::default(),
+            before: None,
             show_memory: None,
             health: SourceHealth::default(),
             resolution: VideoResolution::default(),
@@ -4636,6 +4651,31 @@ mod tests {
         // A speed alone keeps a source for as long as a success would.
         health.worked("Beta", NOW + 61 * 24 * 60 * 60 * 1000);
         assert_eq!(health.speed("Alpha"), None);
+    }
+
+    #[test]
+    fn worked_last_time_means_a_play_before_this_session() {
+        let mut state = quality_session();
+        // A first play of the title: Alpha's link played long enough just now.
+        state.before = Some(state.memory.clone());
+        state.memory = worked_memory("Alpha", "a 1080p", None);
+        let update = sources_update(&state, NOW);
+        let alpha = &update["groups"][0];
+        assert_eq!(alpha["worked"], false);
+        assert_eq!(alpha["links"][0]["worked"], false);
+        assert_eq!(alpha["links"][0]["current"], true);
+
+        // Beta played the title before; Alpha plays now.
+        state.before = Some(worked_memory("Beta", "b 720p", None));
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["groups"][0]["worked"], false);
+        assert_eq!(update["groups"][1]["worked"], true);
+        assert_eq!(update["groups"][1]["links"][1]["worked"], true);
+
+        // Nothing played long enough yet in this session: what's remembered is from before.
+        state.before = None;
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["groups"][0]["links"][0]["worked"], true);
     }
 
     #[test]
