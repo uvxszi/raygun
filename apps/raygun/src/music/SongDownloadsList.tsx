@@ -41,6 +41,7 @@ import type { CSSProperties, FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TrackMoreButton } from '../collections/TrackMoreButton';
+import { playCollection } from '../collections/useCollections';
 import { StopDownloadButton } from '../downloads/StopDownload';
 import { Artwork } from '../library/Artwork';
 import { useSettings } from '../settings/useSettings';
@@ -148,6 +149,8 @@ type RowProps = {
   selecting?: boolean;
   picked?: boolean;
   onPick?: (id: string) => void;
+  /** A saved song plays from its row, with the list's other saved songs queued after it. */
+  onPlay?: (id: string) => void;
 };
 
 /** A row while rows are picked: its checkbox, the song and where it stands. */
@@ -183,7 +186,7 @@ const PickRow: FC<RowProps> = ({ item, paused, picked = false, onPick }) => {
   );
 };
 
-const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
+const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag, onPlay }) => {
   const { t } = useTranslation();
   const line = useStateLine();
   const problemLine = useProblemLine();
@@ -194,6 +197,16 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
   const busy = isBusy(item);
   const refusal = retry.error ?? remove.error ?? redownload.error ?? keep.error;
   const problem = item.state === 'done' ? item.problem : null;
+  const play = item.state === 'done' && onPlay ? () => onPlay(item.id) : undefined;
+  const lines = (
+    <>
+      <span className="truncate font-medium">{item.title}</span>
+      {item.artist && (
+        <span className="text-muted truncate text-sm">{tidyCredit(item.artist)}</span>
+      )}
+      <span className="text-muted truncate text-xs">{line(item, paused, held)}</span>
+    </>
+  );
   // Stopping a song downloading again keeps the copy it had.
   const cancelLabel = item.replacing
     ? 'songs.cancelAgain'
@@ -219,13 +232,28 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
           <GripVertical aria-hidden size={16} />
         </button>
       )}
-      <Artwork url={item.artworkUrl} className="size-12 shrink-0 rounded-md" iconSize={20} />
+      {/* A tap on a saved song (its cover or its lines) plays it, as in other song lists. */}
+      {play ? (
+        // The cover plays too; the lines' button is the one keyboards and readers use.
+        <span data-testid="song-download-cover" onClick={play} className="shrink-0 cursor-pointer">
+          <Artwork url={item.artworkUrl} className="size-12 rounded-md" iconSize={20} />
+        </span>
+      ) : (
+        <Artwork url={item.artworkUrl} className="size-12 shrink-0 rounded-md" iconSize={20} />
+      )}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-medium">{item.title}</span>
-        {item.artist && (
-          <span className="text-muted truncate text-sm">{tidyCredit(item.artist)}</span>
+        {play ? (
+          <button
+            type="button"
+            aria-label={t('songs.play', { title: item.title })}
+            onClick={play}
+            className="flex min-w-0 flex-col gap-0.5 text-left"
+          >
+            {lines}
+          </button>
+        ) : (
+          lines
         )}
-        <span className="text-muted truncate text-xs">{line(item, paused, held)}</span>
         {(failed || item.state === 'done') && item.error && (
           <Issue
             summary={
@@ -317,6 +345,7 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
             artworkUrl: item.artworkUrl,
             source: null,
           }}
+          extras={play && { onPlay: play }}
         />
       )}
       {/* What a check found: on a line of its own under the song, full width, then its answers. */}
@@ -607,6 +636,21 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
   const savedPicked = selection.selected.filter((id) => savedIds.has(id)).length;
   const checked = check.data;
   const saveOne = useCallback((id: string) => setSaving([id]), []);
+  // Saved songs play in the order shown, the tapped one first and the rest of them queued.
+  const playable = useMemo(() => [...attention, ...done], [attention, done]);
+  const playOne = useCallback(
+    (id: string) => {
+      const index = playable.findIndex((item) => item.id === id);
+      if (index < 0) return;
+      void playCollection({
+        collection: { kind: 'downloaded' },
+        startIndex: index,
+        shuffle: false,
+        order: playable.map((item) => item.trackKey),
+      });
+    },
+    [playable],
+  );
   const doneBytes = done.reduce((sum, item) => sum + (item.totalBytes ?? 0), 0);
   const doneLine = [
     t('songs.count', { count: done.length }),
@@ -739,6 +783,7 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
                 key={item.id}
                 item={item}
                 paused={paused}
+                onPlay={playOne}
                 {...picking}
                 picked={selection.isSelected(item.id)}
               />
@@ -813,6 +858,7 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
                 item={item}
                 paused={paused}
                 onSave={saveOne}
+                onPlay={playOne}
                 {...picking}
                 picked={selection.isSelected(item.id)}
               />

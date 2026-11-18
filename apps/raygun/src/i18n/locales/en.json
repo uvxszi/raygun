@@ -4660,6 +4660,7 @@
     "left": "{{time}} left",
     "perSecond": "{{size}}/s",
     "saveOne": "Save {{title}} as a file",
+    "play": "Play {{title}}",
     "saveAll": "Save all {{count}} as files",
     "saveTitle_one": "Save the song as a file",
     "saveTitle_other": "Save {{count}} songs as files",

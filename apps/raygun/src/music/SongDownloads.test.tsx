@@ -219,6 +219,40 @@ describe('Song downloads', () => {
     ).toBeInTheDocument();
   });
 
+  it('plays a saved song from its row or its menu, the other saved songs queued in order', async () => {
+    const user = userEvent.setup();
+    commands.songDownloads.mockResolvedValue(
+      ok([
+        download('1', 'Older', 'done', { finishedAt: 10 }),
+        download('2', 'Newer', 'done', { finishedAt: 20 }),
+        download('3', 'Waiting', 'queued'),
+      ]),
+    );
+    await AppShellWrapper.mount('/downloads?tab=music');
+    await list();
+
+    // Newest first, as shown; the waiting one isn't playable.
+    await user.click(within(row('Older')).getByRole('button', { name: 'Play Older' }));
+    expect(commands.collectionPlay).toHaveBeenCalledWith({
+      collection: { kind: 'downloaded' },
+      startIndex: 1,
+      shuffle: false,
+      order: ['a|newer', 'a|older'],
+    });
+    expect(
+      within(row('Waiting')).queryByRole('button', { name: 'Play Waiting' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(row('Newer')).getByRole('button', { name: 'More for Newer' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Newer' });
+    expect(within(sheet).getByRole('button', { name: 'Play next' })).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Add to queue' })).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Play' }));
+    expect(commands.collectionPlay).toHaveBeenLastCalledWith(
+      expect.objectContaining({ startIndex: 0, order: ['a|newer', 'a|older'] }),
+    );
+  });
+
   it('shows a song tried again as queued at once, then its progress', async () => {
     const user = userEvent.setup();
     let answer: () => void = () => undefined;
