@@ -533,12 +533,21 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
         .filter { it.format.height > 0 || it.format.bitrate > 0 }
         .sortedWith(compareByDescending<TrackRef> { it.format.height }.thenByDescending { it.format.bitrate })
 
-    /** Whether the player picks the quality by itself (no quality chosen). */
-    fun qualityAuto(): Boolean =
+    /** Whether the player picks the quality by itself (no quality chosen, none held). */
+    fun qualityAuto(): Boolean = !host.qualityHold.held &&
         host.player.trackSelectionParameters.overrides.keys.none { it.type == C.TRACK_TYPE_VIDEO }
+
+    /**
+     * Keeps the variant playing without a new selection ([QualityHold]): nothing buffered is
+     * dropped, the stream just stops switching.
+     */
+    fun holdQuality() {
+        host.qualityHold.held = true
+    }
 
     /** Plays one quality, or lets the player choose by the connection when null. */
     fun selectQuality(track: TrackRef?) {
+        host.qualityHold.held = false
         val builder = host.player.trackSelectionParameters.buildUpon()
         if (track == null) {
             builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO)

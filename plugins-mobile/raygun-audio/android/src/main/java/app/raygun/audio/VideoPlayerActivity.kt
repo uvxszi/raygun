@@ -163,6 +163,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal lateinit var controls: PlayerControls
     internal lateinit var gestures: PlayerGestures
     internal lateinit var tracks: PlayerTracks
+    /** The variant playing held while the quality is automatic ([PlayerQuality]). */
+    internal val qualityHold = QualityHold()
     internal lateinit var sheets: PlayerSheets
     internal lateinit var tools: PlayerTools
     /** Play on TV: the devices sheet and the TV's remote. */
@@ -401,6 +403,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             .setEnableDecoderFallback(true)
             .setMediaCodecSelector(codecSelector)
         player = ExoPlayer.Builder(this, renderers)
+            .setTrackSelector(qualityHold.trackSelector(this))
             .setSeekBackIncrementMs(seekStepMs)
             .setSeekForwardIncrementMs(seekStepMs)
             // Calls and other apps pause the video, unplugged headphones too.

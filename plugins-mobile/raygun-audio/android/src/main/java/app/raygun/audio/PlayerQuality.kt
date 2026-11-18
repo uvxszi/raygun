@@ -94,6 +94,7 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
 
     /** A new video: its variants are reported once known. */
     fun onLoad() {
+        host.qualityHold.held = false
         reported = ""
         rows = JSONArray()
     }
@@ -247,22 +248,12 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     }
 
     /**
-     * The row playing kept: the variant on screen is held (a track override on it, which Media3
-     * applies without dropping what's buffered, as the same track keeps playing), so adaptive
-     * switching stops; a session keeps the step without loading anything (`keep`).
+     * The row playing kept: the variant on screen is held ([QualityHold]: the adaptive selection
+     * stops switching; a track override would make an HLS stream load again), and a session
+     * keeps the step without loading anything (`keep`).
      */
     private fun keepPlaying(row: JSONObject) {
-        val playing = host.player.videoFormat
-        val tracks = host.tracks.qualities()
-        val track = playing?.let { format ->
-            tracks.firstOrNull { it.format == format }
-                ?: tracks.firstOrNull { format.id != null && it.format.id == format.id }
-                ?: tracks.firstOrNull {
-                    it.format.width == format.width && it.format.height == format.height &&
-                        (format.bitrate <= 0 || it.format.bitrate == format.bitrate)
-                }
-        }
-        if (track != null && tracks.size > 1) host.tracks.selectQuality(track)
+        if (host.tracks.qualities().size > 1) host.tracks.holdQuality()
         if (host.session) {
             host.request("quality", JSONObject().put("key", row.optString("key")).put("keep", true))
         }
