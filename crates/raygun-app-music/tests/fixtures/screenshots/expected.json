@@ -1,0 +1,138 @@
+{
+  "light_list.png": [
+    {
+      "title": "Bohemian Rhapsody",
+      "artist": "Queen"
+    },
+    {
+      "title": "Smells Like Teen Spirit",
+      "artist": "Nirvana"
+    },
+    {
+      "title": "Billie Jean",
+      "artist": "Michael Jackson"
+    },
+    {
+      "title": "Hotel California",
+      "artist": "Eagles"
+    },
+    {
+      "title": "Rolling in the Deep",
+      "artist": "Adele"
+    },
+    {
+      "title": "Seven Nation Army",
+      "artist": "The White Stripes"
+    },
+    {
+      "title": "Take On Me",
+      "artist": "a-ha"
+    },
+    {
+      "title": "Africa",
+      "artist": "Toto"
+    },
+    {
+      "title": "Wonderwall",
+      "artist": "Oasis"
+    },
+    {
+      "title": "Dancing Queen",
+      "artist": "ABBA"
+    }
+  ],
+  "dark_list.png": [
+    {
+      "title": "Blinding Lights",
+      "artist": "The Weeknd"
+    },
+    {
+      "title": "Mr. Brightside",
+      "artist": "The Killers"
+    },
+    {
+      "title": "Clocks",
+      "artist": "Coldplay"
+    },
+    {
+      "title": "Superstition",
+      "artist": "Stevie Wonder"
+    },
+    {
+      "title": "Hey Ya!",
+      "artist": "OutKast"
+    },
+    {
+      "title": "Creep",
+      "artist": "Radiohead"
+    },
+    {
+      "title": "Valerie",
+      "artist": "Amy Winehouse"
+    },
+    {
+      "title": "Juice",
+      "artist": "Lizzo"
+    }
+  ],
+  "desktop_table.png": [
+    {
+      "title": "Bohemian Rhapsody",
+      "artist": "Queen"
+    },
+    {
+      "title": "Smells Like Teen Spirit",
+      "artist": "Nirvana"
+    },
+    {
+      "title": "Billie Jean",
+      "artist": "Michael Jackson"
+    },
+    {
+      "title": "Hotel California",
+      "artist": "Eagles"
+    },
+    {
+      "title": "Rolling in the Deep",
+      "artist": "Adele"
+    },
+    {
+      "title": "Seven Nation Army",
+      "artist": "The White Stripes"
+    },
+    {
+      "title": "Take On Me",
+      "artist": "a-ha"
+    },
+    {
+      "title": "Africa",
+      "artist": "Toto"
+    }
+  ],
+  "cjk_list.png": [
+    {
+      "title": "夜に駆ける",
+      "artist": "YOASOBI"
+    },
+    {
+      "title": "Lemon",
+      "artist": "米津玄師"
+    },
+    {
+      "title": "紅蓮華",
+      "artist": "LiSA"
+    },
+    {
+      "title": "Pretender",
+      "artist": "Official髭男dism"
+    },
+    {
+      "title": "残酷な天使のテーゼ",
+      "artist": "高橋洋子"
+    },
+    {
+      "title": "丸の内サディスティック",
+      "artist": "椎名林檎"
+    }
+  ]
+}

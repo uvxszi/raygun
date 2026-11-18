@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 pub const CLAUDE_BASE: &str = "https://api.anthropic.com";
 pub const CLAUDE_MODEL: &str = "claude-sonnet-5-5";
-const ANTHROPIC_VERSION: &str = "2026-10-21";
+pub(crate) const ANTHROPIC_VERSION: &str = "2026-10-21";
 pub const OPENAI_BASE: &str = "http://localhost:11434/v1";
 const DEEPL_FREE: &str = "https://api-free.deepl.com";
 const DEEPL_PRO: &str = "https://api.deepl.com";
@@ -81,7 +81,7 @@ pub struct Provider {
 }
 
 impl Provider {
-    fn base(&self, key: Option<&str>) -> String {
+    pub(crate) fn base(&self, key: Option<&str>) -> String {
         let base = self
             .base_url
             .as_deref()
@@ -103,7 +103,7 @@ impl Provider {
         base.trim_end_matches('/').to_owned()
     }
 
-    fn model_or(&self, default: &str) -> String {
+    pub(crate) fn model_or(&self, default: &str) -> String {
         self.model
             .as_deref()
             .map(str::trim)
@@ -296,7 +296,7 @@ pub async fn detect(
 
 /// Fails at once while Offline Mode keeps requests from leaving the device and the translator
 /// isn't on this device (a local Ollama or LibreTranslate server still answers).
-fn reachable(provider: &Provider, key: Option<&str>) -> Result<(), TranslateError> {
+pub(crate) fn reachable(provider: &Provider, key: Option<&str>) -> Result<(), TranslateError> {
     let base = provider.base(key);
     if base.is_empty() {
         // Without an address the translator says so itself.
@@ -896,7 +896,7 @@ fn deepl_target(code: &str) -> String {
 }
 
 /// The body as JSON; an error status becomes a `Provider` error carrying the provider's message.
-async fn read_json(response: reqwest::Response) -> Result<Value, TranslateError> {
+pub(crate) async fn read_json(response: reqwest::Response) -> Result<Value, TranslateError> {
     let status = response.status();
     let text = response.text().await?;
     if !status.is_success() {

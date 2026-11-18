@@ -7387,6 +7387,7 @@ name = "raygun-ai"
 version = "1.9.7"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bzip2",
  "candle-core",
  "candle-nn",
@@ -7793,6 +7794,7 @@ dependencies = [
  "rfd",
  "rten",
  "rten-imageproc",
+ "rten-tensor",
  "rustls",
  "scraper",
  "serde",

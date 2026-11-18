@@ -8,3 +8,4 @@ pub mod secrets;
 pub mod speech;
 pub mod translate;
 pub mod tts;
+pub mod vision;

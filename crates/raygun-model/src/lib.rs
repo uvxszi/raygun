@@ -257,6 +257,9 @@ pub struct Settings {
     /// Answers to questions and calculations in Search.
     #[serde(default)]
     pub answers: AnswersPrefs,
+    /// Importing songs: the reader for screenshots, the Spotify app for long playlists.
+    #[serde(default)]
+    pub import: ImportPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
@@ -3299,6 +3302,7 @@ impl Default for Settings {
             video_cards: VideoCardPrefs::default(),
             dictionary: DictionaryPrefs::default(),
             answers: AnswersPrefs::default(),
+            import: ImportPrefs::default(),
             failing_sources_last: true,
             browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
@@ -3393,6 +3397,12 @@ impl Settings {
             SettingChange::VideoCards(prefs) => self.video_cards = prefs,
             SettingChange::Torrents(prefs) => self.torrents = prefs,
             SettingChange::Answers(prefs) => self.answers = prefs,
+            SettingChange::Import(prefs) => {
+                self.import = ImportPrefs {
+                    spotify_client_id: prefs.spotify_client_id.trim().to_owned(),
+                    ..prefs
+                }
+            }
             SettingChange::Dictionary(prefs) => {
                 self.dictionary = DictionaryPrefs {
                     language: prefs.language.trim().to_owned(),
@@ -3506,6 +3516,7 @@ pub enum SettingChange {
     Torrents(TorrentPrefs),
     Dictionary(DictionaryPrefs),
     Answers(AnswersPrefs),
+    Import(ImportPrefs),
     #[serde(rename = "youtube")]
     YouTube(YouTubePrefs),
     Chips(ChipPrefs),
@@ -3585,6 +3596,7 @@ impl SettingChange {
             Self::Torrents(_) => "torrents",
             Self::Dictionary(_) => "dictionary",
             Self::Answers(_) => "answers",
+            Self::Import(_) => "import",
             Self::YouTube(_) => "youtube",
             Self::Chips(_) => "chips",
         }
@@ -3625,6 +3637,7 @@ impl SettingChange {
             | Self::VideoCards(_)
             | Self::YouTube(_)
             | Self::Chips(_) => Ok(()),
+            Self::Import(prefs) => prefs.validate(),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())
             }
@@ -5098,10 +5111,133 @@ pub struct ImportedList {
     pub name: String,
     pub artwork_url: Option<String>,
     pub songs: Vec<ImportedSong>,
-    /// The source shared only part of the list (Spotify's embed stops at 100 songs).
+    /// The source shared only part of the list (Spotify's embed stops at 100 songs; the whole list
+    /// comes through Spotify's Web API with the person's own app keys, Settings → Import).
     pub capped: bool,
     /// Songs made by joining a screenshot row with the artist line read as a row of its own.
     pub joined: Vec<JoinedSong>,
+    /// For screenshots: which songs each picture gave, in the pictures' order.
+    #[serde(default)]
+    pub screenshots: Vec<ScreenshotSongs>,
+    /// The reader that read the screenshots (an `ImportReader` id).
+    #[serde(default)]
+    pub reader: Option<String>,
+}
+
+/// The songs one screenshot gave: indexes into `ImportedList::songs` (a song read on two
+/// screenshots is listed under both).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotSongs {
+    pub picture: u32,
+    pub songs: Vec<u32>,
+}
+
+/// Importing songs: which reader reads screenshots (an `ImportReader` id; `auto` = the best one
+/// ready here: an AI provider that reads pictures, then PaddleOCR, Windows' own, ocrs), and the
+/// Client ID of the person's own Spotify app for lists longer than the embed's 100 songs (its
+/// secret is kept in the secrets store).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ImportPrefs {
+    pub reader: String,
+    pub spotify_client_id: String,
+}
+
+impl Default for ImportPrefs {
+    fn default() -> Self {
+        Self {
+            reader: IMPORT_READER_AUTO.to_owned(),
+            spotify_client_id: String::new(),
+        }
+    }
+}
+
+/// What a scanned barcode (EAN-13, UPC-A, ISBN) is (v2.0.0): a CD's or record's release from
+/// MusicBrainz with the music sources' albums that match it, a book from Open Library, or nothing
+/// known (the number itself can still be searched).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BarcodeFind {
+    #[serde(rename_all = "camelCase")]
+    Album {
+        code: String,
+        title: String,
+        artist: Option<String>,
+        year: Option<u32>,
+        /// The sources' albums that match it, best first.
+        matches: Vec<MusicAlbum>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Book {
+        code: String,
+        title: String,
+        authors: Vec<String>,
+        cover_url: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Unknown { code: String },
+}
+
+/// The reader choice that picks the best one ready.
+pub const IMPORT_READER_AUTO: &str = "auto";
+
+impl ImportPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        let id = self.spotify_client_id.trim();
+        if !id.is_empty() && (id.len() > 64 || !id.chars().all(|c| c.is_ascii_alphanumeric())) {
+            return Err("A Spotify Client ID is letters and digits".into());
+        }
+        if self.reader.is_empty() || self.reader.len() > 200 {
+            return Err("Pick a text reader".into());
+        }
+        Ok(())
+    }
+}
+
+/// A way of reading screenshots of song lists.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportReader {
+    /// `windows`, `ocrs`, `paddle`, or `ai:<provider id>`.
+    pub id: String,
+    pub kind: ImportReaderKind,
+    /// The provider's name for an AI reader.
+    pub name: Option<String>,
+    /// It reads now (built in, downloaded, or a provider set up).
+    pub ready: bool,
+    /// The catalogue model to download first, when it isn't ready.
+    pub model: Option<String>,
+    pub size_bytes: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportReaderKind {
+    Windows,
+    Ocrs,
+    Paddle,
+    Ai,
+}
+
+/// Where reading screenshots stands: picture `picture` (from 1) of `pictures` is at `stage`;
+/// `rows` songs found in it so far.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProgress {
+    pub picture: u32,
+    pub pictures: u32,
+    pub stage: ImportStage,
+    pub rows: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportStage {
+    Preparing,
+    Reading,
+    Rows,
+    Done,
 }
 
 /// A song of an `ImportedList` joined from two screenshot rows, and the rows as they were read.

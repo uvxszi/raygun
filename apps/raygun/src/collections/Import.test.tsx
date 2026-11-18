@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock } from '../test/bindingsMock';
+import { bindingsMock, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -24,9 +24,20 @@ const list = (songs: ImportedSong[], capped = false): ImportedList => ({
   songs,
   capped,
   joined: [],
+  screenshots: [],
+  reader: null,
 });
 
 const SONGS = [song('Loser', 'Tame Impala'), song('Housewife', 'Tate McRae')];
+
+const OCRS = {
+  id: 'ocrs',
+  kind: 'ocrs' as const,
+  name: null,
+  ready: false,
+  model: 'ocrs-latin',
+  sizeBytes: 12_000_000,
+};
 
 const candidate = (provider: string, id = provider.toLowerCase()) => ({
   providerId: id,
@@ -81,7 +92,7 @@ describe('Importing songs', () => {
 
     const review = await within(sheet).findByTestId('import-review');
     expect(await within(review).findByText(/Found 1 of 2 in your sources/)).toBeInTheDocument();
-    expect(review).toHaveTextContent("The link shares only a playlist's first 100 songs");
+    expect(review).toHaveTextContent("Spotify's link shows only the first 100 songs");
     expect(within(review).getByLabelText('Found on Tunes')).toBeInTheDocument();
     expect(within(review).getByLabelText('Unavailable for now')).toBeInTheDocument();
 
@@ -240,7 +251,7 @@ describe('Importing songs', () => {
     const join = within(sheet).getByRole('checkbox', { name: 'Join split titles and artists' });
     expect(join).toBeChecked();
     await user.click(within(sheet).getByRole('button', { name: 'Read 1 screenshot' }));
-    expect(commands.importReadScreenshots).toHaveBeenCalledWith(['upload-1'], true);
+    expect(commands.importReadScreenshots).toHaveBeenCalledWith(['upload-1'], true, 'windows');
 
     const review = await within(sheet).findByTestId('import-review');
     expect(within(review).getAllByText('Joined')).toHaveLength(1);
@@ -269,12 +280,12 @@ describe('Importing songs', () => {
       within(sheet).getByRole('checkbox', { name: 'Join split titles and artists' }),
     );
     await user.click(within(sheet).getByRole('button', { name: 'Read 1 screenshot' }));
-    expect(commands.importReadScreenshots).toHaveBeenCalledWith(['upload-1'], false);
+    expect(commands.importReadScreenshots).toHaveBeenCalledWith(['upload-1'], false, 'windows');
   });
 
   it('offers to download the text reader before reading screenshots', async () => {
     const user = userEvent.setup();
-    commands.importReaderReady.mockResolvedValue(false);
+    commands.importReaders.mockResolvedValue(ok([OCRS]));
     commands.importPrepareReader.mockResolvedValue(ok(null));
     await AppShellWrapper.mount('/library?view=playlists');
     await user.click(await screen.findByRole('button', { name: 'Import songs' }));
@@ -283,16 +294,12 @@ describe('Importing songs', () => {
     await user.click(
       await within(sheet).findByRole('button', { name: 'Download the text reader (12 MB)' }),
     );
-    expect(commands.importPrepareReader).toHaveBeenCalled();
+    expect(commands.importPrepareReader).toHaveBeenCalledWith('ocrs');
   });
 
   it('cancels the text reader’s download, offering it again', async () => {
     const user = userEvent.setup();
-    commands.importReaderReady.mockResolvedValue(false);
-    commands.readerAiSupport.mockResolvedValue({
-      textReaderBuiltIn: false,
-      textReaderModel: 'ocrs-latin',
-    });
+    commands.importReaders.mockResolvedValue(ok([OCRS]));
     // Rust answers once the download stopped, as if done: the reader is still missing.
     let stopped: () => void = () => {};
     commands.importPrepareReader.mockReturnValue(
@@ -319,5 +326,86 @@ describe('Importing songs', () => {
       await within(sheet).findByRole('button', { name: 'Download the text reader (12 MB)' }),
     ).toBeEnabled();
     expect(within(sheet).queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+
+  it('shows how reading goes, asks before leaving the review, and reads again with another reader', async () => {
+    const user = userEvent.setup();
+    const PADDLE = { ...OCRS, id: 'paddle', kind: 'paddle' as const, ready: true };
+    commands.importReaders.mockResolvedValue(
+      ok([
+        { id: 'windows', kind: 'windows', name: null, ready: true, model: null, sizeBytes: null },
+        PADDLE,
+      ]),
+    );
+    let finish: () => void = () => {};
+    commands.importReadScreenshots.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = () =>
+          resolve(
+            ok({ ...list(SONGS), screenshots: [{ picture: 0, songs: [0, 1] }], reader: 'windows' }),
+          );
+      }),
+    );
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.click(within(sheet).getByRole('tab', { name: 'Screenshots' }));
+    await user.upload(
+      await within(sheet).findByLabelText('Choose screenshots'),
+      new File(['png'], 'shot.png', { type: 'image/png' }),
+    );
+    await user.click(await within(sheet).findByRole('button', { name: 'Read 1 screenshot' }));
+    emitEvent('importProgressEvent', { picture: 1, pictures: 1, stage: 'reading', rows: 0 });
+    expect(await within(sheet).findByText('Screenshot 1 of 1: reading the text')).toBeVisible();
+    finish();
+    const review = await within(sheet).findByTestId('import-review');
+
+    // The close button asks first; keeping on leaves the review as it was.
+    await user.click(within(sheet).getByRole('button', { name: 'Close' }));
+    expect(
+      within(sheet).getByRole('alertdialog', {
+        name: 'Leave without importing? The songs read so far are lost.',
+      }),
+    ).toBeVisible();
+    await user.click(within(sheet).getByRole('button', { name: 'Keep reviewing' }));
+    expect(within(sheet).queryByRole('alertdialog')).toBeNull();
+    expect(review).toBeInTheDocument();
+
+    // Another reader reads the same screenshot again.
+    commands.importReadScreenshots.mockResolvedValueOnce(
+      ok({
+        ...list([song('Espresso', 'Sabrina Carpenter')]),
+        screenshots: [{ picture: 0, songs: [0] }],
+        reader: 'paddle',
+      }),
+    );
+    expect(within(review).getByRole('combobox', { name: 'Try another reader' })).toHaveDisplayValue(
+      'PaddleOCR',
+    );
+    await user.click(within(review).getByRole('button', { name: 'Read again' }));
+    expect(commands.importReadScreenshots).toHaveBeenLastCalledWith(['upload-1'], true, 'paddle');
+    await vi.waitFor(() =>
+      expect(
+        within(sheet)
+          .getAllByRole('textbox', { name: 'Song title' })
+          .map((field) => (field as HTMLInputElement).value),
+      ).toEqual(['Espresso']),
+    );
+  });
+
+  it('says how to get a whole playlist when the link was cut at 100 songs', async () => {
+    const user = userEvent.setup();
+    commands.importReadLink.mockResolvedValue(ok(list(SONGS, true)));
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.type(
+      within(sheet).getByRole('textbox', { name: 'Playlist, album or song link' }),
+      'https://open.spotify.com/playlist/abc',
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Read songs' }));
+    expect(
+      await within(sheet).findByText(/Settings → Import, or import the playlist/),
+    ).toBeVisible();
   });
 });

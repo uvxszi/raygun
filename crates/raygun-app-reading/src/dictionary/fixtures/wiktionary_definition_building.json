@@ -15,9 +15,7 @@
       "definitions": [
         {
           "definition": "A closed <a rel=\"mw:WikiLink\" href=\"/wiki/structure\" title=\"structure\">structure</a> with walls and a roof.\n<ol><li>A sub-sense listed again on its own below.</li></ol>",
-          "parsedExamples": [
-            { "example": "The <b>building</b> on the corner is a library." }
-          ]
+          "parsedExamples": [{ "example": "The <b>building</b> on the corner is a library." }]
         },
         {
           "definition": "A sub-sense listed again on its own below."

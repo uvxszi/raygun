@@ -20,6 +20,11 @@ type SheetProps = {
   anchor?: HTMLElement | null;
   /** The popover's width in px. */
   popoverWidth?: number;
+  /**
+   * For work that would be lost: a tap outside doesn't close the sheet, and its close button,
+   * Back and Escape call this (which asks first) instead of onClose.
+   */
+  onDismiss?: () => void;
 };
 
 /**
@@ -46,13 +51,14 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
   title,
   onClose,
   children,
+  onDismiss,
 }) => {
   const { t } = useTranslation();
   const titleId = useId();
   // Closing on pointer down would let the tap's click land on whatever is under the sheet.
   const pressedBackdrop = useRef(false);
   // Back and Escape close it, and only it (not a sheet under it).
-  useBackLayer(true, onClose);
+  useBackLayer(true, onDismiss ?? onClose);
   const above = useContext(SheetAboveContext);
 
   // On the document's body, so a transformed or scrolling ancestor never carries it along. Clear
@@ -65,7 +71,9 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
         pressedBackdrop.current = event.target === event.currentTarget;
       }}
       onClick={(event) => {
-        if (pressedBackdrop.current && event.target === event.currentTarget) onClose();
+        if (pressedBackdrop.current && event.target === event.currentTarget && !onDismiss) {
+          onClose();
+        }
         pressedBackdrop.current = false;
       }}
     >
@@ -83,7 +91,7 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
           <button
             type="button"
             aria-label={t('watch.close')}
-            onClick={onClose}
+            onClick={onDismiss ?? onClose}
             className="hover:bg-background -mr-2 grid size-10 place-items-center rounded-full"
           >
             <X aria-hidden size={20} />

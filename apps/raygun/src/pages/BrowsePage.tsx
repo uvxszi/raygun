@@ -47,6 +47,7 @@ import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
 import { useOfflineItem } from '../network/useNetworkMode';
 import { useIncognitoItem } from '../privacy/useIncognito';
+import { ScanBarcodeButton } from '../barcode/BarcodeSheet';
 import { useRememberSearch } from '../search/useRecentSearches';
 import { SearchPanel } from '../search/SearchPanel';
 import { failingLast, useSourceHealth } from '../search/sourceHealth';
@@ -735,6 +736,7 @@ export const BrowsePage: FC = () => {
         // The app bar holds the search field on desktop; the tabs take its row.
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">{tabs}</div>
+          <ScanBarcodeButton />
           {menu}
         </div>
       ) : (
@@ -762,6 +764,7 @@ export const BrowsePage: FC = () => {
               inputClassName="py-1.5"
               trailing={q && tab === 'search' ? <SearchingMark /> : null}
             />
+            <ScanBarcodeButton />
             {menu}
             <QuickAccessButton />
           </header>

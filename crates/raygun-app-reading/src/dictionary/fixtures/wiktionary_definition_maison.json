@@ -20,7 +20,9 @@
       "partOfSpeech": "Adjective",
       "language": "French",
       "definitions": [
-        { "definition": "<a rel=\"mw:WikiLink\" href=\"/wiki/homemade\" title=\"homemade\">homemade</a>" }
+        {
+          "definition": "<a rel=\"mw:WikiLink\" href=\"/wiki/homemade\" title=\"homemade\">homemade</a>"
+        }
       ]
     }
   ],

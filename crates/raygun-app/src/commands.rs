@@ -2274,32 +2274,41 @@ pub fn import_read_text(
     import.read_text(&text, name)
 }
 
-/// Whether screenshots can be read now (the text reader is built in or downloaded) (M46.21).
+/// Whether screenshots can be read now by `reader` (an `ImportReader` id; `None` for Settings →
+/// Import's choice) (M46.21).
 #[tauri::command]
 #[specta::specta]
-pub fn import_reader_ready(import: tauri::State<'_, crate::import::ImportService>) -> bool {
-    import.reader_ready()
+pub async fn import_reader_ready(
+    import: tauri::State<'_, crate::import::ImportService>,
+    reader: Option<String>,
+) -> Result<bool, String> {
+    Ok(import.reader_ready(reader.as_deref()).await)
 }
 
-/// Downloads the text reader for screenshots where it isn't built in (M46.21).
+/// Downloads `reader`'s models where it isn't built in (M46.21).
 #[tauri::command]
 #[specta::specta]
 pub async fn import_prepare_reader(
     import: tauri::State<'_, crate::import::ImportService>,
+    reader: Option<String>,
 ) -> Result<(), String> {
-    import.prepare_reader().await
+    import.prepare_reader(reader.as_deref()).await
 }
 
-/// Songs in uploaded screenshots of song lists (M46.21); `join_split` joins artist lines read as
-/// rows of their own back to their songs.
+/// Songs in uploaded screenshots of song lists (M46.21), read by `reader` (`None` for Settings →
+/// Import's choice); `join_split` joins artist lines read as rows of their own back to their
+/// songs. Progress comes as `ImportProgressEvent`s.
 #[tauri::command]
 #[specta::specta]
 pub async fn import_read_screenshots(
     import: tauri::State<'_, crate::import::ImportService>,
     upload_ids: Vec<String>,
     join_split: bool,
+    reader: Option<String>,
 ) -> Result<raygun_model::ImportedList, String> {
-    import.read_screenshots(upload_ids, join_split).await
+    import
+        .read_screenshots(upload_ids, join_split, reader)
+        .await
 }
 
 /// The folders in Local Files and what each holds (M46.27).

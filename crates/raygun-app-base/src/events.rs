@@ -91,6 +91,10 @@ pub struct SongCaptureEvent(pub raygun_model::SongCaptureRequest);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ImportEvent(pub String);
 
+/// Reading screenshots for an import went on: which picture, at what stage, rows found (v2.0.0).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ImportProgressEvent(pub raygun_model::ImportProgress);
+
 /// Playback found no source for a song, or found one for it again: its unavailable mark and
 /// saved copies changed; carries the song's title.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]

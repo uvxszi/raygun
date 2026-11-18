@@ -245,6 +245,35 @@
     ]
   },
   {
+    "id": "ppocr-v5-mobile",
+    "name": "Text reader (PaddleOCR PP-OCRv5 mobile)",
+    "kind": "ocr",
+    "description": "Reads the text in pictures more accurately than ocrs, Chinese and Japanese included, for importing songs from screenshots.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://github.com/PaddlePaddle/PaddleOCR/blob/main/LICENSE",
+    "sourceUrl": "https://github.com/PaddlePaddle/PaddleOCR",
+    "files": [
+      {
+        "name": "det.onnx",
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx",
+        "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+        "size": 4819576
+      },
+      {
+        "name": "rec.onnx",
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx",
+        "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+        "size": 16631306
+      },
+      {
+        "name": "dict.txt",
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt",
+        "sha256": "d1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b",
+        "size": 74012
+      }
+    ]
+  },
+  {
     "id": "whisper-tiny",
     "name": "Speech to text (Whisper tiny)",
     "kind": "speech",
