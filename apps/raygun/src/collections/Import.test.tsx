@@ -393,6 +393,53 @@ describe('Importing songs', () => {
     );
   });
 
+  it('downloads a reader not on the device from the review, then reads again with it', async () => {
+    const user = userEvent.setup();
+    const ready = { ...OCRS, ready: true };
+    const paddle = { ...OCRS, id: 'paddle', kind: 'paddle' as const, sizeBytes: 22_000_000 };
+    commands.importReaders.mockResolvedValue(ok([ready, paddle]));
+    commands.importReadScreenshots.mockResolvedValueOnce(
+      ok({ ...list(SONGS), screenshots: [{ picture: 0, songs: [0, 1] }], reader: 'ocrs' }),
+    );
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.click(within(sheet).getByRole('tab', { name: 'Screenshots' }));
+    await user.upload(
+      await within(sheet).findByLabelText('Choose screenshots'),
+      new File(['png'], 'shot.png', { type: 'image/png' }),
+    );
+    await user.click(await within(sheet).findByRole('button', { name: 'Read 1 screenshot' }));
+    const review = await within(sheet).findByTestId('import-review');
+
+    expect(within(review).getByRole('combobox', { name: 'Try another reader' })).toHaveDisplayValue(
+      'PaddleOCR (download, 22 MB)',
+    );
+    commands.importPrepareReader.mockImplementation(async () => {
+      commands.importReaders.mockResolvedValue(ok([ready, { ...paddle, ready: true }]));
+      return ok(null);
+    });
+    commands.importReadScreenshots.mockResolvedValueOnce(
+      ok({
+        ...list([song('Espresso', 'Sabrina Carpenter')]),
+        screenshots: [{ picture: 0, songs: [0] }],
+        reader: 'paddle',
+      }),
+    );
+    await user.click(within(review).getByRole('button', { name: 'Download and read' }));
+    expect(commands.importPrepareReader).toHaveBeenCalledWith('paddle');
+    await vi.waitFor(() =>
+      expect(commands.importReadScreenshots).toHaveBeenLastCalledWith(['upload-1'], true, 'paddle'),
+    );
+    await vi.waitFor(() =>
+      expect(
+        within(sheet)
+          .getAllByRole('textbox', { name: 'Song title' })
+          .map((field) => (field as HTMLInputElement).value),
+      ).toEqual(['Espresso']),
+    );
+  });
+
   it('says how to get a whole playlist when the link was cut at 100 songs', async () => {
     const user = userEvent.setup();
     commands.importReadLink.mockResolvedValue(ok(list(SONGS, true)));
