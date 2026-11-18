@@ -28,6 +28,12 @@ const SELECT = 'bg-surface min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-n
 
 const languageName = (lang: string, multi: string) => (lang === 'multi' ? multi : nativeName(lang));
 
+/** The app's language, then the device's own ones: listed first after Many languages. */
+const preferredLanguages = (appLanguage: string): string[] => [
+  appLanguage,
+  ...(typeof navigator === 'undefined' ? [] : navigator.languages),
+];
+
 /**
  * Chips for the kinds present: each narrows the list to its kind, and pressed again shows every
  * kind (Installed and the catalog share them).
@@ -75,8 +81,12 @@ const Filters: FC<{
   filter: CatalogFilter;
   onChange: (filter: CatalogFilter) => void;
 }> = ({ catalog, filter, onChange }) => {
-  const { t } = useTranslation();
-  const facets = useMemo(() => catalogFacets(catalog), [catalog]);
+  const { t, i18n } = useTranslation();
+  const appLanguage = i18n.language;
+  const facets = useMemo(
+    () => catalogFacets(catalog, preferredLanguages(appLanguage)),
+    [catalog, appLanguage],
+  );
 
   return (
     <div className="flex flex-col gap-2">

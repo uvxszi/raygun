@@ -80,6 +80,7 @@ type EventPayloads = {
   chipsEvent: ChipInfo[];
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  coverMissesForgottenEvent: number;
   sourcesSetupEvent: SourceSetup[];
   extensionInstallsEvent: ExtensionInstallStatus;
   sourceQueueEvent: SourceQueueStatus;
@@ -651,6 +652,10 @@ export const bindingsMock = {
     incognitoStatus: vi.fn(),
     incognitoSetEnabled: vi.fn(),
     networkStatus: vi.fn(),
+    appTextsSet: vi.fn(),
+    continueReading: vi.fn(),
+    continueHide: vi.fn(),
+    historyRemove: vi.fn(),
     networkSetOffline: vi.fn(),
     collectionPlay: vi.fn(),
     mcpStatus: vi.fn(),
@@ -940,6 +945,7 @@ export const bindingsMock = {
     chipsEvent: makeEvent('chipsEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    coverMissesForgottenEvent: makeEvent('coverMissesForgottenEvent'),
     sourcesSetupEvent: makeEvent('sourcesSetupEvent'),
     extensionInstallsEvent: makeEvent('extensionInstallsEvent'),
     sourceQueueEvent: makeEvent('sourceQueueEvent'),
@@ -1356,6 +1362,10 @@ export const seedBindings = () => {
   commands.artistReleasesCheck.mockResolvedValue(ok([]));
   commands.musicArtistEvents.mockResolvedValue(ok([]));
   commands.coverFallback.mockResolvedValue(ok(null));
+  commands.continueReading.mockResolvedValue(ok([]));
+  commands.continueHide.mockImplementation(async (keys: string[]) => ok(keys.length));
+  commands.historyRemove.mockImplementation(async (keys: string[]) => ok(keys.length));
+  commands.appTextsSet.mockResolvedValue(ok(null));
   commands.musicSearchPlaylists.mockResolvedValue(ok([]));
   commands.catalogOpenPage.mockResolvedValue(ok(null));
   commands.recentContexts.mockResolvedValue(ok([]));

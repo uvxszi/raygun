@@ -707,3 +707,24 @@ async fn imported_songs_are_marked() {
         .unwrap();
     assert_eq!(found, ["a|one"]);
 }
+
+#[tokio::test]
+async fn forgetting_plays_takes_songs_out_of_history() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    record_play(&db, &track("a|one"), 100).await.unwrap();
+    record_play(&db, &track("a|two"), 200).await.unwrap();
+    record_play(&db, &track("a|one"), 300).await.unwrap();
+
+    let forgotten = forget_plays(&db, &["a|one".to_owned(), "a|none".to_owned()])
+        .await
+        .unwrap();
+    assert_eq!(forgotten, 1);
+    let keys: Vec<String> = recent_history(&db, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.track.track_key)
+        .collect();
+    assert_eq!(keys, ["a|two"]);
+}

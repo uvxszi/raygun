@@ -92,6 +92,14 @@ pub async fn found_count(db: &Db) -> Result<u32, DbError> {
     Ok(u32::try_from(row.get::<i64, _>("kept")).unwrap_or(u32::MAX))
 }
 
+/// Forgets every lookup that found nothing (sources changed: they're asked again); how many.
+pub async fn forget_misses(db: &Db) -> Result<u64, DbError> {
+    let done = sqlx::query("DELETE FROM local_cover_found WHERE url IS NULL")
+        .execute(db.pool())
+        .await?;
+    Ok(done.rows_affected())
+}
+
 /// Forgets these lookups.
 pub async fn remove_found(db: &Db, keys: &[String]) -> Result<(), DbError> {
     let mut transaction = db.pool().begin().await?;

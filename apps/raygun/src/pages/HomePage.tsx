@@ -1,23 +1,14 @@
-import type { MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { BookAudio, Compass, LayoutList, Library, Mic2, Search, X } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { SavedTrackRow } from '../collections/SavedTrackRow';
-import {
-  HOME_HISTORY_LIMIT,
-  playCollection,
-  useClearHistory,
-  useHistory,
-} from '../collections/useCollections';
+import { HOME_HISTORY_LIMIT, useHistory } from '../collections/useCollections';
+
 import { useHasProvider } from '../extensions/useExtensions';
-import { bookWords } from '../manga/bookWords';
-import { MangaCover } from '../manga/MangaCover';
-import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
 import { useLayout, useSaveLayout } from '../layout/useLayout';
-import { useMixCardMenu, useTitleMenuItems } from '../music/cardMenus';
+import { useMixCardMenu } from '../music/cardMenus';
 import { HomeChartRow } from '../music/ChartRow';
 import { pageKey, useHidden } from '../music/hidden';
 import { MixCard } from '../music/MixCard';
@@ -25,10 +16,11 @@ import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
 import { useOfflineItem } from '../network/useNetworkMode';
 import { useIncognitoItem } from '../privacy/useIncognito';
-import { useSettings } from '../settings/useSettings';
 import { HomeCarousel, HomeSection } from '../home/HomeSection';
 import { useHomeRowActions } from '../home/homeRows';
 import { QuickAccessSection } from '../home/QuickAccessSection';
+import { ContinueReadingRow } from '../home/ContinueReadingRow';
+import { RecentlyPlayedRow } from '../home/RecentlyPlayedRow';
 import {
   FollowedReleasesSection,
   NewEpisodesSection,
@@ -53,118 +45,8 @@ import { UpdateBanner } from '../updates/UpdateBanner';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { ContinueListening } from '../podcasts/ContinueListening';
 import { useContinueWatching } from '../watch/useWatch';
-import { CardMenu } from '../shell/CardMenu';
 
 type SectionProps = { id: string };
-
-/** What was played last, as rows (hidden artists' songs and Not interested ones stay out). */
-const RecentlyPlayed: FC<SectionProps> = ({ id }) => {
-  const { t } = useTranslation();
-  const history = useHistory(HOME_HISTORY_LIMIT);
-  const clear = useClearHistory();
-  const hidden = useHidden();
-  // Listening history off (M46.41): nothing of it shows.
-  const keep = useSettings().data?.privacy.history !== false;
-  const entries = (history.data ?? [])
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => !hidden.hidesSong(entry.track));
-  if (!keep || entries.length === 0) return null;
-  return (
-    <HomeSection
-      id={id}
-      title={t('home.recentlyPlayed')}
-      testId="recently-played"
-      extra={
-        <button
-          type="button"
-          disabled={clear.isPending}
-          onClick={() => clear.mutate()}
-          className="text-muted hover:text-foreground px-1 text-sm font-semibold"
-        >
-          {t('home.clearHistory')}
-        </button>
-      }
-    >
-      <ul className="flex flex-col">
-        {entries.map(({ entry, index }) => (
-          <li key={entry.track.trackKey}>
-            <SavedTrackRow
-              track={entry.track}
-              onPlay={() =>
-                void playCollection({
-                  collection: { kind: 'history' },
-                  startIndex: index,
-                  shuffle: false,
-                })
-              }
-            />
-          </li>
-        ))}
-      </ul>
-    </HomeSection>
-  );
-};
-
-/** Most titles in Continue reading. */
-const CONTINUE_READING = 12;
-
-/** Manga and novels read lately, newest first (Mihon's History, as a row). */
-const ContinueReading: FC<SectionProps> = ({ id }) => {
-  const { t } = useTranslation();
-  const manga = useMangaLibrary('manga');
-  const novels = useMangaLibrary('novel');
-  const menu = useTitleMenuItems();
-  const entries: (MangaLibraryEntry & { medium: 'manga' | 'novel' })[] = [
-    ...(manga.data ?? []).map((entry) => ({ ...entry, medium: 'manga' as const })),
-    ...(novels.data ?? []).map((entry) => ({ ...entry, medium: 'novel' as const })),
-  ]
-    .filter((entry) => entry.lastReadAt !== null)
-    .sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0))
-    .slice(0, CONTINUE_READING);
-  if (entries.length === 0) return null;
-  return (
-    <HomeSection id={id} title={t('home.continueReading')} testId="continue-reading">
-      <HomeCarousel>
-        {entries.map((entry) => (
-          <li key={entry.titleId} className="w-28 shrink-0">
-            <Link
-              to={ROUTES[entry.medium].title}
-              search={{ source: entry.sourceId, id: entry.remoteId }}
-              aria-label={entry.title}
-              className="relative flex flex-col gap-1.5"
-            >
-              <CardMenu
-                label={t('menu.options', { name: entry.title })}
-                items={() =>
-                  menu({
-                    medium: entry.medium,
-                    sourceId: entry.sourceId,
-                    id: entry.remoteId,
-                    title: entry.title,
-                    coverUrl: entry.coverUrl,
-                  })
-                }
-              />
-              <span className="relative">
-                <MangaCover
-                  url={entry.coverUrl}
-                  book={bookWords(entry.medium, entry.title, entry.authors)}
-                  className="w-full rounded-xl"
-                />
-                {entry.unread > 0 && (
-                  <span className="bg-primary text-background absolute top-1.5 left-1.5 rounded-md px-1.5 text-xs font-bold">
-                    {entry.unread}
-                  </span>
-                )}
-              </span>
-              <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
-            </Link>
-          </li>
-        ))}
-      </HomeCarousel>
-    </HomeSection>
-  );
-};
 
 const StartChip: FC<{ to: string; search?: Record<string, unknown>; children: ReactNode }> = ({
   to,
@@ -319,12 +201,12 @@ const ContinueListeningSection: FC<SectionProps> = ({ id }) => {
 /** Home's sections by their layout id (M46.5; more rows from Browse all's kinds in M46.47). */
 const HOME_SECTIONS: Record<string, FC<SectionProps>> = {
   continueWatching: ContinueWatching,
-  continueReading: ContinueReading,
+  continueReading: ContinueReadingRow,
   continueListening: ContinueListeningSection,
   madeForYou: MadeForYouRow,
   quickAccess: QuickAccessSection,
   topArtists: TopArtistsSection,
-  recentlyPlayed: RecentlyPlayed,
+  recentlyPlayed: RecentlyPlayedRow,
   newEpisodes: NewEpisodesSection,
   popularMusic: ({ id }) => <ChartSection id={id} which="popular" />,
   trendingMusic: ({ id }) => <ChartSection id={id} which="trending" />,

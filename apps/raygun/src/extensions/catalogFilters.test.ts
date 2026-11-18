@@ -6,6 +6,7 @@ import {
   filterCatalog,
   isNotForRaygun,
   kindsOf,
+  orderLanguages,
   repoContents,
   repoFormat,
   updateCount,
@@ -120,5 +121,28 @@ describe('Nuvio repositories', () => {
       kinds: [{ kind: 'video', count: 2 }],
       formats: [{ format: 'nuvio', count: 2 }],
     });
+  });
+});
+
+describe('orderLanguages', () => {
+  it('lists Many languages, then the app and device languages, then the rest', () => {
+    expect(orderLanguages(['de', 'en', 'fr', 'multi', 'ja'], ['en-US'])).toEqual([
+      'multi',
+      'en',
+      'de',
+      'fr',
+      'ja',
+    ]);
+    expect(orderLanguages(['de', 'pt', 'pt-BR', 'multi', 'es'], ['pt-BR', 'es'])).toEqual([
+      'multi',
+      'pt-BR',
+      'pt',
+      'es',
+      'de',
+    ]);
+  });
+
+  it('keeps the alphabetical order without preferences', () => {
+    expect(orderLanguages(['fr', 'de', 'multi'])).toEqual(['multi', 'de', 'fr']);
   });
 });

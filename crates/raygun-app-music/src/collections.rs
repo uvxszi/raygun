@@ -750,6 +750,14 @@ impl CollectionsService {
             .collect())
     }
 
+    /// Takes songs (by track key) out of Recently played: every play of each is forgotten.
+    /// Returns how many had plays.
+    pub async fn forget_plays(&self, track_keys: &[String]) -> Result<u32, String> {
+        collections::forget_plays(self.db(), track_keys)
+            .await
+            .map_err(to_message)
+    }
+
     pub async fn clear_history(&self) -> Result<(), String> {
         collections::clear_history(self.db())
             .await

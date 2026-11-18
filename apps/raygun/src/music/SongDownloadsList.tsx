@@ -70,6 +70,7 @@ import {
   useSongDownloads,
   useSongDownloadsPaused,
 } from './useSongDownloads';
+import { songCover } from '../library/coverTargets';
 
 const ICON =
   'text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-50';
@@ -174,7 +175,12 @@ const PickRow: FC<RowProps> = ({ item, paused, picked = false, onPick }) => {
       >
         {picked ? <CheckSquare aria-hidden size={22} /> : <Square aria-hidden size={22} />}
       </button>
-      <Artwork url={item.artworkUrl} className="size-12 shrink-0 rounded-md" iconSize={20} />
+      <Artwork
+        url={item.artworkUrl}
+        fallback={songCover(item)}
+        className="size-12 shrink-0 rounded-md"
+        iconSize={20}
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium">{item.title}</span>
         {item.artist && (
@@ -236,10 +242,20 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag, onPlay
       {play ? (
         // The cover plays too; the lines' button is the one keyboards and readers use.
         <span data-testid="song-download-cover" onClick={play} className="shrink-0 cursor-pointer">
-          <Artwork url={item.artworkUrl} className="size-12 rounded-md" iconSize={20} />
+          <Artwork
+            url={item.artworkUrl}
+            fallback={songCover(item)}
+            className="size-12 rounded-md"
+            iconSize={20}
+          />
         </span>
       ) : (
-        <Artwork url={item.artworkUrl} className="size-12 shrink-0 rounded-md" iconSize={20} />
+        <Artwork
+          url={item.artworkUrl}
+          fallback={songCover(item)}
+          className="size-12 shrink-0 rounded-md"
+          iconSize={20}
+        />
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         {play ? (

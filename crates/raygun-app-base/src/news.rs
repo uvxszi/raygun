@@ -40,12 +40,20 @@ impl NewsKind {
 
     /// "3 new chapters", "1 new episode".
     fn count(self, count: usize) -> String {
-        let unit = match self {
-            Self::Comics | Self::Books | Self::Audiobooks => "chapter",
-            Self::Videos | Self::Podcasts => "episode",
-        };
-        let plural = if count == 1 { "" } else { "s" };
-        format!("{count} new {unit}{plural}")
+        match self {
+            Self::Comics | Self::Books | Self::Audiobooks => crate::texts::count_text(
+                "news.newChapters",
+                "{{count}} new chapter",
+                "{{count}} new chapters",
+                count,
+            ),
+            Self::Videos | Self::Podcasts => crate::texts::count_text(
+                "news.newEpisodes",
+                "{{count}} new episode",
+                "{{count}} new episodes",
+                count,
+            ),
+        }
     }
 }
 
@@ -97,8 +105,12 @@ pub fn app_update_notice(version: &str) -> Notice {
     Notice {
         id: notice_id("app-update"),
         channel: &APP_UPDATES,
-        title: format!("Raygun {version} is out"),
-        text: "Open About to update".to_owned(),
+        title: crate::texts::text_with(
+            "news.updateOut",
+            "Raygun {{version}} is out",
+            &[("version", version)],
+        ),
+        text: crate::texts::text("news.openAbout", "Open About to update"),
         route: "/about".to_owned(),
     }
 }

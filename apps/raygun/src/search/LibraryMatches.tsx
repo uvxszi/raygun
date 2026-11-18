@@ -2,7 +2,7 @@ import { commands } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Clapperboard } from 'lucide-react';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
@@ -37,11 +37,10 @@ const shareOut = (counts: number[], budget: number) => {
 };
 
 /**
- * What you already have that matches: library tracks, manga, novels, podcast subscriptions and
- * videos you watched. `limit` keeps each group short in the All view.
+ * What you already have that matches `query`, by group: library tracks, manga, novels, podcast
+ * subscriptions and videos you watched, at most `limit` of each.
  */
-export const LibraryMatches: FC<{ query: string; limit?: number }> = ({ query, limit = 50 }) => {
-  const { t } = useTranslation();
+const useLibraryHits = (query: string, limit = 50) => {
   const q = query.trim();
   const tracks = useLibraryTrackSearch(q);
   const manga = useMangaLibrary('manga');
@@ -51,7 +50,6 @@ export const LibraryMatches: FC<{ query: string; limit?: number }> = ({ query, l
     queryKey: ['watch', 'history'],
     queryFn: () => unwrapResult(commands.videoHistory()),
   });
-  const resume = useResumeVideo();
   const hits = <T,>(list: T[] | undefined, match: (item: T) => boolean) =>
     q ? (list ?? []).filter(match).slice(0, limit) : [];
   const trackHits = hits(tracks.data, () => true);
@@ -66,6 +64,31 @@ export const LibraryMatches: FC<{ query: string; limit?: number }> = ({ query, l
     (group) => group.length,
   );
   const total = counts.reduce((sum, count) => sum + count, 0);
+  const loaded = Boolean(
+    !tracks.isFetching && manga.data && novels.data && podcasts.data && videos.data,
+  );
+  return { q, trackHits, mangaHits, novelHits, podcastHits, videoHits, counts, total, loaded };
+};
+
+/** Search → All's "In your library": shown only once something there matches. */
+export const LibraryPreview: FC<{
+  query: string;
+  limit: number;
+  children: (matches: ReactNode) => ReactNode;
+}> = ({ query, limit, children }) => {
+  const { total } = useLibraryHits(query, limit);
+  return total > 0 ? children(<LibraryMatches query={query} limit={limit} />) : null;
+};
+
+/**
+ * What you already have that matches: library tracks, manga, novels, podcast subscriptions and
+ * videos you watched. `limit` keeps each group short in the All view.
+ */
+export const LibraryMatches: FC<{ query: string; limit?: number }> = ({ query, limit = 50 }) => {
+  const { t } = useTranslation();
+  const { q, trackHits, mangaHits, novelHits, podcastHits, videoHits, counts, total, loaded } =
+    useLibraryHits(query, limit);
+  const resume = useResumeVideo();
   // Many matches: the first at once, the rest as each part is on the screen; each group shows
   // its part of what's drawn, in order.
   const drawn = useDrawnCount(total, FIRST_MATCHES, FIRST_MATCHES, q);
@@ -73,7 +96,6 @@ export const LibraryMatches: FC<{ query: string; limit?: number }> = ({ query, l
     shareOut(counts, drawn);
 
   if (!q) return null;
-  const loaded = !tracks.isFetching && manga.data && novels.data && podcasts.data && videos.data;
 
   const grid = (entries: typeof mangaHits) =>
     entries.map((entry) => ({

@@ -26,6 +26,7 @@ import { playFromLibrary, useAlbums, useArtists, useFirstTracks } from './useLib
 import type { LibraryView } from './views';
 import { Carousel } from '../shell/Carousel';
 import { CardMenu } from '../shell/CardMenu';
+import { albumCover, artistCover } from './coverTargets';
 
 /** How many songs the overview lists before "See all". */
 const SONGS_SHOWN = 8;
@@ -205,7 +206,12 @@ export const MusicOverview: FC<{
                   search={{ artist: album.artist, album: album.title }}
                   className="flex flex-col gap-1.5"
                 >
-                  <Artwork url={album.artworkUrl} className="w-full rounded-lg" iconSize={32} />
+                  <Artwork
+                    url={album.artworkUrl}
+                    fallback={albumCover(album)}
+                    className="w-full rounded-lg"
+                    iconSize={32}
+                  />
                   <span className="truncate text-sm font-medium">{album.title}</span>
                   <span className="text-muted -mt-1 truncate text-xs">{album.artist}</span>
                 </Link>
@@ -228,7 +234,12 @@ export const MusicOverview: FC<{
                   search={{ name: artist.name }}
                   className="flex flex-col items-center gap-1.5 text-center"
                 >
-                  <Artwork url={artist.artworkUrl} className="w-full rounded-full" iconSize={28} />
+                  <Artwork
+                    url={artist.artworkUrl}
+                    fallback={artistCover(artist.name)}
+                    className="w-full rounded-full"
+                    iconSize={28}
+                  />
                   <span className="w-full truncate text-sm font-medium">{artist.name}</span>
                 </Link>
               </li>

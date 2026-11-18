@@ -135,7 +135,7 @@ export const ContinueWatchingRow: FC<{ menu?: () => MenuItem[] }> = ({ menu }) =
   return (
     <section aria-label={t('watch.continue')} className="flex flex-col gap-2">
       {selection.selecting ? (
-        <ContinueSelectionBar selection={selection} />
+        <ContinueSelectionBar selection={selection} items={items} />
       ) : (
         <div className="flex min-h-9 items-center gap-3">
           <h2 className="text-lg font-semibold">{t('watch.continue')}</h2>

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { playCollection, fromSavedTrack, useFavorites } from '../collections/useCollections';
 import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { Artwork } from '../library/Artwork';
+import { songCover } from '../library/coverTargets';
 import { CARD_MENU_BESIDE, CARD_MENU_BESIDE_TIGHT } from '../manga/CardPlayButton';
 import { useHidden } from '../music/hidden';
 import { CardMenu } from '../shell/CardMenu';
@@ -155,7 +156,12 @@ const LatestFavorites: FC<{ favorites: ReturnType<typeof useLatestFavorites> }> 
               }
               className="hover:bg-surface flex w-full flex-col gap-1.5 rounded-xl p-1.5 text-left"
             >
-              <Artwork url={track.artworkUrl} className="w-full rounded-lg" iconSize={28} />
+              <Artwork
+                url={track.artworkUrl}
+                fallback={songCover(track)}
+                className="w-full rounded-lg"
+                iconSize={28}
+              />
               <span className="truncate text-sm font-medium">{track.title}</span>
               <span className="text-muted -mt-0.5 truncate text-xs">{track.artist}</span>
             </button>

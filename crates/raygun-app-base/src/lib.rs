@@ -5,6 +5,7 @@
 pub mod app_hooks;
 pub mod books;
 pub mod chips;
+pub mod continue_hidden;
 pub mod device_state;
 pub mod events;
 pub mod extension_access;
@@ -21,6 +22,7 @@ pub mod privacy;
 pub mod quick_access_rows;
 pub mod settings;
 pub mod source_ids;
+pub mod texts;
 
 /// Resolved storage locations, available to commands as Tauri state.
 pub struct AppPaths(pub raygun_paths::Paths);

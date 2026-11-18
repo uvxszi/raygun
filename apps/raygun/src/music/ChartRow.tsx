@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { fromOnlineTrack } from '../collections/useCollections';
 import { HomeCarousel, HomeSection, RowSkeleton } from '../home/HomeSection';
 import { Artwork } from '../library/Artwork';
+import { songCover } from '../library/coverTargets';
 import { playResults } from '../search/useOnlineSearch';
 import { useInView } from '../shell/useInView';
 import { useChartSongs } from './useDiscovery';
@@ -52,7 +53,12 @@ const SongCard: FC<{
         className="group hover:bg-surface flex w-full flex-col gap-2 rounded-xl p-2 text-left"
       >
         <span className="relative block">
-          <Artwork url={song.artworkUrl} className="w-full rounded-lg shadow-lg" iconSize={40} />
+          <Artwork
+            url={song.artworkUrl}
+            fallback={songCover(song)}
+            className="w-full rounded-lg shadow-lg"
+            iconSize={40}
+          />
           <span className="bg-background/80 absolute top-1.5 left-1.5 flex items-center gap-1 rounded-md px-1.5 text-xs font-bold tabular-nums">
             {playing && <NowPlayingBars playing={playing === 'playing'} />}
             {rank}

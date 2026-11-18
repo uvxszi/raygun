@@ -40,6 +40,30 @@
     "downloads": "Downloads"
   },
   "home": {
+    "continue": {
+      "actions": "{{name}}: actions",
+      "remove": "Remove from Continue",
+      "removeRecent": "Remove from Recently played",
+      "removed_one": "Removed {{count}} item",
+      "removed_other": "Removed {{count}} items",
+      "markRead": "Mark as read",
+      "markedRead_one": "Marked {{count}} title read",
+      "markedRead_other": "Marked {{count}} titles read",
+      "markPlayed": "Mark as played",
+      "markedPlayed_one": "Marked {{count}} item played",
+      "markedPlayed_other": "Marked {{count}} items played",
+      "markedWatched_one": "Marked {{count}} video watched",
+      "markedWatched_other": "Marked {{count}} videos watched",
+      "downloadNext": "Download next chapter",
+      "pinned_one": "Pinned {{count}} item to quick access",
+      "pinned_other": "Pinned {{count}} items to quick access",
+      "removeFromLibraryAsk_one": "Remove this title from your library?",
+      "removeFromLibraryAsk_other": "Remove these {{count}} titles from your library?",
+      "removeShowsAsk_one": "Remove this show or book from your library?",
+      "removeShowsAsk_other": "Remove these {{count}} shows and books from your library?",
+      "removedFromLibrary_one": "Removed {{count}} from your library",
+      "removedFromLibrary_other": "Removed {{count}} from your library"
+    },
     "recentlyPlayed": "Recently played",
     "noHistory": "Songs you play show up here.",
     "clearHistory": "Clear history",
@@ -631,7 +655,7 @@
     "cancel": "Cancel",
     "mihonImported_one": "Imported {{count}} title with {{chapters}} chapters ({{read}} read) from Mihon.",
     "mihonImported_other": "Imported {{count}} titles with {{chapters}} chapters ({{read}} read) from Mihon.",
-    "language": "Language",
+    "language": "App language",
     "languageSystem": "System default ({{name}})",
     "languageHint": "Translations come from the community; untranslated text stays in English.",
     "content": "Content",
@@ -6079,5 +6103,46 @@
   "web": {
     "needsApp": "This needs the Raygun app on a phone or computer; a browser can't do it.",
     "linkApp": "Link a device in Devices"
+  },
+  "notices": {
+    "news": {
+      "newChapters_one": "{{count}} new chapter",
+      "newChapters_other": "{{count}} new chapters",
+      "newEpisodes_one": "{{count}} new episode",
+      "newEpisodes_other": "{{count}} new episodes",
+      "updateOut": "Raygun {{version}} is out",
+      "openAbout": "Open About to update"
+    },
+    "downloads": {
+      "title": "Downloads",
+      "downloading": "Downloading",
+      "inDownloads": "In Downloads",
+      "finished": "Downloads finished",
+      "seeThem": "See them in Downloads",
+      "waitingOffline": "Waiting for Offline mode to end",
+      "waitingBattery": "Waiting for battery saver to end"
+    },
+    "actions": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop",
+      "skip": "Skip",
+      "cancel": "Cancel",
+      "cancelAll": "Cancel all",
+      "retry": "Retry"
+    },
+    "noun": {
+      "songs": "Song",
+      "videos": "Video",
+      "chapters": "Chapter",
+      "podcasts": "Episode",
+      "exports": "Export",
+      "models": "AI model",
+      "update": "Raygun update",
+      "ytdlp": "YouTube download",
+      "files": "File",
+      "extensions": "Extensions",
+      "sources": "Sources"
+    }
   }
 }

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use raygun_db::song_memory::{self, FoundCover};
 use raygun_model::DetailTarget;
 use tauri::{AppHandle, Manager};
+use tauri_specta::Event as _;
 use tokio::sync::OnceCell;
 
 use crate::extensions::ExtensionService;
@@ -115,6 +116,8 @@ pub struct CoverFallbacks {
     lookups: NewestFirst,
     /// The old value moved into the table, once a run.
     moved: OnceCell<()>,
+    /// The extensions the last load had ([`fingerprint`]).
+    seen: std::sync::Mutex<Option<String>>,
 }
 
 /// How a background lookup went.
@@ -133,6 +136,22 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or_default()
+}
+
+/// What says which extensions are loaded: each one's id, version and whether it loaded.
+fn fingerprint(extensions: &[raygun_model::ExtensionInfo]) -> String {
+    sorted(
+        extensions
+            .iter()
+            .map(|info| format!("{}@{}:{:?}", info.id, info.version, info.status)),
+    )
+}
+
+/// The parts in one order, as one text.
+fn sorted(parts: impl Iterator<Item = String>) -> String {
+    let mut parts: Vec<String> = parts.collect();
+    parts.sort_unstable();
+    parts.join("\n")
 }
 
 /// What a cover is remembered by: the kind and its normalized names.
@@ -161,6 +180,7 @@ impl CoverFallbacks {
             app,
             lookups: NewestFirst::new(AT_ONCE),
             moved: OnceCell::new(),
+            seen: std::sync::Mutex::new(None),
         })
     }
 
@@ -255,6 +275,39 @@ impl CoverFallbacks {
             .into_values()
             .filter_map(|found| found.url)
             .collect()
+    }
+
+    /// The extensions as they are now (after a load): when they differ from the last load's
+    /// (one installed, updated or removed), lookups that found nothing are asked again. The first
+    /// load of a run only notes them.
+    pub async fn extensions_loaded(&self, extensions: &[raygun_model::ExtensionInfo]) {
+        let now = fingerprint(extensions);
+        let before = self
+            .seen
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .replace(now.clone());
+        if before.is_some_and(|before| before != now) {
+            self.forget_misses().await;
+        }
+    }
+
+    /// Forgets the lookups that found nothing, so the sources are asked again (a reload, new
+    /// or updated sources), and tells the UI, which asks again for covers it showed none for.
+    pub async fn forget_misses(&self) {
+        let db = self.ready().await;
+        match song_memory::forget_misses(&db).await {
+            Ok(forgotten) => {
+                tracing::info!(forgotten, "covers no source had will be looked for again");
+                let forgotten = u32::try_from(forgotten).unwrap_or(u32::MAX);
+                if let Err(error) =
+                    crate::events::CoverMissesForgottenEvent(forgotten).emit(&self.app)
+                {
+                    tracing::warn!(%error, "couldn't announce forgotten cover lookups");
+                }
+            }
+            Err(error) => tracing::warn!(%error, "couldn't forget cover lookups that found none"),
+        }
     }
 
     /// Another source's cover for `target`, or `None` when no source has one.
@@ -455,6 +508,16 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(1), gate.turn())
             .await
             .expect("the turn came back");
+    }
+
+    #[test]
+    fn the_fingerprint_changes_with_an_install_or_an_update_only() {
+        let of = |parts: &[&str]| sorted(parts.iter().map(|part| (*part).to_owned()));
+        let before = of(&["a@1.0.0", "b@2.0.0"]);
+        // The same extensions in another order: nothing changed.
+        assert_eq!(before, of(&["b@2.0.0", "a@1.0.0"]));
+        assert_ne!(before, of(&["a@1.1.0", "b@2.0.0"]));
+        assert_ne!(before, of(&["a@1.0.0", "b@2.0.0", "c@1.0.0"]));
     }
 
     #[test]
