@@ -60,9 +60,35 @@ export const cropPicture = async (file: Blob, box: CropBox, name: string): Promi
       'image/png',
     ),
   );
-  return new File([blob], name.replace(/\.[^.]+$/, '') + '-cropped.png', {
+  return new File([blob], name.replace(/(?:-cropped)?\.[^.]+$/, '') + '-cropped.png', {
     type: 'image/png',
     lastModified: Date.now(),
+  });
+};
+
+/**
+ * The picture turned a quarter clockwise, as a PNG under the same name (and with its time, so a
+ * screenshot keeps its place among the others).
+ */
+export const rotatePicture = async (file: File): Promise<File> => {
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.height;
+  canvas.height = bitmap.width;
+  const context = canvas.getContext('2d');
+  context?.translate(canvas.width, 0);
+  context?.rotate(Math.PI / 2);
+  context?.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(
+      (made) => (made ? resolve(made) : reject(new Error('The picture could not be turned'))),
+      'image/png',
+    ),
+  );
+  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.png', {
+    type: 'image/png',
+    lastModified: file.lastModified,
   });
 };
 

@@ -70,3 +70,100 @@ describe('Scanning barcodes', () => {
     expect(screen.queryByRole('dialog', { name: 'Scan a barcode' })).toBeNull();
   });
 });
+
+describe('Barcodes read from a picture', () => {
+  const book = '9780306406157';
+  const other = '4006381333931';
+  // What the browser's reader answers for each size of the picture it is given.
+  let frames: { rawValue: string; format?: string }[][] = [];
+
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => ({ width: 800, height: 600, close: () => undefined })),
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: () => undefined,
+    } as unknown as CanvasRenderingContext2D);
+    vi.stubGlobal(
+      'BarcodeDetector',
+      class {
+        static getSupportedFormats = async () => ['ean_13', 'upc_a', 'ean_8', 'upc_e'];
+        detect = async () => frames.shift() ?? [];
+      },
+    );
+    commands.barcodeLookup.mockImplementation(async (code: string) =>
+      ok(
+        code === book
+          ? { kind: 'book', code, title: 'Programming', authors: ['Ada Lovelace'], coverUrl: null }
+          : { kind: 'unknown', code },
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const upload = async () => {
+    const { user, sheet } = await openSheet();
+    await user.upload(
+      within(sheet).getByLabelText('Choose a picture', { selector: 'input' }),
+      new File(['x'], 'back.jpg', { type: 'image/jpeg' }),
+    );
+    return { user, sheet };
+  };
+
+  it('offers the codes read to pick from, leaving out misreads', async () => {
+    frames = [
+      [
+        { rawValue: book, format: 'ean_13' },
+        { rawValue: other, format: 'ean_13' },
+      ],
+      // A digit misread: its check digit fails, so it isn't offered.
+      [{ rawValue: book }, { rawValue: '9780306406158' }],
+    ];
+    const { user, sheet } = await upload();
+    expect(await within(sheet).findByText('Which of these codes is it?')).toBeVisible();
+    expect(await within(sheet).findByText(`${book} · read 2 times`)).toBeVisible();
+    expect(within(sheet).getByText(`${other} · read once`)).toBeVisible();
+    expect(within(sheet).queryByText(/9780306406158/)).toBeNull();
+    expect(await within(sheet).findByText('Nothing known about it')).toBeVisible();
+    await user.click(await within(sheet).findByRole('button', { name: /Programming/ }));
+    expect(
+      within(sheet).getByRole('button', { name: 'Find the book in your sources' }),
+    ).toBeVisible();
+    // The other code stays one tap away.
+    expect(within(sheet).getByText('Other codes read')).toBeVisible();
+  });
+
+  it('shows a code that clearly won at once, the others under it', async () => {
+    frames = [
+      [
+        { rawValue: book, format: 'ean_13' },
+        { rawValue: book, format: 'ean_13' },
+        { rawValue: other, format: 'ean_13' },
+      ],
+      [
+        { rawValue: book, format: 'ean_13' },
+        { rawValue: book, format: 'ean_13' },
+      ],
+    ];
+    const { sheet } = await upload();
+    expect(
+      await within(sheet).findByRole('button', { name: 'Find the book in your sources' }),
+    ).toBeVisible();
+    expect(within(sheet).queryByText('Which of these codes is it?')).toBeNull();
+    expect(within(sheet).getByText('Other codes read')).toBeVisible();
+    expect(within(sheet).getByText(`${other} · read once`)).toBeVisible();
+  });
+
+  it('says so when the picture has no valid code', async () => {
+    frames = [[{ rawValue: '9780306406158', format: 'ean_13' }], []];
+    const { sheet } = await upload();
+    expect(await within(sheet).findByText('No barcode was found in that picture')).toBeVisible();
+    expect(commands.barcodeLookup).not.toHaveBeenCalled();
+  });
+});

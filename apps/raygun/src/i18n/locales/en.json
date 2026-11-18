@@ -4907,6 +4907,9 @@
     "crop": "Crop",
     "cropHint": "Drag over the part with the songs",
     "readCrop": "Read this part",
+    "keepCrop": "Keep this part",
+    "rotate": "Rotate",
+    "openShot": "Open {{name}}",
     "settings": {
       "readers": "Reading screenshots",
       "readersHint": "AI providers read song lists best; PaddleOCR reads Chinese and Japanese too and runs on this device.",
@@ -4937,7 +4940,14 @@
     "findBook": "Find the book in your sources",
     "scanAgain": "Scan another",
     "typed": "Or type the number",
-    "look": "Look up"
+    "look": "Look up",
+    "reading": "Reading the code, hold still…",
+    "pickTitle": "Which of these codes is it?",
+    "otherCodes": "Other codes read",
+    "lookingShort": "Looking it up…",
+    "unknownShort": "Nothing known about it",
+    "reads_one": "{{code}} · read once",
+    "reads_other": "{{code}} · read {{count}} times"
   },
   "sourcePicker": {
     "title": "Choose a source",

@@ -1,4 +1,4 @@
-import { Crop, LoaderCircle, Minus, Plus, X } from 'lucide-react';
+import { Crop, LoaderCircle, Minus, Plus, RotateCw, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { FC, PointerEvent as ReactPointerEvent, WheelEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -17,16 +17,21 @@ const clampZoom = (zoom: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
 /**
  * A picture over the whole window to look at closely: zoomed with two fingers, the wheel, a
  * double tap or the buttons. A screenshot can be cropped there (drag over the part to keep) and
- * read again, `onCrop` getting the part as fractions of the picture.
+ * read again, `onCrop` getting the part as fractions of the picture. A screenshot not read yet
+ * (the import's queue) is cropped or turned before reading: `cropLabel` names what keeping the
+ * part does, `onRotate` turns it a quarter clockwise.
  */
 export const PictureInspector: FC<{
   src: string;
   title: string;
   onClose: () => void;
   onCrop?: (box: CropBox) => void;
-  /** The cropped part is being read. */
+  /** The cropped part is being read (or made). */
   reading?: boolean;
-}> = ({ src, title, onClose, onCrop, reading = false }) => {
+  /** The crop button's words; "Read this part" unless given. */
+  cropLabel?: string;
+  onRotate?: () => void;
+}> = ({ src, title, onClose, onCrop, reading = false, cropLabel, onRotate }) => {
   const { t } = useTranslation();
   useBackLayer(true, onClose);
   const [zoom, setZoom] = useState(1);
@@ -117,6 +122,17 @@ export const PictureInspector: FC<{
         >
           <Plus aria-hidden size={18} />
         </button>
+        {onRotate && (
+          <button
+            type="button"
+            aria-label={t('import.rotate')}
+            disabled={reading}
+            onClick={onRotate}
+            className={button}
+          >
+            <RotateCw aria-hidden size={18} />
+          </button>
+        )}
         {onCrop && (
           <button
             type="button"
@@ -171,7 +187,7 @@ export const PictureInspector: FC<{
             className="bg-primary text-background flex items-center gap-2 rounded-full px-5 py-2 font-semibold disabled:opacity-50"
           >
             {reading && <LoaderCircle aria-hidden size={16} className="animate-spin" />}
-            {t(reading ? 'import.reading' : 'import.readCrop')}
+            {reading ? t('import.reading') : (cropLabel ?? t('import.readCrop'))}
           </button>
         </div>
       )}
