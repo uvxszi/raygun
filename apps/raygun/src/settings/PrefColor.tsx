@@ -7,6 +7,32 @@ import { cssColor, hexOf, parseHex, withAlpha } from './playerOptions';
 
 type ColorOption = { value: number; label: string };
 
+/** 0xAARRGGBB's colour as hue (degrees), saturation and brightness (0–1). */
+const rgbToHsv = (color: number): [number, number, number] => {
+  const red = ((color >>> 16) & 0xff) / 255;
+  const green = ((color >>> 8) & 0xff) / 255;
+  const blue = (color & 0xff) / 255;
+  const max = Math.max(red, green, blue);
+  const span = max - Math.min(red, green, blue);
+  let hue = 0;
+  if (span > 0) {
+    if (max === red) hue = ((green - blue) / span) % 6;
+    else if (max === green) hue = (blue - red) / span + 2;
+    else hue = (red - green) / span + 4;
+  }
+  return [(hue * 60 + 360) % 360, max === 0 ? 0 : span / max, max];
+};
+
+/** Hue (degrees), saturation and brightness (0–1) as 0xRRGGBB. */
+const hsvToRgb = ([hue, saturation, value]: [number, number, number]): number => {
+  const part = (shift: number) => {
+    const at = (shift + hue / 60) % 6;
+    return value - value * saturation * Math.max(0, Math.min(at, 4 - at, 1));
+  };
+  const byte = (channel: number) => Math.round(channel * 255);
+  return (byte(part(5)) << 16) | (byte(part(3)) << 8) | byte(part(1));
+};
+
 const Swatch: FC<{ color: number; className?: string }> = ({ color, className = 'size-5' }) => (
   <span
     aria-hidden
@@ -62,11 +88,14 @@ export const PrefColor: FC<{
   const own = ownChosen || !current;
   // What shows while a colour is picked or typed, before it's kept.
   const [draft, setDraft] = useState<number | null>(null);
-  const shown = draft ?? value;
   const [hex, setHex] = useState<string | null>(null);
   const hexId = useId();
   // A colour of one's own starts opaque, or half see-through for a background that was none.
-  const alpha = (shown >>> 24) & 0xff;
+  const alpha = ((draft ?? value) >>> 24) & 0xff;
+  // A whole code typed shows at once (the sample at the top left too), before it's kept.
+  const typedRgb = hex === null ? null : parseHex(hex);
+  const shown =
+    typedRgb !== null ? withAlpha(typedRgb, opacity ? alpha || 0x80 : 0xff) : (draft ?? value);
   /**
    * Keeps `next`. A colour picked from the list is kept even when it's the one in use: picking
    * the default colour marks it chosen, over a subtitle file's own colours.
@@ -82,6 +111,35 @@ export const PrefColor: FC<{
   const slider = useCommit((text) =>
     keep(withAlpha(shown, Math.round((Number(text) / 100) * 255))),
   );
+  // Hue, saturation and brightness: the sample and the subtitles follow as each moves, kept when
+  // it's let go (the system's colour dialog only answers once it closes).
+  const hsv = rgbToHsv(shown);
+  const withHsv = (channel: 0 | 1 | 2, text: string) => {
+    const next: [number, number, number] = [...hsv];
+    next[channel] = Number(text) / (channel === 0 ? 1 : 100);
+    // A hue moved on a grey takes full colour, so the move shows (as the phone's picker).
+    if (channel === 0 && next[1] < 0.05) next[1] = 1;
+    if (channel !== 2 && next[2] < 0.05) next[2] = 1;
+    return withAlpha(hsvToRgb(next), opacity ? alpha || 0x80 : 0xff);
+  };
+  const hueCommit = useCommit((text) => keep(withHsv(0, text)));
+  const saturationCommit = useCommit((text) => keep(withHsv(1, text)));
+  const brightnessCommit = useCommit((text) => keep(withHsv(2, text)));
+  const hsvRows = [
+    { channel: 0 as const, name: t('settings.player.hue'), max: 359, ref: hueCommit },
+    {
+      channel: 1 as const,
+      name: t('settings.player.saturation'),
+      max: 100,
+      ref: saturationCommit,
+    },
+    {
+      channel: 2 as const,
+      name: t('settings.player.brightness'),
+      max: 100,
+      ref: brightnessCommit,
+    },
+  ];
   const typed = () => {
     if (hex === null) return;
     const rgb = parseHex(hex);
@@ -196,6 +254,23 @@ export const PrefColor: FC<{
                   className="bg-surface w-28 rounded-lg px-2 py-1.5 font-mono text-sm uppercase outline-none focus:ring-1"
                 />
               </div>
+              {hsvRows.map((row) => (
+                <label key={row.channel} className="flex items-center gap-3 text-sm">
+                  <span className="w-20 shrink-0">{row.name}</span>
+                  <input
+                    ref={row.ref}
+                    type="range"
+                    min={0}
+                    max={row.max}
+                    value={Math.round(hsv[row.channel] * (row.channel === 0 ? 1 : 100))}
+                    onChange={(event) => {
+                      setHex(null);
+                      setDraft(withHsv(row.channel, event.target.value));
+                    }}
+                    className="accent-primary w-full"
+                  />
+                </label>
+              ))}
               {opacity && (
                 <label className="flex items-center gap-3 text-sm">
                   <span className="w-20 shrink-0">{t('settings.player.opacity')}</span>

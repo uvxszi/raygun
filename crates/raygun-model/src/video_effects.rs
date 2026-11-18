@@ -51,8 +51,24 @@ pub struct PictureEffects {
     /// In-between frames made from the motion between two (about 60 a second, at most the
     /// screen's), so pans and movement look smoother.
     pub smooth_motion: bool,
+    /// How smooth motion makes its in-between frames (only while it's on).
+    pub motion_model: MotionModel,
     /// A watermark taken out of a box of the picture (per title; off unless turned on).
     pub watermark: WatermarkRemoval,
+}
+
+/// Smooth motion's ways of making in-between frames (the Smooth Motion chip's shaders).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MotionModel {
+    /// The cheapest: two frames blended where they barely move, the nearer frame repeated
+    /// elsewhere.
+    Blend,
+    /// The motion followed, with occlusions, unsure blocks and the picture's edges handled.
+    #[default]
+    Balanced,
+    /// As balanced, with a finer search and another refinement: sharper on fast detail, slower.
+    Sharp,
 }
 
 /// The box's sides are in ten-thousandths of the picture's, from its top left.
@@ -136,8 +152,10 @@ impl Default for VideoSound {
 impl PictureEffects {
     /// Nothing changed: the picture plays as it is (a watermark box that's off changes nothing).
     pub fn is_neutral(&self) -> bool {
+        // The motion model only matters while smooth motion is on.
         let rest = Self {
             watermark: WatermarkRemoval::default(),
+            motion_model: MotionModel::default(),
             ..*self
         };
         rest == Self::default() && !self.watermark.is_active()
@@ -199,6 +217,16 @@ mod tests {
             ..PictureEffects::default()
         };
         assert!(!warm.is_neutral());
+        // A motion model chosen changes nothing while smooth motion is off.
+        let sharp = PictureEffects {
+            motion_model: MotionModel::Sharp,
+            ..PictureEffects::default()
+        };
+        assert!(sharp.is_neutral());
+        let parsed: PictureEffects =
+            serde_json::from_str(r#"{"smoothMotion": true, "motionModel": "blend"}"#).unwrap();
+        assert_eq!(parsed.motion_model, MotionModel::Blend);
+        assert!(!parsed.is_neutral());
     }
 
     #[test]

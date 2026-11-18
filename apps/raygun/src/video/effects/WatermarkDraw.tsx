@@ -15,13 +15,16 @@ type Props = {
 };
 
 /**
- * Drawing the watermark remover's box over the desktop player's picture: a drag draws it, Escape
- * (or a click without a drag) leaves the box as it was.
+ * Drawing the watermark remover's box over the desktop player's picture, the player's controls
+ * hidden meanwhile: a drag draws it (another drag draws it again), Done keeps it, Cancel or Escape
+ * leaves the box as it was.
  */
 export const WatermarkDraw: FC<Props> = ({ picture, current, onDone, onCancel }) => {
   const { t } = useTranslation();
   const layer = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ start: Point; end: Point } | null>(null);
+  /** The box drawn so far, kept until Done. */
+  const [drawnBox, setDrawnBox] = useState<Box | null>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -37,8 +40,8 @@ export const WatermarkDraw: FC<Props> = ({ picture, current, onDone, onCancel })
     const rect = layer.current?.getBoundingClientRect();
     return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) };
   };
-  const drawn = picture && drag ? boxFromDrag(drag.start, drag.end, picture) : null;
-  const outline = picture ? (drawn ?? current) : null;
+  const dragging = picture && drag ? boxFromDrag(drag.start, drag.end, picture) : null;
+  const outline = picture ? (dragging ?? drawnBox ?? current) : null;
   const rect = outline && picture ? shownBox(outline, picture) : null;
 
   return (
@@ -64,8 +67,7 @@ export const WatermarkDraw: FC<Props> = ({ picture, current, onDone, onCancel })
         if (!drag || !picture) return;
         const box = boxFromDrag(drag.start, at(event), picture);
         setDrag(null);
-        if (box) onDone(box);
-        else onCancel();
+        if (box) setDrawnBox(box);
       }}
       onClick={(event) => event.stopPropagation()}
     >
@@ -79,6 +81,27 @@ export const WatermarkDraw: FC<Props> = ({ picture, current, onDone, onCancel })
           style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
         />
       )}
+      <div
+        className="absolute inset-x-0 bottom-8 flex justify-center gap-3"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-full bg-black/60 px-4 py-2 text-sm font-medium text-white hover:bg-black/80"
+        >
+          {t('videoPlayer.cancel')}
+        </button>
+        <button
+          type="button"
+          disabled={!drawnBox}
+          onClick={() => drawnBox && onDone(drawnBox)}
+          className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black disabled:opacity-40"
+        >
+          {t('videoPlayer.done')}
+        </button>
+      </div>
     </div>
   );
 };

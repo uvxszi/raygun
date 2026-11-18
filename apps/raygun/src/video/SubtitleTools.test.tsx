@@ -10,6 +10,12 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const { commands } = bindingsMock;
 
+/** What the player asked Rust to keep (`state` and `prefs` requests). */
+const requests = () =>
+  commands.videoPlayerReport.mock.calls
+    .map(([json]) => JSON.parse(json as string) as Record<string, unknown>)
+    .filter((report) => report.state === 'request');
+
 const MOVIE = {
   id: 'stremio:movie:tt1',
   url: 'http://127.0.0.1:1/media/t/https/cdn.example/movie.mp4',
@@ -96,6 +102,42 @@ describe('AI subtitles and translations in the desktop player', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('gives the second subtitles a delay and a style of their own, kept for the title', async () => {
+    const user = userEvent.setup();
+    const { player, video, panel } = await openPanel([ENGLISH]);
+    await user.click(within(panel).getByRole('tab', { name: 'Second subtitles' }));
+    await user.click(within(panel).getByRole('menuitemradio', { name: /^English/ }));
+    playAt(video, 2);
+    expect(within(player).getByTestId('second-subtitle-lines')).toHaveTextContent('Hello there');
+
+    // Their own delay: the main subtitles' stays as it was.
+    const delay = within(panel).getByRole('textbox', {
+      name: "Second subtitles' delay in seconds",
+    });
+    await user.clear(delay);
+    await user.type(delay, '2{Enter}');
+    expect(requests()).toContainEqual(
+      expect.objectContaining({ action: 'state', change: { secondSubtitleDelayMs: 2_000 } }),
+    );
+    playAt(video, 2.5);
+    expect(within(player).queryByTestId('second-subtitle-lines')).toBeNull();
+    playAt(video, 3.5);
+    expect(within(player).getByTestId('second-subtitle-lines')).toHaveTextContent('Hello there');
+
+    // Their own style, from their Style card.
+    await user.click(within(panel).getByRole('button', { name: /Second subtitles' style/ }));
+    const style = await within(player).findByRole('region', { name: "Second subtitles' style" });
+    await user.click(within(style).getByRole('switch', { name: 'Bold' }));
+    expect(requests()).toContainEqual(
+      expect.objectContaining({
+        action: 'state',
+        change: { secondSubtitleStyle: expect.objectContaining({ bold: true, position: 0 }) },
+      }),
+    );
+    const line = within(player).getByTestId('second-subtitle-lines').querySelector('span');
+    expect(line).toHaveStyle({ fontWeight: '700' });
   });
 
   it('downloads the speech model in place when transcription isn’t set up', async () => {
@@ -289,9 +331,13 @@ describe('AI subtitles and translations in the desktop player', () => {
     playAt(video, 1.5);
     expect(within(player).getByTestId('subtitle-lines')).toHaveTextContent('Hallo');
 
-    // The original stays a choice for the second subtitles, at the top: a tab of their own.
+    // The original stays a choice for the second subtitles, at the top: a tab of their own, with
+    // the same tools, a delay and a style of their own.
     await user.click(within(panel).getByRole('tab', { name: 'Second subtitles' }));
-    expect(within(panel).queryByRole('button', { name: 'Translate subtitles' })).toBeNull();
+    expect(within(panel).getByRole('button', { name: 'Translate subtitles' })).toBeInTheDocument();
+    expect(
+      within(panel).getByRole('button', { name: /Second subtitles' style/ }),
+    ).toBeInTheDocument();
     await user.click(within(panel).getByRole('menuitemradio', { name: /^English/ }));
     expect(within(panel).getByRole('menuitemradio', { name: /^English/ })).toHaveAttribute(
       'aria-checked',

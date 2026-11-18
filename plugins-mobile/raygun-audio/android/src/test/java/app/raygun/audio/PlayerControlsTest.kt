@@ -52,4 +52,26 @@ class PlayerControlsTest {
         assertTrue(sameSpeed(0.3f, (25 + 1 * 5) / 100f))
         assertFalse(sameSpeed(1.25f, 1.3f))
     }
+
+    @Test
+    fun pausingWhileItBuffersKeepsTheRingAndStaysPaused() {
+        val pause = WaitPause()
+        // Buffering while playing: the ring shows.
+        assertTrue(pause.ringShown(playWhenReady = true, buffering = true))
+        // Paused during it: the ring still shows how the buffering goes.
+        pause.pressed(playing = false, buffering = true)
+        assertTrue(pause.paused)
+        assertTrue(pause.ringShown(playWhenReady = false, buffering = true))
+        // The buffering ends: a plain pause, no ring.
+        pause.followed(buffering = false)
+        assertFalse(pause.paused)
+        assertFalse(pause.ringShown(playWhenReady = false, buffering = false))
+        // Played again during buffering: the ring as for any wait.
+        pause.pressed(playing = false, buffering = true)
+        pause.pressed(playing = true, buffering = true)
+        assertFalse(pause.paused)
+        assertTrue(pause.ringShown(playWhenReady = true, buffering = true))
+        // A pause that isn't during buffering shows no ring.
+        assertFalse(WaitPause().ringShown(playWhenReady = false, buffering = true))
+    }
 }

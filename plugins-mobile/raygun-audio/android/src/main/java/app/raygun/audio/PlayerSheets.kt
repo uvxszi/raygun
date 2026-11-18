@@ -262,6 +262,26 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val live = host.liveTracks
         val second = host.second.current
         val secondLive = host.second.liveId
+        // Everything the main subtitles have: what adds subtitles (AI subtitles and translations
+        // made here show second), their own delay and their own style, kept for the title.
+        sheet.subtitleTools(host, listOf(
+            SubtitleTool(R.drawable.raygun_ic_note_add, label("addSubtitleFile", "Add a subtitle file"), null) {
+                sheet.dismiss()
+                host.pickSubtitleFile()
+            },
+            SubtitleTool(R.drawable.raygun_ic_auto_awesome, label("aiTranscribe", "Transcribe with AI"), transcribeDetail()) {
+                transcribe(second = true)
+            },
+            SubtitleTool(R.drawable.raygun_ic_translate, label("translate", "Translate subtitles"), translateDetail()) {
+                translate(second = true)
+            },
+        ))
+        sheet.delayField(host, host.state.secondSubtitleDelayMs, label("secondDelaySeconds", "Second subtitles' delay in seconds")) { delay ->
+            host.setSecondSubtitleDelay(delay)
+            drawSubtitles()
+        }
+        sheet.styleCard(host, host.secondLook()) { style(second = true) }
+        sheet.header(label("secondSubtitles", "Second subtitles"))
         sheet.row(label("off", "Off"), selected = second == null && secondLive == null) {
             host.second.clear()
             host.remember(JSONObject().put("secondarySubtitle", JSONObject.NULL))
@@ -368,9 +388,15 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         return label("translateInto", "Into {n}", languageName(translateLanguage()) ?: translateLanguage())
     }
 
-    /** Transcribe with AI: set up (the speech model downloads here), start, stop, progress. */
-    fun transcribe() {
+    /**
+     * Transcribe with AI: set up (the speech model downloads here), start, stop, progress. With
+     * `second`, the AI subtitles show as the second subtitles.
+     */
+    fun transcribe(second: Boolean = false) {
         val live = host.liveTracks
+        val again = { transcribe(second) }
+        val shownAs = { id: String -> if (second) host.second.liveId == id else live.primary == id }
+        val showIt = { id: String -> if (second) host.second.showLive(id) else live.show(id) }
         val sheet = PlayerSheet(host, label("aiTranscribe", "Transcribe with AI"))
         val transcription = live.transcription
         val track = live.tracks[LiveSubtitles.AI_TRACK]
@@ -385,32 +411,32 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                     // Stops it at once; what came so far is deleted and the sheet offers it again.
                     sheet.row(label("aiDownloadCancel", "Cancel the download")) {
                         live.cancelTranscriptionSetUp()
-                        transcribe()
+                        again()
                     }
                 } else if (model != null) {
                     sheet.row(
                         label("aiDownload", "Download the speech model"),
                         formatSize(model.optLong("bytes")),
                     ) {
-                        live.setUpTranscription()
-                        transcribe()
+                        live.setUpTranscription(second)
+                        again()
                     }
                 }
                 transcription.text("error")?.let { sheet.row(it.lineSequence().first(), onClick = null) }
                 aiSettingsRow(sheet)
             }
             else -> {
-                track?.let { sheet.row(liveName(it), liveDetail(it), selected = live.primary == it.id) { live.show(it.id); transcribe() } }
+                track?.let { sheet.row(liveName(it), liveDetail(it), selected = shownAs(it.id)) { showIt(it.id); again() } }
                 if (track?.status?.running == true) {
                     sheet.row(label("aiStop", "Stop transcribing")) { live.stop(track) }
                 } else {
                     val more = (track?.cues?.isNotEmpty() == true)
                     sheet.row(label(if (more) "aiContinue" else "aiStart", if (more) "Keep transcribing from here" else "Transcribe from here")) {
                         val online = transcription.optString("engine") == "online"
-                        if (online && !transcription.optBoolean("confirmed")) confirmOnline() else {
-                            live.transcribe()
+                        if (online && !transcription.optBoolean("confirmed")) confirmOnline(second) else {
+                            live.transcribe(second = second)
                             host.showHint(label("aiStarting", "Transcribing from here…"))
-                            transcribe()
+                            again()
                         }
                     }
                 }
@@ -422,7 +448,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 sheet.row(label("aiEngine", "Transcribed by"), engine, onClick = if (host.canPip) ({ openAiSettings(sheet) }) else null)
             }
         }
-        watch(sheet, ::transcribe)
+        watch(sheet, again)
         sheet.show()
     }
 
@@ -441,17 +467,17 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     }
 
     /** Online transcription costs money: asked once. */
-    private fun confirmOnline() {
+    private fun confirmOnline(second: Boolean) {
         val sheet = PlayerSheet(host, label("aiTranscribe", "Transcribe with AI"))
         sheet.row(
             label("aiOnlineCost", "This sends the video's sound to your transcription provider, which may charge for it."),
             onClick = null,
         )
         sheet.row(label("aiStart", "Transcribe from here")) {
-            host.liveTracks.transcribe(confirmed = true)
-            transcribe()
+            host.liveTracks.transcribe(confirmed = true, second = second)
+            transcribe(second)
         }
-        sheet.row(label("cancel", "Cancel")) { transcribe() }
+        sheet.row(label("cancel", "Cancel")) { transcribe(second) }
         sheet.show()
     }
 
@@ -463,13 +489,15 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
      * Translate subtitles: the main subtitles into a language, on this device or with a translator
      * from Settings → AI; translations made or being made, to show or stop.
      */
-    fun translate() {
+    fun translate(second: Boolean = false) {
         val live = host.liveTracks
+        val again = { translate(second) }
         val sheet = PlayerSheet(host, label("translate", "Translate subtitles"))
         live.tracks.values.filter { it.kind == "translation" }.forEach { track ->
-            sheet.row(liveName(track), liveDetail(track), selected = live.primary == track.id) {
-                live.show(track.id)
-                translate()
+            val shown = if (second) host.second.liveId == track.id else live.primary == track.id
+            sheet.row(liveName(track), liveDetail(track), selected = shown) {
+                if (second) host.second.showLive(track.id) else live.show(track.id)
+                again()
             }
             if (track.status.running) sheet.row(label("translateStop", "Stop translating")) { live.stop(track) }
         }
@@ -488,14 +516,14 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 val picked = tags.indexOfFirst { it.equals(language, ignoreCase = true) }.coerceAtLeast(0)
                 sheet.chips(tags.map { languageName(it) ?: it }, picked) { index ->
                     live.language = tags[index]
-                    translate()
+                    again()
                 }
                 sheet.header(label("translateWith", "Translate with"))
                 val device = translation.optJSONArray("device").strings().any { sameLanguage(it, language) }
                 sheet.row(
                     label("translateDevice", "This device"),
                     if (device) label("translateDeviceHint", "Free, offline; models download once") else label("translateNoModel", "No model here for this language"),
-                    onClick = if (device) ({ startTranslation("device") }) else null,
+                    onClick = if (device) ({ startTranslation("device", second) }) else null,
                 )
                 val providers = translation.optJSONArray("translators")
                 for (index in 0 until (providers?.length() ?: 0)) {
@@ -504,12 +532,12 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                     sheet.row(
                         provider.optString("name"),
                         if (supported) null else label("translateNeedsKey", "Needs its key in Settings → AI"),
-                        onClick = if (supported) ({ startTranslation(provider.optString("id")) }) else null,
+                        onClick = if (supported) ({ startTranslation(provider.optString("id"), second) }) else null,
                     )
                 }
             }
         }
-        watch(sheet, ::translate)
+        watch(sheet, again)
         sheet.show()
     }
 
@@ -546,16 +574,16 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     private fun mainSidecar(track: TrackRef): Sidecar? = host.sidecarOf(track.format)
 
     /** Reads the main subtitles (a file, off the main thread) and asks Rust to translate them. */
-    private fun startTranslation(translator: String) {
+    private fun startTranslation(translator: String, second: Boolean) {
         val live = host.liveTracks
         val language = translateLanguage()
         val primary = live.primary?.let { live.tracks[it] }
         val selected = host.tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { host.tracks.chosen(it) }
         val sidecar = selected?.let { mainSidecar(it) }
         if (primary?.kind == "ai" || (primary == null && sidecar != null && live.isAiFile(sidecar))) {
-            live.translate(JSONObject().put("kind", "ai"), language, translator)
+            live.translate(JSONObject().put("kind", "ai"), language, translator, second = second)
             host.showHint(label("translating", "Translating…"))
-            translate()
+            translate(second)
             return
         }
         if (sidecar == null) return
@@ -570,11 +598,11 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                         .put("label", name)
                         .put("language", sidecar.language ?: JSONObject.NULL)
                         .put("cues", cues)
-                    live.translate(source, language, translator)
+                    live.translate(source, language, translator, second = second)
                 }.onFailure {
                     host.showHint(label("secondFailed", "Couldn't load those subtitles") + "\n" + (it.message ?: it.javaClass.simpleName))
                 }
-                if (host.sheetShown(aiSheet)) translate()
+                if (host.sheetShown(aiSheet)) translate(second)
             }
         }
     }
@@ -591,86 +619,103 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 
-    fun style() {
-        val look = host.prefs.style
-        val sheet = PlayerSheet(host, label("style", "Style"))
-        // The system's caption families, each name in its own font; the lines change at once,
-        // the second subtitles too.
+    /**
+     * The subtitles' style: the main ones' (kept in Settings), or with `second` the second ones'
+     * (kept for the title; until changed they look like the main ones, at the top).
+     */
+    fun style(second: Boolean = false) {
+        val look = if (second) host.secondLook() else host.prefs.style
+        val update: (SubtitleLook) -> Unit = { next -> if (second) host.updateSecondStyle(next) else host.updateStyle(next) }
+        val again = { style(second) }
+        val sheet = PlayerSheet(host, if (second) label("secondStyle", "Second subtitles' style") else label("style", "Style"))
+        // The system's caption families, each name in its own font; the lines change at once.
         sheet.header(label("font", "Font"))
         sheet.fontChips(host, look.font) { font ->
-            host.updateStyle(look.copy(font = font))
-            style()
+            update(look.copy(font = font))
+            again()
         }
         sheet.stepper(label("size", "Size"), "${look.size}%", listOf(
-            "−" to { host.updateStyle(look.copy(size = (look.size - 10).coerceAtLeast(50))); style() },
-            "+" to { host.updateStyle(look.copy(size = (look.size + 10).coerceAtMost(200))); style() },
+            "−" to { update(look.copy(size = (look.size - 10).coerceAtLeast(50))); again() },
+            "+" to { update(look.copy(size = (look.size + 10).coerceAtMost(200))); again() },
         ))
+        // The main subtitles' distance from the picture's foot; the second ones' from its top.
         sheet.stepper(label("height", "Height"), "${look.position}%", listOf(
-            "−" to { host.updateStyle(look.copy(position = (look.position - 2).coerceAtLeast(0))); style() },
-            "+" to { host.updateStyle(look.copy(position = (look.position + 2).coerceAtMost(40))); style() },
+            "−" to { update(look.copy(position = (look.position - 2).coerceAtLeast(0))); again() },
+            "+" to { update(look.copy(position = (look.position + 2).coerceAtMost(40))); again() },
         ))
         // The widest a line gets before it wraps, as a share of the picture's width.
         sheet.stepper(label("lineWidth", "Line width"), "${look.maxWidth}%", listOf(
-            "−" to { host.updateStyle(look.copy(maxWidth = (look.maxWidth - 5).coerceAtLeast(40))); style() },
-            "+" to { host.updateStyle(look.copy(maxWidth = (look.maxWidth + 5).coerceAtMost(100))); style() },
+            "−" to { update(look.copy(maxWidth = (look.maxWidth - 5).coerceAtLeast(40))); again() },
+            "+" to { update(look.copy(maxWidth = (look.maxWidth + 5).coerceAtMost(100))); again() },
         ))
         // Each colour beside its name, and Custom for one of the viewer's own. A colour picked
         // here wins over the file's own colours, white too.
         val textColor = label("textColor", "Text colour")
         sheet.header(textColor)
         sheet.swatches(host, TEXT_SWATCHES, look.textColor, { color ->
-            host.updateStyle(look.withText(color))
-            style()
+            update(look.withText(color))
+            again()
         }) {
-            customColor(textColor, look.textColor, opacity = false) { base, color -> base.withText(color) }
+            customColor(textColor, look.textColor, opacity = false, second) { base, color -> base.withText(color) }
         }
         sheet.header(label("edge", "Edge"))
         sheet.chips(EDGES.map { edgeName(it) }, EDGES.indexOf(look.edge)) { picked ->
-            host.updateStyle(look.copy(edge = EDGES[picked]))
-            style()
+            update(look.copy(edge = EDGES[picked]))
+            again()
         }
         if (look.edge != "none") {
             val edgeColor = label("edgeColor", "Edge colour")
             sheet.header(edgeColor)
             sheet.swatches(host, EDGE_SWATCHES, look.edgeColor, { color ->
-                host.updateStyle(look.copy(edgeColor = color))
-                style()
+                update(look.copy(edgeColor = color))
+                again()
             }) {
-                customColor(edgeColor, look.edgeColor, opacity = false) { base, color -> base.copy(edgeColor = color) }
+                customColor(edgeColor, look.edgeColor, opacity = false, second) { base, color -> base.copy(edgeColor = color) }
             }
         }
         val background = label("background", "Background")
         sheet.header(background)
         sheet.swatches(host, BACKGROUND_SWATCHES, look.backgroundColor, { color ->
-            host.updateStyle(look.withBackground(color))
-            style()
+            update(look.withBackground(color))
+            again()
         }) {
-            customColor(background, look.backgroundColor, opacity = true) { base, color -> base.withBackground(color) }
+            customColor(background, look.backgroundColor, opacity = true, second) { base, color -> base.withBackground(color) }
         }
         sheet.row(label("bold", "Bold"), selected = look.bold) {
-            host.updateStyle(look.copy(bold = !look.bold))
-            style()
+            update(look.copy(bold = !look.bold))
+            again()
         }
         sheet.row(label("italic", "Italic"), selected = look.italic) {
-            host.updateStyle(look.copy(italic = !look.italic))
-            style()
+            update(look.copy(italic = !look.italic))
+            again()
         }
-        sheet.row(label("reset", "Reset")) {
-            host.updateStyle(SubtitleLook())
-            style()
+        sheet.row(label(if (second) "secondStyleReset" else "reset", if (second) "Like the main subtitles" else "Reset")) {
+            if (second) host.updateSecondStyle(null) else host.updateStyle(SubtitleLook())
+            again()
         }
         sheet.show()
     }
 
     /**
      * A colour of the viewer's own for one part of the style ([ColorPicker]): shown on the
-     * subtitles as it changes and kept in Settings once picked; Done goes back to Style.
+     * subtitles as it changes and kept once picked; Done goes back to the style.
      */
-    private fun customColor(title: String, current: Int, opacity: Boolean, change: (SubtitleLook, Int) -> SubtitleLook) {
+    private fun customColor(
+        title: String,
+        current: Int,
+        opacity: Boolean,
+        second: Boolean,
+        change: (SubtitleLook, Int) -> SubtitleLook,
+    ) {
         ColorPicker(host, title, current, opacity, { color, save ->
-            val next = change(host.prefs.style, color)
-            if (save) host.updateStyle(next) else host.previewStyle(next)
-        }, ::style).show()
+            if (second) {
+                val next = change(host.secondLook(), color)
+                if (save) host.updateSecondStyle(next) else host.previewSecondStyle(next)
+            } else {
+                val next = change(host.prefs.style, color)
+                if (save) host.updateStyle(next) else host.previewStyle(next)
+            }
+        }, { style(second) }).show()
     }
 
     private fun edgeName(edge: String) =

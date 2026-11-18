@@ -2,7 +2,9 @@ package app.raygun.audio
 
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -42,6 +44,31 @@ internal class LumaImage(val width: Int, val height: Int, val values: FloatArray
 
 /** A vector found by the search: the motion in a level's pixels and how badly its patch matched. */
 internal data class FlowMatch(val x: Double, val y: Double, val cost: Double)
+
+/** A flow field on the CPU: a vector and cost per pixel of the flow's level (row by row). */
+internal class FlowField(val width: Int, val height: Int, val matches: List<FlowMatch>) {
+    fun at(x: Int, y: Int): FlowMatch = matches[y.coerceIn(0, height - 1) * width + x.coerceIn(0, width - 1)]
+
+    /** The vector between pixels (centres at whole numbers), as the GPU reads the flow linearly. */
+    fun sample(x: Double, y: Double): Pair<Double, Double> {
+        val left = floor(x).toInt()
+        val top = floor(y).toInt()
+        val fx = x - left
+        val fy = y - top
+        fun lerp(pick: (FlowMatch) -> Double): Double =
+            (pick(at(left, top)) * (1 - fx) + pick(at(left + 1, top)) * fx) * (1 - fy) +
+                (pick(at(left, top + 1)) * (1 - fx) + pick(at(left + 1, top + 1)) * fx) * fy
+        return lerp { it.x } to lerp { it.y }
+    }
+}
+
+/** What a model searches: radii coarsest first, then the refinement steps. */
+internal data class MotionPlan(val radii: IntArray, val refine: DoubleArray) {
+    override fun equals(other: Any?): Boolean =
+        other is MotionPlan && radii.contentEquals(other.radii) && refine.contentEquals(other.refine)
+
+    override fun hashCode(): Int = radii.contentHashCode() * 31 + refine.contentHashCode()
+}
 
 /**
  * Smooth motion's numbers (`glsl/fx_motion_*.glsl`, and `motionMath.ts` on desktop): the flow's
@@ -134,15 +161,33 @@ internal object MotionMath {
         return nearer + (both - nearer) * trust(differ)
     }
 
-    /** The mean difference of 3 × 3 patches, the frame before at -flow/2 and the next at +flow/2. */
+    /** A patch with fewer taps inside both frames than this matches nothing ([NO_MATCH]). */
+    const val FEWEST_TAPS = 3
+    const val NO_MATCH = 1.0
+
+    /** Whether a point (in pixels, centres at whole numbers) lies on the picture. */
+    fun onPicture(image: LumaImage, x: Double, y: Double): Boolean =
+        x >= -0.5 && y >= -0.5 && x <= image.width - 0.5 && y <= image.height - 0.5
+
+    /**
+     * The mean difference of 3 × 3 patches, the frame before at -flow/2 and the next at +flow/2;
+     * taps outside either frame don't count.
+     */
     fun patchCost(prev: LumaImage, cur: LumaImage, x: Double, y: Double, flowX: Double, flowY: Double): Double {
         var sum = 0.0
+        var taps = 0
         for (dy in -1..1) {
             for (dx in -1..1) {
-                sum += abs(prev.at(x - flowX / 2 + dx, y - flowY / 2 + dy) - cur.at(x + flowX / 2 + dx, y + flowY / 2 + dy))
+                val bx = x - flowX / 2 + dx
+                val by = y - flowY / 2 + dy
+                val ax = x + flowX / 2 + dx
+                val ay = y + flowY / 2 + dy
+                if (!onPicture(prev, bx, by) || !onPicture(cur, ax, ay)) continue
+                sum += abs(prev.at(bx, by) - cur.at(ax, ay))
+                taps += 1
             }
         }
-        return sum / 9
+        return if (taps < FEWEST_TAPS) NO_MATCH else sum / taps
     }
 
     /** The search at one pixel of a level (`fx_motion_search.glsl`), from `start`. */
@@ -171,26 +216,213 @@ internal object MotionMath {
         return if (still <= best.cost + ZERO_BIAS) FlowMatch(0.0, 0.0, still) else best
     }
 
+    /** The flow at a pixel of the finest level, coarse to fine as the passes find it (without the median). */
+    fun flowAt(prev: LumaImage, cur: LumaImage, x: Int, y: Int): FlowMatch =
+        flowField(prev, cur, plan(MOTION_BALANCED)!!).at(x, y)
+
+    // ---- The models, the steadied flow and the in-between frames (fx_motion_smooth/warp.glsl) ----
+
+    const val MOTION_BLEND = "blend"
+    const val MOTION_BALANCED = "balanced"
+    const val MOTION_SHARP = "sharp"
+
+    /** Smooth motion's models (`MotionModel` in raygun-model), in `uModel`'s order. */
+    val MODELS = listOf(MOTION_BLEND, MOTION_BALANCED, MOTION_SHARP)
+
+    fun modelNumber(model: String): Int = MODELS.indexOf(model).takeIf { it >= 0 } ?: 1
+
+    /** What each model searches; none for blend, which makes its frames without the flow. */
+    fun plan(model: String): MotionPlan? = when (model) {
+        MOTION_BLEND -> null
+        MOTION_SHARP -> MotionPlan(intArrayOf(3, 2, 2), doubleArrayOf(0.5, 0.25))
+        else -> MotionPlan(RADII.copyOf(), doubleArrayOf(0.5))
+    }
+
+    const val MAX_MOTION = 40.0
+    const val EDGE_SIGMA = 0.06
+    const val VECTOR_SIGMA = 2.0
+    const val COST_SIGMA = 0.08
+    const val SPREAD_WEIGHT = 0.02
+    const val BLEND_STILL = 0.03
+    const val UNSURE_FROM = 0.1
+    const val UNSURE_TO = 0.2
+    const val AGREE_FROM = 1.0
+    const val AGREE_TO = 3.0
+
     /**
-     * The flow at a pixel of the finest level, coarse to fine as the passes find it (without the
-     * median), in the finest level's pixels.
+     * One search pass over a level (`fx_motion_search.glsl`): each pixel starts from the best of
+     * the init field's vector there and a coarse texel to each side, and no motion, then searches
+     * round it. `init` is in the finest level's pixels; `scale` this level's size in them.
      */
-    fun flowAt(prev: LumaImage, cur: LumaImage, x: Int, y: Int): FlowMatch {
+    fun searchLevel(prev: LumaImage, cur: LumaImage, init: FlowField?, scale: Int, radius: Int, step: Double): FlowField {
+        val matches = ArrayList<FlowMatch>(prev.width * prev.height)
+        val sides = arrayOf(intArrayOf(0, 0), intArrayOf(-1, 0), intArrayOf(1, 0), intArrayOf(0, -1), intArrayOf(0, 1))
+        for (y in 0 until prev.height) {
+            for (x in 0 until prev.width) {
+                var startX = 0.0
+                var startY = 0.0
+                var startCost = patchCost(prev, cur, x.toDouble(), y.toDouble(), 0.0, 0.0)
+                if (init != null) {
+                    val ratio = init.width.toDouble() / prev.width
+                    val ix = (x + 0.5) * ratio - 0.5
+                    val iy = (y + 0.5) * ratio - 0.5
+                    for ((dx, dy) in sides) {
+                        // Two of this level's pixels away: a coarser level's neighbour.
+                        val (fx, fy) = init.sample(ix + dx * 2 * ratio, iy + dy * 2 * ratio)
+                        val cx = fx / scale
+                        val cy = fy / scale
+                        val cost = patchCost(prev, cur, x.toDouble(), y.toDouble(), cx, cy)
+                        if (cost < startCost) {
+                            startX = cx
+                            startY = cy
+                            startCost = cost
+                        }
+                    }
+                }
+                var best = FlowMatch(startX, startY, startCost)
+                for (sy in -radius..radius) {
+                    for (sx in -radius..radius) {
+                        if (sx == 0 && sy == 0) continue
+                        val fx = startX + sx * step
+                        val fy = startY + sy * step
+                        val cost = patchCost(prev, cur, x.toDouble(), y.toDouble(), fx, fy) +
+                            SEARCH_PENALTY * sqrt((sx * step) * (sx * step) + (sy * step) * (sy * step))
+                        if (cost < best.cost) best = FlowMatch(fx, fy, cost)
+                    }
+                }
+                val still = patchCost(prev, cur, x.toDouble(), y.toDouble(), 0.0, 0.0)
+                if (still <= best.cost + ZERO_BIAS) best = FlowMatch(0.0, 0.0, still)
+                matches += FlowMatch(best.x * scale, best.y * scale, best.cost)
+            }
+        }
+        return FlowField(prev.width, prev.height, matches)
+    }
+
+    /** The whole field as the search passes find it: coarse to fine, then the model's refinements. */
+    fun flowField(prev: LumaImage, cur: LumaImage, plan: MotionPlan): FlowField {
         val prevs = generateSequence(prev) { it.half() }.take(LEVELS).toList()
         val curs = generateSequence(cur) { it.half() }.take(LEVELS).toList()
-        var flowX = 0.0
-        var flowY = 0.0
-        var match = FlowMatch(0.0, 0.0, 0.0)
+        var field: FlowField? = null
         for (level in LEVELS - 1 downTo 0) {
-            val scale = 1 shl level
-            val lx = min(x / scale, prevs[level].width - 1)
-            val ly = min(y / scale, prevs[level].height - 1)
-            match = search(prevs[level], curs[level], lx, ly, flowX / scale, flowY / scale, RADII[LEVELS - 1 - level], 1.0)
-            flowX = match.x * scale
-            flowY = match.y * scale
+            field = searchLevel(prevs[level], curs[level], field, 1 shl level, plan.radii[LEVELS - 1 - level], 1.0)
         }
-        match = search(prevs[0], curs[0], x, y, flowX, flowY, 1, 0.5)
-        return match
+        for (step in plan.refine) field = searchLevel(prev, cur, field, 1, 1, step)
+        return field!!
+    }
+
+    /**
+     * `fx_motion_smooth.glsl`: the vector median over 3 × 3 (also judged by how well it carries the
+     * pixel), then an edge-aware mean round it, cut to [MAX_MOTION].
+     */
+    fun smoothFlow(field: FlowField, prev: LumaImage, cur: LumaImage): FlowField {
+        fun picture(x: Int, y: Int): Double = 0.5 * (prev.at(x.toDouble(), y.toDouble()) + cur.at(x.toDouble(), y.toDouble()))
+        val matches = field.matches.mapIndexed { index, own ->
+            val x = index % field.width
+            val y = index / field.width
+            val around = ArrayList<FlowMatch>(9)
+            val pictures = ArrayList<Double>(9)
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    around += field.at(x + dx, y + dy)
+                    pictures += picture((x + dx).coerceIn(0, field.width - 1), (y + dy).coerceIn(0, field.height - 1))
+                }
+            }
+            var median = around[4]
+            var least = Double.MAX_VALUE
+            for (each in around) {
+                val spread = around.sumOf { other -> hypot(each.x - other.x, each.y - other.y) }
+                val carried = abs(prev.at(x - each.x / 2, y - each.y / 2) - cur.at(x + each.x / 2, y + each.y / 2))
+                val score = spread / 9 * SPREAD_WEIGHT + carried
+                if (score < least) {
+                    least = score
+                    median = each
+                }
+            }
+            var sumX = 0.0
+            var sumY = 0.0
+            var weights = 0.0
+            around.forEachIndexed { at, each ->
+                val alike = (pictures[at] - pictures[4]) / EDGE_SIGMA
+                val near = hypot(each.x - median.x, each.y - median.y) / VECTOR_SIGMA
+                val weight = exp(-(alike * alike) - near * near - each.cost / COST_SIGMA)
+                sumX += each.x * weight
+                sumY += each.y * weight
+                weights += weight
+            }
+            var flowX = if (weights > 1e-4) sumX / weights else median.x
+            var flowY = if (weights > 1e-4) sumY / weights else median.y
+            val size = hypot(flowX, flowY)
+            if (size > MAX_MOTION) {
+                flowX *= MAX_MOTION / size
+                flowY *= MAX_MOTION / size
+            }
+            FlowMatch(flowX, flowY, own.cost)
+        }
+        return FlowField(field.width, field.height, matches)
+    }
+
+    private fun agrees(field: FlowField, flowX: Double, flowY: Double, x: Double, y: Double): Double {
+        val (thereX, thereY) = field.sample(x, y)
+        return 1 - smoothstep(AGREE_FROM, AGREE_TO, hypot(thereX - flowX, thereY - flowY))
+    }
+
+    /**
+     * One pixel of an in-between frame (`fx_motion_warp.glsl`) on luma pictures at the flow's size,
+     * the model's way; `cut` for a scene cut.
+     */
+    fun warpPixel(
+        prev: LumaImage,
+        cur: LumaImage,
+        field: FlowField?,
+        x: Int,
+        y: Int,
+        t: Double,
+        model: String,
+        cut: Boolean = false,
+    ): Double {
+        val here0 = prev.at(x.toDouble(), y.toDouble())
+        val here1 = cur.at(x.toDouble(), y.toDouble())
+        val nearer = if (t < 0.5) here0 else here1
+        if (model == MOTION_BLEND || field == null) {
+            val still = 1 - smoothstep(BLEND_STILL, 2 * BLEND_STILL, abs(here0 - here1))
+            return nearer + (here0 + (here1 - here0) * t - nearer) * still
+        }
+        if (cut) return nearer
+        val own = field.at(x, y)
+        var flowX = own.x
+        var flowY = own.y
+        val size = hypot(flowX, flowY)
+        if (size > MAX_MOTION) {
+            flowX *= MAX_MOTION / size
+            flowY *= MAX_MOTION / size
+        }
+        val fromX = x - t * flowX
+        val fromY = y - t * flowY
+        val toX = x + (1 - t) * flowX
+        val toY = y + (1 - t) * flowY
+        val before = prev.at(fromX, fromY)
+        val after = cur.at(toX, toY)
+        val path = agrees(field, flowX, flowY, x + (0.5 - t) * flowX, y + (0.5 - t) * flowY)
+        val weightBefore = (1 - t) * (if (onPicture(prev, fromX, fromY)) 1.0 else 0.0) * agrees(field, flowX, flowY, fromX, fromY)
+        val weightAfter = t * (if (onPicture(prev, toX, toY)) 1.0 else 0.0) * agrees(field, flowX, flowY, toX, toY)
+        val weights = weightBefore + weightAfter
+        var warped = if (weights > 0) (before * weightBefore + after * weightAfter) / weights else nearer
+        val both = if (min(weightBefore, weightAfter) > 0) 1 - smoothstep(TRUST_FROM, TRUST_TO, abs(before - after)) else 1.0
+        var nearerSide = if (weightBefore >= weightAfter) before else after
+        if (weightBefore > 0 && weightAfter > 0) nearerSide = if (t < 0.5) before else after
+        warped = nearerSide + (warped - nearerSide) * both
+        // A badly matched block is believed where its two samples still agree.
+        val agreed = if (min(weightBefore, weightAfter) > 0) 1 - smoothstep(TRUST_FROM, TRUST_TO, abs(before - after)) else 0.0
+        val sure = path * max(1 - smoothstep(UNSURE_FROM, UNSURE_TO, own.cost), agreed) * (if (weights >= 0.05) 1.0 else 0.0)
+        return nearer + (warped - nearer) * sure
+    }
+
+    /** A whole in-between frame on the CPU: the model's flow (steadied), then each pixel warped. */
+    fun interpolateFrame(prev: LumaImage, cur: LumaImage, t: Double, model: String): LumaImage {
+        val field = plan(model)?.let { smoothFlow(flowField(prev, cur, it), prev, cur) }
+        return LumaImage(prev.width, prev.height, FloatArray(prev.width * prev.height) { index ->
+            warpPixel(prev, cur, field, index % prev.width, index / prev.width, t, model).toFloat()
+        })
     }
 
     /** The finest level's size for a frame at `quality` (an index of [LEVEL_WIDTHS]). */

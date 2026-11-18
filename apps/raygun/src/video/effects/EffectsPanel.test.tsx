@@ -67,6 +67,25 @@ describe('the Effects panel', () => {
     expect(applied()).toMatchObject({ contrast: 0 });
   });
 
+  it('marks settings that match no preset as Custom, which changes nothing', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    // Off matches the untouched picture: no Custom.
+    expect(screen.getByRole('button', { name: 'Off' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: 'Custom' })).toBeNull();
+    fireEvent.change(screen.getByRole('slider', { name: 'Brightness' }), {
+      target: { value: '7' },
+    });
+    const custom = screen.getByRole('button', { name: 'Custom' });
+    expect(custom).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Off' })).toHaveAttribute('aria-pressed', 'false');
+    await user.click(custom);
+    expect(applied()).toMatchObject({ brightness: 7 });
+    // A preset again: no Custom.
+    await user.click(screen.getByRole('button', { name: 'Cinema' }));
+    expect(screen.queryByRole('button', { name: 'Custom' })).toBeNull();
+  });
+
   it('applies presets and looks, and puts everything back with Reset all', async () => {
     const user = userEvent.setup();
     render(<Harness />);

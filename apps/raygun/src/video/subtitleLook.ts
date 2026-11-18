@@ -3,10 +3,11 @@
  * and edges, as Settings → Video player → Subtitles sets them.
  */
 
-import type { SubtitleEdge, SubtitleFont } from '@raygun/bindings';
+import type { SubtitleEdge, SubtitleFont, SubtitleStyle } from '@raygun/bindings';
 import type { CSSProperties } from 'react';
 
 import { INTERFACE_STACK, quoteFamily, useInstalledFamily } from '../fonts/systemFonts';
+import { DEFAULT_SUBTITLE_STYLE } from '../settings/playerOptions';
 import { useSettings } from '../settings/useSettings';
 
 /**
@@ -80,3 +81,14 @@ export const edgeShadow = (edge: SubtitleEdge, color: string, px: number): strin
  */
 export const useSubtitleFamily = (): string | null =>
   useInstalledFamily(useSettings().data?.fonts?.subtitles);
+
+/**
+ * How the second subtitles look: the title's own style for them, else the main subtitles' at the
+ * top of the picture (their height there starts at the top). As `secondLookOf` in the phone's
+ * player (`PlayerPrefs.kt`).
+ */
+export const secondStyleOf = (
+  own: SubtitleStyle | null | undefined,
+  main: Required<SubtitleStyle>,
+): Required<SubtitleStyle> =>
+  own ? { ...DEFAULT_SUBTITLE_STYLE, ...own } : { ...main, position: 0 };

@@ -13,6 +13,9 @@ const TOP_BAR_PX = 64;
 /** Where the second subtitles start, as a share of the picture's height from its top. */
 const TOP_SHARE = 0.06;
 
+/** The second subtitles' place from the picture's top: the start, then their own height. */
+const topShare = (style: Required<SubtitleStyle>) => TOP_SHARE + style.position / 100;
+
 /**
  * Where the lines go: over the picture's own part of the player, at the chosen height in it, as
  * wide as the chosen share of its width (longer lines wrap). Before the player has a size, the
@@ -28,7 +31,7 @@ export const subtitlePlacement = (
   if (!box || box.height <= 0) {
     const sides = { left: 0, right: 0, paddingLeft: `${margin}%`, paddingRight: `${margin}%` };
     return at === 'top'
-      ? { ...sides, top: `${TOP_SHARE * 100}%` }
+      ? { ...sides, top: `${topShare(style) * 100}%` }
       : {
           ...sides,
           bottom: lifted ? `max(${style.position}%, ${BAR_PX}px)` : `${style.position}%`,
@@ -36,7 +39,7 @@ export const subtitlePlacement = (
   }
   const inset = (box.width * margin) / 100;
   const sides = { left: box.left, width: box.width, paddingLeft: inset, paddingRight: inset };
-  if (at === 'top') return { ...sides, top: box.top + box.height * TOP_SHARE };
+  if (at === 'top') return { ...sides, top: box.top + box.height * topShare(style) };
   const foot = box.stageHeight - (box.top + box.height);
   return { ...sides, bottom: foot + (box.height * style.position) / 100 };
 };
@@ -52,7 +55,7 @@ export const subtitleSlide = (
   at: SubtitlePlace,
 ): number => {
   if (!lifted || !box || box.height <= 0) return 0;
-  if (at === 'top') return Math.max(0, TOP_BAR_PX - (box.top + box.height * TOP_SHARE));
+  if (at === 'top') return Math.max(0, TOP_BAR_PX - (box.top + box.height * topShare(style)));
   const foot = box.stageHeight - (box.top + box.height);
   const rise = Math.max(0, BAR_PX - (foot + (box.height * style.position) / 100));
   return rise > 0 ? -rise : 0;

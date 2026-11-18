@@ -5381,6 +5381,18 @@ export type MixSummary = {
  */
 export type MotionLevel = "off" | "calm" | "lively";
 
+/**  Smooth motion's ways of making in-between frames (the Smooth Motion chip's shaders). */
+export type MotionModel = 
+/**
+ *  The cheapest: two frames blended where they barely move, the nearer frame repeated
+ *  elsewhere.
+ */
+"blend" | 
+/**  The motion followed, with occlusions, unsure blocks and the picture's edges handled. */
+"balanced" | 
+/**  As balanced, with a finer search and another refinement: sharper on fast detail, slower. */
+"sharp";
+
 /**  An album a music source knows (M46.9): Search → Music → Albums. */
 export type MusicAlbum = MusicAlbum_Serialize | MusicAlbum_Deserialize;
 
@@ -5906,6 +5918,8 @@ export type PictureEffects = {
 	 *  screen's), so pans and movement look smoother.
 	 */
 	smoothMotion?: boolean,
+	/**  How smooth motion makes its in-between frames (only while it's on). */
+	motionModel?: MotionModel,
 	/**  A watermark taken out of a box of the picture (per title; off unless turned on). */
 	watermark?: WatermarkRemoval,
 };

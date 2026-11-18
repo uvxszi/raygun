@@ -207,7 +207,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     private lateinit var seekBubble: TextView
     /** A small pill at the top while the picture is held for speed. */
     private lateinit var speedBadge: TextView
-    private lateinit var loading: PlayerLoading
+    internal lateinit var loading: PlayerLoading
     private lateinit var problem: PlayerProblem
     private lateinit var nextPrompt: LinearLayout
     private lateinit var nextText: TextView
@@ -919,9 +919,9 @@ class VideoPlayerActivity : AppCompatActivity() {
         controls.setTitle(heading)
         controls.setSeekStep(seekStepMs)
         controls.setAudioChoice(false)
-        applySubtitleStyle()
-
         state = TitleState(request.optJSONObject("titleState"), request.optJSONObject("lastSubtitles"))
+        // After the title's memory: the second subtitles' style is the title's own.
+        applySubtitleStyle()
         effects.onLoad(request)
         group = request.optString("group").ifBlank { videoId }
         // Another episode starts with its own sound; the title's audio delay applies.
@@ -1205,8 +1205,19 @@ class VideoPlayerActivity : AppCompatActivity() {
             player.playWhenReady -> player.pause()
             else -> player.play()
         }
+        // While it buffers, the press shows on the button for a moment before the ring comes
+        // back; paused, the ring keeps showing how the buffering goes and it stays paused after.
+        val buffering = player.playbackState == Player.STATE_BUFFERING
+        waitPause.pressed(playing = player.playWhenReady, buffering = buffering)
+        if (buffering) {
+            controls.confirmPress()
+            if (!player.playWhenReady) showHint(label("pausedWhileLoading", "Paused"), WAIT_PRESS_SHOWN_MS)
+        }
         controls.update()
     }
+
+    /** Paused while the next part loads ([WaitPause]). */
+    private val waitPause = WaitPause()
 
     internal fun seekBy(deltaMs: Long) {
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
@@ -1366,21 +1377,24 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     // ---- Subtitles ----
 
+    /** How the second subtitles look: their own style for this title, else the main ones'. */
+    internal fun secondLook(): SubtitleLook = secondLookOf(state.secondStyle, prefs.style)
+
     internal fun applySubtitleStyle() {
         if (!::subtitleView.isInitialized) return
-        val look = prefs.style
-        val styleFlags = (if (look.bold) Typeface.BOLD else 0) or (if (look.italic) Typeface.ITALIC else 0)
-        val caption = CaptionStyleCompat(
-            look.textColor,
-            // The background is drawn by the lines themselves, in rounded boxes (`restyled`).
-            if (look.roundedBackground()) Color.TRANSPARENT else look.backgroundColor,
-            Color.TRANSPARENT,
-            edgeType(look.edge),
-            look.edgeColor,
-            // The system's caption families (`subtitleFamily`), on both subtitle views.
-            subtitleTypeface(look.font, styleFlags),
-        )
-        listOf(subtitleView, secondView).forEach { view ->
+        // The second subtitles have a style of their own (until changed, the main one's).
+        listOf(subtitleView to prefs.style, secondView to secondLook()).forEach { (view, look) ->
+            val styleFlags = (if (look.bold) Typeface.BOLD else 0) or (if (look.italic) Typeface.ITALIC else 0)
+            val caption = CaptionStyleCompat(
+                look.textColor,
+                // The background is drawn by the lines themselves, in rounded boxes (`restyled`).
+                if (look.roundedBackground()) Color.TRANSPARENT else look.backgroundColor,
+                Color.TRANSPARENT,
+                edgeType(look.edge),
+                look.edgeColor,
+                // The system's caption families (`subtitleFamily`).
+                subtitleTypeface(look.font, styleFlags),
+            )
             view.setStyle(caption)
             // A share of the picture's height as it shows (the views take the picture's place,
             // `placeSubtitles`), whether or not the controls lift the lines; the size setting is
@@ -1392,8 +1406,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             view.setApplyEmbeddedFontSizes(true)
         }
         // The lines on screen take the style now, the file's own colours under the viewer's.
-        mainCues.look = look
-        secondCues.look = look
+        mainCues.look = prefs.style
+        secondCues.look = secondLook()
         liftSubtitles(::controls.isInitialized && controls.visible && !controls.locked)
     }
 
@@ -1453,10 +1467,13 @@ class VideoPlayerActivity : AppCompatActivity() {
         val chosen = (height * prefs.style.position / 100f).toInt()
         subtitleView.setBottomPaddingFraction(0f)
         if (subtitleView.paddingBottom != chosen) subtitleView.setPadding(0, 0, 0, chosen)
+        // The second subtitles' own height: their distance from the picture's top.
+        val secondChosen = (height * secondLook().position / 100f).toInt()
+        if (secondView.paddingTop != secondChosen) secondView.setPadding(0, secondChosen, 0, 0)
         val shown = controlsShown && ::controls.isInitialized
         val up = if (shown) liftAbove(top + height, chosen, root.height - controls.barHeight(), dp(8)) else 0
         val down = if (shown) {
-            dropBelow(top + (height * SECOND_LINE_TOP).toInt(), controls.topBarBottom(), dp(4))
+            dropBelow(top + secondChosen + (height * SECOND_LINE_TOP).toInt(), controls.topBarBottom(), dp(4))
         } else {
             0
         }
@@ -1494,6 +1511,29 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal fun previewStyle(look: SubtitleLook) {
         prefs.style = look
         applySubtitleStyle()
+    }
+
+    /**
+     * A style change for the second subtitles: shown at once and kept for the title; null goes
+     * back to looking like the main subtitles.
+     */
+    internal fun updateSecondStyle(look: SubtitleLook?) {
+        previewSecondStyle(look)
+        remember(JSONObject().put("secondSubtitleStyle", look?.toJson() ?: JSONObject.NULL))
+    }
+
+    /** Shows `look` on the second subtitles without keeping it yet. */
+    internal fun previewSecondStyle(look: SubtitleLook?) {
+        state.secondStyle = look
+        applySubtitleStyle()
+    }
+
+    /** The second subtitles' own delay, kept for the title; their lines move at once. */
+    internal fun setSecondSubtitleDelay(ms: Long) {
+        val delay = ms.coerceIn(-600_000L, 600_000L)
+        state.secondSubtitleDelayMs = delay
+        remember(JSONObject().put("secondSubtitleDelayMs", delay))
+        if (second.active) second.update(liveStream.clockMs(), delay)
     }
 
     /**
@@ -2039,8 +2079,13 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     // ---- Back, keys, sheets ----
 
+    /** What Back does first while an overlay of its own shows (drawing the watermark's box). */
+    internal var overlayBack: (() -> Unit)? = null
+
     private fun onBack() {
+        val overlay = overlayBack
         when {
+            overlay != null -> overlay()
             // A menu inside the sheet closes first, then the sheet.
             openSheet != null -> if (openSheet?.onBack?.invoke() != true) closeSheet(openSheet)
             controls.locked -> controls.show()
@@ -2252,7 +2297,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         updateWaiting()
         liveStream.tick()
         // A live stream's AI subtitles are timed by its own clock.
-        if (second.active) second.update(liveStream.clockMs(), state.subtitleDelayMs)
+        if (second.active) second.update(liveStream.clockMs(), state.secondSubtitleDelayMs)
     }
 
     // ---- Waiting and problems ----
@@ -2275,7 +2320,9 @@ class VideoPlayerActivity : AppCompatActivity() {
             controls.setBusy(loading.shown)
             return
         }
-        val waiting = videoId.isNotEmpty() && player.playWhenReady && player.playbackState == Player.STATE_BUFFERING
+        val buffering = player.playbackState == Player.STATE_BUFFERING
+        waitPause.followed(buffering)
+        val waiting = videoId.isNotEmpty() && waitPause.ringShown(player.playWhenReady, buffering)
         // After a seek (the bar, a double tap, the keys) the ring waits: most seeks are ready
         // before it would be read, and one that comes and goes at 99 % is only noise.
         val seekWait = !loading.shown && !seekWaitShows(started, SystemClock.elapsedRealtime() - seekedAt)

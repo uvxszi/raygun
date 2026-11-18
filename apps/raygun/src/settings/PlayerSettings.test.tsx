@@ -270,6 +270,19 @@ describe('Settings → Video player', () => {
       target: { value: '#ff8800' },
     });
     expect(within(sheet).getByTestId('custom-swatch')).toHaveAttribute('data-color', '#ff8800');
+    // A whole code typed shows at once, before it's kept (the system's dialog answers only once
+    // it closes, so hue, saturation and brightness move it live too).
+    await user.clear(code);
+    await user.type(code, '#00ff00');
+    expect(within(sheet).getByTestId('custom-swatch')).toHaveAttribute('data-color', '#00ff00');
+    fireEvent.change(within(sheet).getByRole('slider', { name: 'Hue' }), {
+      target: { value: '240' },
+    });
+    expect(within(sheet).getByTestId('custom-swatch')).toHaveAttribute('data-color', '#0000ff');
+    fireEvent.change(within(sheet).getByRole('slider', { name: 'Brightness' }), {
+      target: { value: '50' },
+    });
+    expect(within(sheet).getByTestId('custom-swatch')).toHaveAttribute('data-color', '#000080');
   });
 
   it('turns on AniSkip and picks another app', async () => {

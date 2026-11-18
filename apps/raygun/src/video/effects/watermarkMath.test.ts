@@ -304,4 +304,67 @@ describe('the watermark remover as numbers', () => {
       if (new Set(video).size === 3) expect(order(restored)).toEqual(order(video));
     }
   });
+
+  it('masks only the mark itself, never still picture without edges of its own', () => {
+    // As Android's: a box half over a still, flat part of the picture (a dark band) and half over
+    // moving picture with a logo's strokes in it.
+    const layout = sampleLayout({ x: 4_000, y: 4_000, width: 1_000, height: 1_000 }, 640, 360);
+    const estimator = new WatermarkEstimator(layout);
+    const next = random(5);
+    const { cols, rows, innerLeft, innerTop, innerCols, innerRows } = layout;
+    const stroke = (col: number, row: number) =>
+      col >= innerLeft + Math.floor(innerCols / 2) + 2 &&
+      col < innerLeft + innerCols - 2 &&
+      row >= innerTop + 2 &&
+      row < innerTop + innerRows - 2 &&
+      col % 3 === 0;
+    const band = (col: number) => col < innerLeft + Math.floor(innerCols / 2);
+    for (let frame = 0; frame < 200; frame += 1) {
+      const pixels = new Uint8Array(cols * rows * 4);
+      for (let cell = 0; cell < cols * rows; cell += 1) {
+        const col = cell % cols;
+        const row = Math.floor(cell / cols);
+        const video = next();
+        const inside =
+          col >= innerLeft &&
+          row >= innerTop &&
+          col < innerLeft + innerCols &&
+          row < innerTop + innerRows;
+        const shown = inside && band(col) ? 0.1 : stroke(col, row) ? 0.6 + 0.4 * video : video;
+        const byte = Math.trunc(shown * 255);
+        pixels.set([byte, byte, byte, 255], cell * 4);
+      }
+      estimator.add(pixels);
+    }
+    const mask = estimator.estimate();
+    expect(mask).not.toBeNull();
+    const alphaAt = (col: number, row: number) => mask?.data[(row * innerCols + col) * 4 + 3] ?? -1;
+    // The still band has no mark in it: untouched.
+    expect(alphaAt(2, Math.floor(innerRows / 2))).toBe(0);
+    // A stroke is masked.
+    let strokeCol = Math.floor(innerCols / 2) + 2;
+    while ((strokeCol + innerLeft) % 3 !== 0) strokeCol += 1;
+    expect(alphaAt(strokeCol, Math.floor(innerRows / 2))).toBeGreaterThan(0);
+    // Nothing found yet in a box over still picture alone: no mask, so nothing changes.
+    const still = new WatermarkEstimator(layout);
+    for (let frame = 0; frame < 60; frame += 1) {
+      const pixels = new Uint8Array(cols * rows * 4);
+      for (let cell = 0; cell < cols * rows; cell += 1) {
+        const col = cell % cols;
+        const row = Math.floor(cell / cols);
+        const inside =
+          col >= innerLeft &&
+          row >= innerTop &&
+          col < innerLeft + innerCols &&
+          row < innerTop + innerRows;
+        const byte = inside ? 128 : Math.trunc(next() * 255);
+        pixels.set([byte, byte, byte, 255], cell * 4);
+      }
+      still.add(pixels);
+    }
+    const flat = still.estimate();
+    expect(flat === null || flat.data.every((value, index) => index % 4 !== 3 || value === 0)).toBe(
+      true,
+    );
+  });
 });

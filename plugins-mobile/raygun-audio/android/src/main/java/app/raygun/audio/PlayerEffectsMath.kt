@@ -24,13 +24,17 @@ internal data class PictureEffects(
     val denoise: Int = 0,
     /** In-between frames made from the motion ([SmoothMotionGl]). */
     val smoothMotion: Boolean = false,
+    /** How smooth motion makes its frames ([MotionMath.MODELS]); only while it's on. */
+    val motionModel: String = MOTION_BALANCED,
     /** The title's watermark remover ([WatermarkGl]); a box that's off changes nothing. */
     val watermark: WatermarkRemoval = WatermarkRemoval.NONE,
 ) {
-    val neutral: Boolean get() = copy(watermark = WatermarkRemoval.NONE) == NONE && !watermark.active
+    val neutral: Boolean
+        get() = copy(watermark = WatermarkRemoval.NONE, motionModel = MOTION_BALANCED) == NONE && !watermark.active
 
     /** The picture's own adjustments, smooth motion and the watermark left out (presets set only these). */
-    val adjustments: PictureEffects get() = copy(smoothMotion = false, watermark = WatermarkRemoval.NONE)
+    val adjustments: PictureEffects
+        get() = copy(smoothMotion = false, motionModel = MOTION_BALANCED, watermark = WatermarkRemoval.NONE)
 
     /** The parts that take passes of their own or a frame's history: what a slow phone drops first. */
     val heavy: List<String>
@@ -53,6 +57,7 @@ internal data class PictureEffects(
         deflicker = deflicker.coerceIn(0, 100),
         denoise = denoise.coerceIn(0, 100),
         smoothMotion = smoothMotion,
+        motionModel = motionModel.takeIf { it in MotionMath.MODELS } ?: MOTION_BALANCED,
         watermark = watermark.clamped(),
     )
 
@@ -76,11 +81,13 @@ internal data class PictureEffects(
         .put("deflicker", deflicker)
         .put("denoise", denoise)
         .put("smoothMotion", smoothMotion)
+        .put("motionModel", motionModel)
         .put("watermark", watermark.toJson())
 
     companion object {
         const val LOOK_NONE = "none"
         const val SMOOTH_MOTION = "smoothMotion"
+        const val MOTION_BALANCED = "balanced"
         val NONE = PictureEffects()
         val LOOKS = listOf(LOOK_NONE, "warm", "cool", "vivid", "grayscale", "sepia")
 
@@ -98,6 +105,7 @@ internal data class PictureEffects(
                 deflicker = json.optInt("deflicker", 0),
                 denoise = json.optInt("denoise", 0),
                 smoothMotion = json.optBoolean("smoothMotion", false),
+                motionModel = json.optString("motionModel", MOTION_BALANCED),
                 watermark = WatermarkRemoval.from(json.optJSONObject("watermark")),
             ).clamped()
         }
@@ -294,4 +302,7 @@ internal object EffectMath {
         "presetBrighter" to PictureEffects(brightness = 5, gamma = 30),
         "presetCinema" to PictureEffects(contrast = 15, saturation = 10, gamma = -10),
     )
+
+    /** The preset `effects` are (smooth motion and the watermark aside), or -1: they read as Custom. */
+    fun matchingPreset(effects: PictureEffects): Int = PRESETS.indexOfFirst { it.second == effects.adjustments }
 }

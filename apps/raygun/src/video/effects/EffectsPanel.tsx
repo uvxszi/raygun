@@ -3,12 +3,21 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PanelHeading, PanelOption, PlayerPanel } from '../PlayerPanel';
-import { ADJUSTMENT_LABEL, HEAVY_LABEL, LOOK_LABEL, SMART_AUDIO } from './effectLabels';
+import {
+  ADJUSTMENT_LABEL,
+  HEAVY_LABEL,
+  LOOK_LABEL,
+  MOTION_MODEL_HINT,
+  MOTION_MODEL_LABEL,
+  SMART_AUDIO,
+} from './effectLabels';
+import { MOTION_MODELS } from './motionMath';
 import {
   adjustmentsOf,
   ADJUSTMENTS,
   EFFECT_PRESETS,
   LOOKS,
+  matchingPreset,
   sameEffects,
   shownValue,
 } from './effectParams';
@@ -64,6 +73,8 @@ const EffectSlider: FC<SliderProps> = ({ name, adjustment, value, onChange }) =>
 
 type Props = {
   effects: VideoEffects;
+  /** The video plays: the watermark in a box is learnt only then. */
+  playing?: boolean;
   onClose: () => void;
   /** The title's tempo, pitch and equalizer (the Sound part); none leaves them out. */
   sound?: VideoSoundControls;
@@ -75,7 +86,7 @@ type Props = {
  * and, for a title with its own, Use the default; then the title's watermark remover, and its sound
  * (tempo, pitch, equalizer, smart audio).
  */
-export const EffectsPanel: FC<Props> = ({ effects, onClose, sound }) => {
+export const EffectsPanel: FC<Props> = ({ effects, playing = true, onClose, sound }) => {
   const { t } = useTranslation();
   const { picture } = effects;
   const names = (kinds: HeavyKind[]) => kinds.map((kind) => t(HEAVY_LABEL[kind])).join(', ');
@@ -84,6 +95,8 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose, sound }) => {
     : effects.dropped.length
       ? t('videoPlayer.effectsDropped', { n: names(effects.dropped) })
       : null;
+  // Settings that match no preset read as Custom (not a preset: pressing it changes nothing).
+  const custom = matchingPreset(adjustmentsOf(picture)) === null;
   return (
     <PlayerPanel title={t('videoPlayer.effects')} onClose={onClose}>
       <PanelHeading>{t('videoPlayer.effectsPresets')}</PanelHeading>
@@ -108,6 +121,11 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose, sound }) => {
             </button>
           );
         })}
+        {custom && (
+          <button type="button" aria-pressed className={pill(true)}>
+            {t('videoPlayer.effectsCustom')}
+          </button>
+        )}
       </div>
       <PanelHeading>{t('videoPlayer.effectsLook')}</PanelHeading>
       <div className="flex flex-wrap gap-1.5 px-3 py-1">
@@ -144,6 +162,32 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose, sound }) => {
             selected={picture.smoothMotion}
             onSelect={() => effects.setPicture({ ...picture, smoothMotion: !picture.smoothMotion })}
           />
+          {picture.smoothMotion && (
+            <div
+              role="radiogroup"
+              aria-label={t('videoPlayer.motionModel')}
+              className="flex flex-wrap gap-1.5 px-3 py-1"
+            >
+              {MOTION_MODELS.map((model) => (
+                <button
+                  key={model}
+                  type="button"
+                  role="radio"
+                  aria-checked={picture.motionModel === model}
+                  title={t(MOTION_MODEL_HINT[model])}
+                  onClick={() => effects.setPicture({ ...picture, motionModel: model })}
+                  className={pill(picture.motionModel === model)}
+                >
+                  {t(MOTION_MODEL_LABEL[model])}
+                </button>
+              ))}
+            </div>
+          )}
+          {picture.smoothMotion && (
+            <p className="px-3 text-xs text-white/60">
+              {t(MOTION_MODEL_HINT[picture.motionModel])}
+            </p>
+          )}
         </>
       )}
       <div className="flex flex-wrap gap-2 px-3 pt-3">
@@ -160,7 +204,7 @@ export const EffectsPanel: FC<Props> = ({ effects, onClose, sound }) => {
         )}
       </div>
       {note && <p className="px-3 pt-3 text-xs text-white/60">{note}</p>}
-      <WatermarkOptions effects={effects} onDraw={onClose} />
+      <WatermarkOptions effects={effects} playing={playing} onDraw={onClose} />
       {sound && <VideoSoundOptions controls={sound} />}
       <SmartAudioOptions
         effects={effects}

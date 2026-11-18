@@ -101,12 +101,16 @@ const SUBTITLE_KEYS: [&str; 2] = ["subtitle", "secondarySubtitle"];
 /// The brightness the player last had, for "remember brightness".
 const BRIGHTNESS_KEY: &str = "video.brightness";
 /// What a title remembers: speed, aspect, subtitle and audio choices, subtitle delay, intro length.
-const STATE_KEYS: [&str; 13] = [
+const STATE_KEYS: [&str; 15] = [
     "speed",
     "aspect",
     "subtitle",
     "secondarySubtitle",
     "subtitleDelayMs",
+    // The second subtitles' own delay and style (`raygun_model::SubtitleStyle`; none looks like
+    // the main subtitles at the top of the picture).
+    "secondSubtitleDelayMs",
+    "secondSubtitleStyle",
     "audio",
     "introMs",
     // Subtitle lines changed by hand in the desktop player, per episode and track (M46.12).

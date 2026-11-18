@@ -27,6 +27,9 @@ private const val PREVIEW_MS = 40L
 /** Without Media3's replay cache, the paused frame comes again through a seek, after this long. */
 private const val SEEK_PREVIEW_MS = 150L
 
+/** How long after a change while paused the frame is drawn again with it. */
+internal fun previewDelayMs(replayable: Boolean): Long = if (replayable) PREVIEW_MS else SEEK_PREVIEW_MS
+
 /** One adjustment of the Effects sheet: its field, its words and its range. */
 private class Adjustment(val key: String, val label: String, val fallback: String, val min: Int, val max: Int)
 
@@ -229,18 +232,30 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         if ((!effects.neutral || watermarks.finding) && !pipeline && !failedThisRun && host.player.currentMediaItem != null) {
             startPipeline(prepare = true)
         }
-        if (pipeline && !host.player.isPlaying) {
-            host.main.removeCallbacks(preview)
-            host.main.postDelayed(preview, if (graph.replayable) PREVIEW_MS else SEEK_PREVIEW_MS)
-        }
+        if (pipeline && !host.player.isPlaying) previewSoon()
         watchFrames()
+    }
+
+    /** A paused redraw is on its way: changes until then join it. */
+    private var previewPending = false
+
+    /**
+     * At most one paused redraw per [PREVIEW_MS] (or [SEEK_PREVIEW_MS] without the replay cache):
+     * a slider dragged redraws as it moves, not only once it stops.
+     */
+    private fun previewSoon() {
+        if (previewPending) return
+        previewPending = true
+        host.main.postDelayed(preview, previewDelayMs(graph.replayable))
     }
 
     /**
      * Paused: the frame shown goes through the passes again with the new values. Media3 replays
-     * its last frames when its graph keeps them, else the same place is sought again.
+     * its last frames when its graph keeps them (the renderer releases the redrawn frame at once,
+     * [VideoGraphChoice]), else the same place is sought again.
      */
     private val preview = Runnable {
+        previewPending = false
         val player = host.player
         if (player.isPlaying || player.playbackState == Player.STATE_IDLE || !pipeline || failedThisRun) return@Runnable
         if (graph.replayable) {
@@ -267,7 +282,13 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private fun followMotion() {
         val player = host.player
         val hz = host.window?.decorView?.display?.refreshRate ?: 60f
-        params.motion = MotionParams(on = applied.smoothMotion, displayHz = hz, speed = player.playbackParameters.speed, dir = motionDir)
+        params.motion = MotionParams(
+            on = applied.smoothMotion,
+            displayHz = hz,
+            speed = player.playbackParameters.speed,
+            dir = motionDir,
+            model = applied.motionModel,
+        )
         if (!listening) {
             listening = true
             player.addListener(object : Player.Listener {
@@ -454,6 +475,18 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
             ADJUSTMENTS.firstOrNull { it.key == key }?.let { label(it.label, it.fallback) } ?: key
         }
 
+    private fun modelName(model: String): String = when (model) {
+        MotionMath.MOTION_BLEND -> label("motionBlend", "Blend")
+        MotionMath.MOTION_SHARP -> label("motionSharp", "Sharp")
+        else -> label("motionBalanced", "Balanced")
+    }
+
+    private fun modelHint(model: String): String = when (model) {
+        MotionMath.MOTION_BLEND -> label("motionBlendHint", "Cheapest: frames blended where little moves, repeated elsewhere")
+        MotionMath.MOTION_SHARP -> label("motionSharpHint", "A finer search: sharper on fast detail, more work for the graphics chip")
+        else -> label("motionBalancedHint", "Follows the motion, careful round moving things and the picture's edges")
+    }
+
     private fun lookName(look: String): String = when (look) {
         "warm" -> label("effectsLookWarm", "Warm")
         "cool" -> label("effectsLookCool", "Cool")
@@ -498,10 +531,12 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         val effects = picture
         val presets = EffectMath.PRESETS
         sheet.header(label("effectsPresets", "Presets"))
-        sheet.chips(
-            presets.map { (key, _) -> label(key, presetFallback(key)) },
-            presets.indexOfFirst { it.second == effects.adjustments },
-        ) { picked ->
+        // Settings that match no preset read as Custom, filled; it isn't a preset to apply.
+        val matched = EffectMath.matchingPreset(effects)
+        val names = presets.map { (key, _) -> label(key, presetFallback(key)) } +
+            listOfNotNull(label("effectsCustom", "Custom").takeIf { matched < 0 })
+        sheet.chips(names, if (matched < 0) presets.size else matched) { picked ->
+            if (picked >= presets.size) return@chips
             // Picked again: what dropped for speed gets another try.
             dropped.clear()
             motionStatus.again()
@@ -531,6 +566,15 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
                 }
                 setPicture(picture.copy(smoothMotion = on))
                 open()
+            }
+            // How the frames are made: blend (cheapest), balanced, sharp (most work).
+            if (effects.smoothMotion) {
+                val models = MotionMath.MODELS
+                sheet.chips(models.map(::modelName), models.indexOf(effects.motionModel)) { picked ->
+                    setPicture(picture.copy(motionModel = models[picked]))
+                    open()
+                }
+                sheet.row(modelHint(effects.motionModel), onClick = null)
             }
         }
         sheet.custom(LinearLayout(host).apply {
@@ -593,6 +637,10 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         })
         when {
             watermarks.finding -> sheet.row(label("watermarkFindingCuts", "Looking for a watermark that stays through scene changes ({n} of 2 so far)…", minOf(watermarks.cuts, 2).toString()), onClick = null)
+            // Nothing in the picture changes until the watermark is found in the box: frames are
+            // read only while the video plays.
+            current.active && !watermarks.masked && !host.player.isPlaying ->
+                sheet.row(label("watermarkPlayToLearn", "Play the video: the watermark in the box is found as it plays"), onClick = null)
             current.active && !watermarks.masked ->
                 sheet.row(label("watermarkLearning", "Learning the watermark as the video plays…"), onClick = null)
         }
@@ -638,22 +686,30 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         else -> "0"
     }
 
-    /** The sheet gives way to the picture, where a drag draws the box. */
+    /**
+     * The sheet gives way to the picture, where a drag draws the box: only the drawing and its
+     * Done and Cancel show, the player's controls and bars hidden until it's done.
+     */
     private fun drawBox() {
         host.closeSheet(sheet)
+        host.controls.hide()
         var overlay: WatermarkDrawView? = null
         overlay = WatermarkDrawView(
             host,
             label("watermarkDrawHint", "Drag a box round the watermark"),
+            label("done", "Done"),
+            label("cancel", "Cancel"),
             picture = ::pictureOnScreen,
         ) { drawn ->
+            host.overlayBack = null
             overlay?.let(host::hideOverlay)
             if (drawn != null) {
                 val before = picture.watermark
-                setWatermark(drawn.copy(brightness = before.brightness, contrast = before.contrast, feather = before.feather))
+                setWatermark(drawn.copy(enabled = true, brightness = before.brightness, contrast = before.contrast, feather = before.feather))
             }
             open()
         }
+        host.overlayBack = { overlay?.cancel() }
         host.showOverlay(overlay)
     }
 

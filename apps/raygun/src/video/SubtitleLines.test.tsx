@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { DEFAULT_SUBTITLE_STYLE } from '../settings/playerOptions';
 import { pictureBox } from './pictureBox';
 import { SubtitleLines } from './SubtitleLines';
-import { subtitleSlide } from './subtitlePlacement';
+import { subtitlePlacement, subtitleSlide } from './subtitlePlacement';
 
 // A 16:9 film filling a 1000×563 player: the lines sit 45 px up its foot, under the control bar.
 const BOX = pictureBox(1000, 563, 1920, 1080, 'fit');
@@ -38,11 +38,15 @@ describe('subtitle lines over the picture', () => {
   });
 
   it('moves the second subtitles below the top bar while it shows', () => {
-    expect(subtitleSlide(BOX, DEFAULT_SUBTITLE_STYLE, true, 'top')).toBeCloseTo(
-      64 - (BOX.top + BOX.height * 0.06),
+    // The second subtitles' height counts from the picture's top (0 unless changed).
+    const top = { ...DEFAULT_SUBTITLE_STYLE, position: 0 };
+    expect(subtitleSlide(BOX, top, true, 'top')).toBeCloseTo(64 - (BOX.top + BOX.height * 0.06), 3);
+    expect(subtitleSlide(BOX, top, false, 'top')).toBe(0);
+    // Their own height moves them down the picture.
+    expect(subtitlePlacement(BOX, { ...top, position: 10 }, false, 'top').top).toBeCloseTo(
+      BOX.top + BOX.height * 0.16,
       3,
     );
-    expect(subtitleSlide(BOX, DEFAULT_SUBTITLE_STYLE, false, 'top')).toBe(0);
     // A tall window's letterboxed film starts low enough already.
     const tall = pictureBox(1000, 2000, 1920, 800, 'fit');
     expect(subtitleSlide(tall, DEFAULT_SUBTITLE_STYLE, true, 'top')).toBe(0);

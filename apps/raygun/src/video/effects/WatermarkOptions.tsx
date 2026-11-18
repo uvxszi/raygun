@@ -21,6 +21,8 @@ const signed = (value: number, min: number) =>
 
 type Props = {
   effects: VideoEffects;
+  /** The video plays: frames are read for the box's watermark only then. */
+  playing?: boolean;
   /** Draw a box: the panel makes room for the picture. */
   onDraw: () => void;
 };
@@ -29,7 +31,7 @@ type Props = {
  * The Effects panel's watermark remover (the title's own): on or off, a box drawn over the
  * picture or found by Raygun (Find it), and brightness, contrast and feather for what's left.
  */
-export const WatermarkOptions: FC<Props> = ({ effects, onDraw }) => {
+export const WatermarkOptions: FC<Props> = ({ effects, playing = true, onDraw }) => {
   const { t } = useTranslation();
   const { watermark } = effects.picture;
   const hasBox = watermark.width > 0 && watermark.height > 0;
@@ -43,7 +45,8 @@ export const WatermarkOptions: FC<Props> = ({ effects, onDraw }) => {
         : status === 'unsure'
           ? t('videoPlayer.watermarkUnsure')
           : hasBox && status === 'learning'
-            ? t('videoPlayer.watermarkLearning')
+            ? // Nothing changes until the watermark is found in the box, as the video plays.
+              t(playing ? 'videoPlayer.watermarkLearning' : 'videoPlayer.watermarkPlayToLearn')
             : null;
   return (
     <>

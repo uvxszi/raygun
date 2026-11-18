@@ -29,6 +29,7 @@ export const NO_EFFECTS: Effects = {
   deflicker: 0,
   denoise: 0,
   smoothMotion: false,
+  motionModel: 'balanced',
   watermark: NO_WATERMARK,
 };
 
@@ -51,7 +52,10 @@ export const withAudioDefaults = (audio?: SmartAudio | null): Audio => ({
 });
 
 /** The signed and strength settings, in the order the panels list them. */
-export type AdjustKey = Exclude<keyof Effects, 'look' | 'smoothMotion' | 'watermark'>;
+export type AdjustKey = Exclude<
+  keyof Effects,
+  'look' | 'smoothMotion' | 'motionModel' | 'watermark'
+>;
 
 export type Adjustment = { key: AdjustKey; min: number; max: number };
 
@@ -73,9 +77,12 @@ const PLAIN_KEYS = (Object.keys(NO_EFFECTS) as (keyof Effects)[]).filter(
   (key) => key !== 'watermark',
 );
 
-/** Nothing changes the picture (a watermark box that's off changes nothing, as Rust's). */
+/**
+ * Nothing changes the picture (a watermark box that's off changes nothing, nor a motion model while
+ * smooth motion is off, as Rust's).
+ */
 export const isNeutral = (effects: Effects) =>
-  PLAIN_KEYS.every((key) => effects[key] === NO_EFFECTS[key]) &&
+  PLAIN_KEYS.every((key) => key === 'motionModel' || effects[key] === NO_EFFECTS[key]) &&
   !isWatermarkActive(effects.watermark);
 
 export const sameEffects = (left: Effects, right: Effects) =>
@@ -89,6 +96,7 @@ export const sameEffects = (left: Effects, right: Effects) =>
 export const adjustmentsOf = (effects: Effects): Effects => ({
   ...effects,
   smoothMotion: false,
+  motionModel: 'balanced',
   watermark: NO_WATERMARK,
 });
 
@@ -137,6 +145,10 @@ export const EFFECT_PRESETS: { id: PresetId; effects: Effects }[] = [
   { id: 'presetBrighter', effects: { ...NO_EFFECTS, brightness: 5, gamma: 30 } },
   { id: 'presetCinema', effects: { ...NO_EFFECTS, contrast: 15, saturation: 10, gamma: -10 } },
 ];
+
+/** The preset these adjustments are, if any; none reads as Custom (`PlayerEffects.kt` alike). */
+export const matchingPreset = (adjustments: Effects): PresetId | null =>
+  EFFECT_PRESETS.find((preset) => sameEffects(preset.effects, adjustments))?.id ?? null;
 
 // ---- How the values map ----
 

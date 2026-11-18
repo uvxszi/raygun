@@ -7,7 +7,8 @@ import vertexSource from './glsl/fx_vertex.glsl?raw';
 import watermarkSource from './glsl/fx_watermark.glsl?raw';
 import { columns } from './effectParams';
 import type { ShaderParams } from './effectParams';
-import { flowSize, LEVELS, RADII } from './motionMath';
+import { flowSize, LEVELS, modelNumber, motionPlan } from './motionMath';
+import type { MotionModel } from './motionMath';
 import {
   isWatermarkActive,
   shaderBox,
@@ -87,6 +88,8 @@ type Motion = {
   /** The search's result per level, finest first. */
   search: Target[];
   refined: Target;
+  /** The second refinement's (sharp), the two used in turn. */
+  refinedMore: Target;
   smoothed: Target;
   error: Target;
 };
@@ -161,6 +164,8 @@ export class EffectsRenderer {
   private motion: Motion | null = null;
   private latest = 0;
   private keptCount = 0;
+  /** How in-between frames are made. */
+  private model: MotionModel = 'balanced';
 
   /** `motion`: smooth motion's shaders, when its chip is there (without, `keep` can't run). */
   constructor(
@@ -273,7 +278,16 @@ export class EffectsRenderer {
     this.latest = slot;
     if (!replace) this.keptCount = Math.min(this.keptCount + 1, 2);
     this.drawPyramid(motion, slot);
-    if (this.keptCount === 2) this.drawFlow(motion, previous, slot);
+    // Blend makes its frames without the flow.
+    if (this.keptCount === 2 && motionPlan(this.model)) this.drawFlow(motion, previous, slot);
+  }
+
+  /** How in-between frames are made (`MotionModel`); the next pair follows it. */
+  setMotionModel(model: MotionModel) {
+    if (model === this.model) return;
+    this.model = model;
+    // The flow kept is for another model's way: the next pair starts afresh.
+    if (this.keptCount === 2) this.keptCount = 1;
   }
 
   /** Two frames kept: `present` can draw between them. */
@@ -307,6 +321,7 @@ export class EffectsRenderer {
     this.texture(warp, 'uFlow', 2, motion.smoothed.texture, true);
     this.texture(warp, 'uError', 3, motion.error.texture, false);
     gl.uniform1f(this.at(warp, 'uT'), t);
+    gl.uniform1f(this.at(warp, 'uModel'), modelNumber(this.model));
     gl.uniform2f(
       this.at(warp, 'uFlowTexel'),
       1 / motion.smoothed.width,
@@ -397,6 +412,7 @@ export class EffectsRenderer {
       pyramids: [pyramid(), pyramid()],
       search: pyramid(),
       refined: this.target(width, height),
+      refinedMore: this.target(width, height),
       smoothed: this.target(width, height),
       error: this.target(1, 1),
     };
@@ -410,6 +426,7 @@ export class EffectsRenderer {
       ...motion.pyramids.flat(),
       ...motion.search,
       motion.refined,
+      motion.refinedMore,
       motion.smoothed,
       motion.error,
     ]) {
@@ -438,6 +455,8 @@ export class EffectsRenderer {
   private drawFlow(motion: Motion, previous: number, latest: number) {
     const { gl } = this;
     const passes = this.motionPassesOf();
+    const plan = motionPlan(this.model);
+    if (!plan) return;
     let init: Target | null = null;
     for (let level = LEVELS - 1; level >= 0; level -= 1) {
       const into = motion.search[level] as Target;
@@ -448,17 +467,36 @@ export class EffectsRenderer {
         latest,
         level,
         init,
-        RADII[LEVELS - 1 - level] ?? 1,
+        plan.radii[LEVELS - 1 - level] ?? 1,
         1,
       );
       init = into;
     }
-    this.searchStep(motion, motion.refined, previous, latest, 0, init, 1, 0.5);
+    // The refinements in turn (sharp takes another, at quarter steps).
+    plan.refine.forEach((step, index) => {
+      const into = index % 2 === 0 ? motion.refined : motion.refinedMore;
+      this.searchStep(motion, into, previous, latest, 0, init, 1, step);
+      init = into;
+    });
 
     const { smooth, error } = passes;
     this.focus(motion.smoothed);
     this.use(smooth);
-    this.texture(smooth, 'uFlowIn', 0, motion.refined.texture, false);
+    this.texture(smooth, 'uFlowIn', 0, (init ?? motion.refined).texture, false);
+    this.texture(
+      smooth,
+      'uPrevLuma',
+      1,
+      (motion.pyramids[previous as 0 | 1][0] as Target).texture,
+      true,
+    );
+    this.texture(
+      smooth,
+      'uCurLuma',
+      2,
+      (motion.pyramids[latest as 0 | 1][0] as Target).texture,
+      true,
+    );
     gl.uniform2f(this.at(smooth, 'uTexel'), 1 / motion.smoothed.width, 1 / motion.smoothed.height);
     this.drawQuad();
 

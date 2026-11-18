@@ -90,6 +90,40 @@ describe('desktop video player', () => {
     expect(reports().at(-1)).toMatchObject({ id: MOVIE.id, state: 'closed' });
   });
 
+  it('pauses while the next part loads: the press shows, then the ring again, still paused', async () => {
+    const user = userEvent.setup();
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    const video = (await within(player).findByTestId('desktop-video')) as HTMLVideoElement;
+    Object.defineProperty(video, 'duration', { value: 600, configurable: true });
+    fireEvent(video, new Event('loadedmetadata'));
+    Object.defineProperty(video, 'paused', { value: false, configurable: true });
+    fireEvent(video, new Event('playing'));
+    // Buffering the next part: the ring shows.
+    fireEvent(video, new Event('waiting'));
+    expect(within(player).getByText('Loading')).toBeInTheDocument();
+    await user.click(within(player).getByRole('button', { name: 'Pause' }));
+    expect(pause).toHaveBeenCalled();
+    Object.defineProperty(video, 'paused', { value: true, configurable: true });
+    fireEvent(video, new Event('pause'));
+    // The press shows where the ring was, and the button says Play.
+    expect(within(player).getByTestId('press-shown')).toHaveTextContent('Paused');
+    expect(within(player).getByRole('button', { name: 'Play' })).toBeInTheDocument();
+    // Then the ring fades back in while it keeps loading.
+    await vi.waitFor(() => expect(within(player).queryByTestId('press-shown')).toBeNull(), {
+      timeout: 2_000,
+    });
+    expect(within(player).getByText('Loading')).toBeInTheDocument();
+    // Loaded: it stays paused.
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play');
+    play.mockClear();
+    fireEvent(video, new Event('canplay'));
+    expect(play).not.toHaveBeenCalled();
+    expect(within(player).getByRole('button', { name: 'Play' })).toBeInTheDocument();
+  });
+
   it('runs a session: episodes, the next one, and sources when nothing worked', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/');

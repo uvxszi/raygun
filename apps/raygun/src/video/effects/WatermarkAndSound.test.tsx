@@ -139,7 +139,7 @@ describe('drawing the watermark box', () => {
     expect(boxFromDrag({ x: 10, y: 100 }, { x: 11, y: 101 }, box)).toBeNull();
   });
 
-  it('draws a box with the pointer, and Escape leaves it as it was', () => {
+  it('draws a box with the pointer, kept with Done; Escape leaves it as it was', () => {
     const done = vi.fn();
     const cancel = vi.fn();
     render(<WatermarkDraw picture={box} current={null} onDone={done} onCancel={cancel} />);
@@ -147,7 +147,11 @@ describe('drawing the watermark box', () => {
     fireEvent.pointerDown(layer, { clientX: 512, clientY: 78, pointerId: 1 });
     fireEvent.pointerMove(layer, { clientX: 560, clientY: 100, pointerId: 1 });
     expect(screen.getByTestId('watermark-box')).toBeInTheDocument();
+    // Done waits for a box; letting go keeps it drawn until Done.
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
     fireEvent.pointerUp(layer, { clientX: 608, clientY: 114, pointerId: 1 });
+    expect(done).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(done).toHaveBeenCalledWith({ x: 8_000, y: 500, width: 1_500, height: 1_000 });
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(cancel).toHaveBeenCalled();

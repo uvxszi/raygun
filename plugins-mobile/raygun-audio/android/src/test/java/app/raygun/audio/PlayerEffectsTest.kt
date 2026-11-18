@@ -186,4 +186,36 @@ class PlayerEffectsTest {
         assertEquals(LoudnessHistogram.lufs(1e-3), histogram.integrated()!!, 0.1)
         assertEquals(10.0, histogram.seconds, 0.0)
     }
+
+    @Test
+    fun settingsMatchingNoPresetReadAsCustom() {
+        assertEquals(0, EffectMath.matchingPreset(PictureEffects.NONE))
+        val cinema = EffectMath.PRESETS.indexOfFirst { it.first == "presetCinema" }
+        assertEquals(cinema, EffectMath.matchingPreset(EffectMath.PRESETS[cinema].second.copy(smoothMotion = true)))
+        // Changed by hand: no preset, the sheet's Custom pill.
+        assertEquals(-1, EffectMath.matchingPreset(PictureEffects(brightness = 7)))
+    }
+
+    @Test
+    fun aPausedRedrawIsReleasedAtOnceAndSoon() {
+        // Media3's replay: only a redraw asked for while paused releases its frame at once.
+        assertTrue(redrawReleasesAtOnce(androidx.media3.common.VideoFrameProcessor.REDRAW, started = false))
+        assertFalse(redrawReleasesAtOnce(androidx.media3.common.VideoFrameProcessor.REDRAW, started = true))
+        assertFalse(redrawReleasesAtOnce(emptyList<Any>(), started = false))
+        // The player's loop is woken soon after, not after its paused second.
+        assertTrue(REDRAW_WAKEUPS_MS.first() < 20 && REDRAW_WAKEUPS_MS.last() < REDRAW_GIVE_UP_MS)
+        assertEquals(40L, previewDelayMs(replayable = true))
+        assertEquals(150L, previewDelayMs(replayable = false))
+    }
+
+    @Test
+    fun theSecondSubtitlesLookLikeTheMainOnesAtTheTopUntilChanged() {
+        val main = SubtitleLook(size = 120, position = 10)
+        assertEquals(main.copy(position = 0), secondLookOf(null, main))
+        val own = SubtitleLook(size = 80, position = 6, textColor = 0xFFFFEB3B.toInt())
+        assertEquals(own, secondLookOf(own, main))
+        // A title without memory: no delay or style of their own.
+        assertEquals(0L, TitleState(null).secondSubtitleDelayMs)
+        assertEquals(null, TitleState(null).secondStyle)
+    }
 }

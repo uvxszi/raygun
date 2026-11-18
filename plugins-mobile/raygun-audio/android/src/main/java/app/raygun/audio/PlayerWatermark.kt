@@ -226,13 +226,16 @@ internal class WatermarkGl(context: Context, private val state: WatermarkState) 
 }
 
 /**
- * Drawing the watermark's box over the picture: a drag draws it, letting go keeps it (in
- * ten-thousandths of the picture as shown), a tap without a drag or Back cancels.
+ * Drawing the watermark's box over the picture, the player's controls and bars hidden meanwhile:
+ * a drag draws it (another drag draws it again), Done keeps it (in ten-thousandths of the picture
+ * as shown), Cancel or Back leaves the box as it was.
  */
 @SuppressLint("ViewConstructor")
 internal class WatermarkDrawView(
     context: Context,
     hint: String,
+    doneLabel: String,
+    cancelLabel: String,
     /** The picture's place, in screen pixels. */
     private val picture: () -> RectF?,
     private val done: (WatermarkRemoval?) -> Unit,
@@ -246,6 +249,8 @@ internal class WatermarkDrawView(
     private var startX = 0f
     private var startY = 0f
     private var box: RectF? = null
+    private var answered = false
+    private val doneButton = context.pill(doneLabel, filled = true) { finish(kept()) }
 
     init {
         setWillNotDraw(false)
@@ -261,6 +266,42 @@ internal class WatermarkDrawView(
             },
             LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = context.dp(32) },
         )
+        addView(
+            android.widget.LinearLayout(context).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                addView(context.pill(cancelLabel) { finish(null) })
+                addView(doneButton)
+            },
+            LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = context.dp(32) },
+        )
+        enableDone()
+    }
+
+    private fun enableDone() {
+        val ready = kept() != null
+        doneButton.isEnabled = ready
+        doneButton.alpha = if (ready) 1f else 0.4f
+    }
+
+    /** The box drawn, in ten-thousandths of the picture; none while it's too small to keep. */
+    private fun kept(): WatermarkRemoval? {
+        val drawn = box ?: return null
+        val shown = picture() ?: return null
+        val small = context.dp(12)
+        if (drawn.width() < small || drawn.height() < small) return null
+        val origin = IntArray(2)
+        getLocationOnScreen(origin)
+        val onScreen = RectF(drawn).apply { offset(origin[0].toFloat(), origin[1].toFloat()) }
+        return WatermarkDraw.toBox(onScreen, shown)
+    }
+
+    /** Back: the box stays as it was. */
+    fun cancel() = finish(null)
+
+    private fun finish(result: WatermarkRemoval?) {
+        if (answered) return
+        answered = true
+        done(result)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -269,28 +310,12 @@ internal class WatermarkDrawView(
             MotionEvent.ACTION_DOWN -> {
                 startX = event.x
                 startY = event.y
-                box = null
             }
             MotionEvent.ACTION_MOVE -> {
                 box = RectF(min(startX, event.x), min(startY, event.y), max(startX, event.x), max(startY, event.y))
                 invalidate()
             }
-            MotionEvent.ACTION_UP -> {
-                val drawn = box
-                val shown = picture()
-                val small = context.dp(12)
-                done(
-                    if (drawn == null || shown == null || drawn.width() < small || drawn.height() < small) {
-                        null
-                    } else {
-                        val origin = IntArray(2)
-                        getLocationOnScreen(origin)
-                        drawn.offset(origin[0].toFloat(), origin[1].toFloat())
-                        WatermarkDraw.toBox(drawn, shown)
-                    },
-                )
-            }
-            MotionEvent.ACTION_CANCEL -> done(null)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> enableDone()
         }
         return true
     }

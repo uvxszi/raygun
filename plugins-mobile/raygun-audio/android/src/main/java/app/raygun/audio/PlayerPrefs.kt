@@ -187,6 +187,12 @@ internal data class TrackChoice(val language: String?, val label: String?, val k
 }
 
 /**
+ * How the second subtitles look: their own style when the title has one, else the main
+ * subtitles' at the top of the picture (their height there starts at the top).
+ */
+internal fun secondLookOf(own: SubtitleLook?, main: SubtitleLook): SubtitleLook = own ?: main.copy(position = 0)
+
+/**
  * What a title remembers (`video.playerState.<group>` in Rust): speed (hundredths), aspect, the
  * subtitle choice (`{"off": true}` or a track), the second subtitle track, the subtitle delay,
  * the audio track, the audio delay, another source's sound and the intro length. `last` is the
@@ -201,6 +207,10 @@ internal class TitleState(json: JSONObject?, last: JSONObject? = null) {
     var subtitle: TrackChoice? = TrackChoice.from(json?.optJSONObject("subtitle"))
     var secondary: TrackChoice? = TrackChoice.from(json?.optJSONObject("secondarySubtitle"))
     var subtitleDelayMs: Long = json?.optLong("subtitleDelayMs", 0L) ?: 0L
+    /** The second subtitles' own delay. */
+    var secondSubtitleDelayMs: Long = json?.optLong("secondSubtitleDelayMs", 0L) ?: 0L
+    /** The second subtitles' own style; none looks like the main subtitles ([secondLookOf]). */
+    var secondStyle: SubtitleLook? = json?.optJSONObject("secondSubtitleStyle")?.let { SubtitleLook.from(it) }
     var audio: TrackChoice? = TrackChoice.from(json?.optJSONObject("audio"))
     /** Positive plays the sound later than the picture ([PlayerAudio]). */
     var audioDelayMs: Long = json?.optLong("audioDelayMs", 0L) ?: 0L

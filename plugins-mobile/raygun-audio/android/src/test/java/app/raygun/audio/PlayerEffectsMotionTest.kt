@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.sin
 
 class PlayerEffectsMotionTest {
@@ -163,5 +164,107 @@ class PlayerEffectsMotionTest {
         assertTrue(on.without(PictureEffects.SMOOTH_MOTION).neutral)
         assertTrue(PictureEffects(sharpen = 20, smoothMotion = true).adjustments == PictureEffects(sharpen = 20))
         assertTrue(abs(MotionMath.channel(0.5) - 128 / 255.0) < 1e-9)
+    }
+
+    /** Smooth noise without repeats (a hashed lattice, smoothly joined), as `motionMath.test.ts`. */
+    private fun lattice(column: Int, row: Int): Double =
+        (((column * 73_856_093) xor (row * 19_349_663)).toLong() and 0xFFFF_FFFFL) % 1024 / 1023.0
+
+    private fun valueNoise(x: Double, y: Double): Double {
+        val left = floor(x).toInt()
+        val top = floor(y).toInt()
+        fun ease(value: Double) = value * value * (3 - 2 * value)
+        val fx = ease(x - left)
+        val fy = ease(y - top)
+        val upper = lattice(left, top) * (1 - fx) + lattice(left + 1, top) * fx
+        val lower = lattice(left, top + 1) * (1 - fx) + lattice(left + 1, top + 1) * fx
+        return upper * (1 - fy) + lower * fy
+    }
+
+    /**
+     * A pan with an occluding object, as the desktop's test draws it: the background moves right
+     * 3 px a frame, a bright square with a dark cross on it moves left 4 px over it; `time` 0.5 is
+     * the true picture between the two frames.
+     */
+    private fun scene(time: Double): LumaImage = LumaImage(SCENE_WIDTH, SCENE_HEIGHT, FloatArray(SCENE_WIDTH * SCENE_HEIGHT) { index ->
+        val x = index % SCENE_WIDTH
+        val y = index / SCENE_WIDTH
+        val bx = x - 3 * time
+        val background = 0.2 + 0.5 * valueNoise(bx / 3, y / 3.0)
+        val left = 26 - 4 * time
+        val inSquare = x >= left && x < left + 10 && y >= 10 && y < 20
+        val cross = abs(x - (left + 5)) < 1.5 || abs(y - 15.0) < 1.5
+        (if (inSquare) (if (cross) 0.2 else 0.95) else background).toFloat()
+    })
+
+    private fun meanError(made: LumaImage, truth: LumaImage): Double =
+        made.values.indices.sumOf { abs(made.values[it] - truth.values[it]).toDouble() } / made.values.size
+
+    private fun farOff(made: LumaImage, truth: LumaImage): Double =
+        made.values.indices.count { abs(made.values[it] - truth.values[it]) > 0.15 }.toDouble() / made.values.size
+
+    private fun borderError(made: LumaImage, truth: LumaImage): Double {
+        val border = made.values.indices.filter { val x = it % made.width; x < 3 || x >= made.width - 3 }
+        return border.sumOf { abs(made.values[it] - truth.values[it]).toDouble() } / border.size
+    }
+
+    @Test
+    fun inBetweenFramesStayNearTheTruthRoundAnOccluderWithoutStretching() {
+        val prev = scene(0.0)
+        val mid = scene(0.5)
+        val cur = scene(1.0)
+        val balanced = MotionMath.interpolateFrame(prev, cur, 0.5, MotionMath.MOTION_BALANCED)
+        val sharp = MotionMath.interpolateFrame(prev, cur, 0.5, MotionMath.MOTION_SHARP)
+        val blended = MotionMath.interpolateFrame(prev, cur, 0.5, MotionMath.MOTION_BLEND)
+        val crossFade = LumaImage(prev.width, prev.height, FloatArray(prev.values.size) { (prev.values[it] + cur.values[it]) / 2 })
+        val balancedError = meanError(balanced, mid)
+        assertTrue("balanced $balancedError", balancedError < MOTION_ERROR_BOUND)
+        assertTrue("sharp", meanError(sharp, mid) < MOTION_ERROR_BOUND)
+        assertTrue("better than a cross-fade", balancedError < meanError(crossFade, mid) * 0.75)
+        // No stretched streaks: few pixels far off, and the picture's edges as near as the rest.
+        assertTrue("far off", farOff(balanced, mid) < FAR_OFF_SHARE)
+        assertTrue("edges", borderError(balanced, mid) < MOTION_ERROR_BOUND)
+        // Blend is the cross-fade where little changed and the nearer frame where much did.
+        blended.values.indices.forEach { index ->
+            val low = minOf(cur.values[index], crossFade.values[index]) - 1e-6f
+            val high = maxOf(cur.values[index], crossFade.values[index]) + 1e-6f
+            assertTrue(blended.values[index] in low..high)
+        }
+    }
+
+    @Test
+    fun aSideIsLeftOutOutsideThePictureOrWhereItDisagrees() {
+        val prev = texture(16, 8)
+        val cur = texture(16, 8, 2.0, 0.0)
+        val field = FlowField(16, 8, List(16 * 8) { FlowMatch(2.0, 0.0, 0.01) })
+        // At the left edge the frame before's sample lies outside: the next frame's alone.
+        assertEquals(cur.at(1.0, 4.0), MotionMath.warpPixel(prev, cur, field, 0, 4, 0.5, MotionMath.MOTION_BALANCED), 1e-9)
+        // A badly matched block whose samples don't agree repeats the nearer frame; one whose do is believed.
+        val unsure = FlowField(16, 8, field.matches.map { it.copy(cost = 0.3) })
+        val unlike = LumaImage(16, 8, FloatArray(16 * 8) { 0.05f })
+        assertEquals(prev.at(8.0, 4.0), MotionMath.warpPixel(prev, unlike, unsure, 8, 4, 0.4, MotionMath.MOTION_BALANCED), 1e-9)
+        assertEquals(prev.at(7.2, 4.0), MotionMath.warpPixel(prev, cur, unsure, 8, 4, 0.4, MotionMath.MOTION_BALANCED), 1e-6)
+        // The same numbers as the desktop's (`motionMath.test.ts`).
+        assertEquals(0.600335, MotionMath.warpPixel(prev, cur, field, 8, 4, 0.25, MotionMath.MOTION_BALANCED), 1e-6)
+        assertEquals(0.554747, MotionMath.warpPixel(prev, cur, null, 8, 4, 0.25, MotionMath.MOTION_BLEND), 1e-6)
+    }
+
+    @Test
+    fun eachModelSearchesItsWay() {
+        assertEquals(null, MotionMath.plan(MotionMath.MOTION_BLEND))
+        assertEquals(MotionPlan(intArrayOf(3, 1, 1), doubleArrayOf(0.5)), MotionMath.plan(MotionMath.MOTION_BALANCED))
+        assertEquals(MotionPlan(intArrayOf(3, 2, 2), doubleArrayOf(0.5, 0.25)), MotionMath.plan(MotionMath.MOTION_SHARP))
+        assertEquals(listOf(0, 1, 2), MotionMath.MODELS.map(MotionMath::modelNumber))
+        // An unknown model (from a newer version) plays as balanced.
+        assertEquals(1, MotionMath.modelNumber("later"))
+        assertEquals(MotionMath.MOTION_BALANCED, PictureEffects(motionModel = "later").clamped().motionModel)
+        assertTrue(PictureEffects(motionModel = MotionMath.MOTION_SHARP).neutral)
+    }
+
+    private companion object {
+        const val SCENE_WIDTH = 48
+        const val SCENE_HEIGHT = 32
+        const val MOTION_ERROR_BOUND = 0.032
+        const val FAR_OFF_SHARE = 0.08
     }
 }

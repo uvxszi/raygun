@@ -491,6 +491,11 @@ internal class ColorPicker(
     private var alpha = if (!withOpacity) 0xFF else Color.alpha(initial).takeIf { it > 0 } ?: 0x80
     private var saved = initial
     private val sample = View(context)
+    /** The sample at the top left: one drawable, its colour changed in place and drawn again. */
+    private val sampleDot = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setStroke(context.dp(1).coerceAtLeast(1), 0x99FFFFFF.toInt())
+    }
     private val hex = EditText(context)
     private val hue = GradientSlider(context, {
         hsv[0] = it * 360f
@@ -530,6 +535,19 @@ internal class ColorPicker(
                 if (done) typed()
                 done
             }
+            // A whole code typed shows at once, on the sample and the subtitles.
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(text: android.text.Editable?) {
+                    if (!hasFocus()) return
+                    val rgb = parseHexColor(text?.toString().orEmpty()) ?: return
+                    if (rgb == color and 0xFFFFFF) return
+                    Color.colorToHSV(rgb or (0xFF shl 24), hsv)
+                    refresh(updateHex = false)
+                    apply(color, false)
+                }
+            })
         }
         sheet.custom(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -587,11 +605,11 @@ internal class ColorPicker(
 
     /** The sample, the sliders' places and gradients, and the typed code follow the colour. */
     private fun refresh(updateHex: Boolean) {
-        sample.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(color)
-            setStroke(context.dp(1).coerceAtLeast(1), 0x99FFFFFF.toInt())
-        }
+        sampleDot.setColor(color)
+        if (sample.background !== sampleDot) sample.background = sampleDot
+        sampleDot.invalidateSelf()
+        sample.invalidate()
+        sample.contentDescription = hexColor(color)
         hue.value = hsv[0] / 360f
         saturation.value = hsv[1]
         brightness.value = hsv[2]

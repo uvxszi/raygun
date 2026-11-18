@@ -6,11 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { LANGUAGES, nativeName } from '../i18n/languages';
 import {
   ASPECTS,
-  BACKGROUND_COLORS,
   CONTROLS_SECONDS,
   DECODERS,
   DEFAULT_SUBTITLE_STYLE,
-  EDGE_COLORS,
   EXTERNAL_PLAYERS,
   formatSpeed,
   HOLD_SPEEDS,
@@ -19,33 +17,22 @@ import {
   ORIENTATIONS,
   parseSpeeds,
   SKIP_WAIT_SECONDS,
-  SUBTITLE_EDGES,
-  SUBTITLE_MAX_WIDTH,
   SUBTITLE_MODES,
   TAP_ACTIONS,
-  TEXT_COLORS,
   VIDEO_CODECS,
   VIDEO_SETTINGS_PATH,
   withDefaults,
   seekByDragging,
 } from '../settings/playerOptions';
 import type { PlayerPrefs, PlayerSettingsPage as Page } from '../settings/playerOptions';
-import {
-  PrefChoice,
-  PrefGroup,
-  PrefSize,
-  PrefSlider,
-  PrefSwitch,
-  PrefText,
-} from '../settings/prefs';
-import { PrefColor } from '../settings/PrefColor';
+import { PrefChoice, PrefGroup, PrefSlider, PrefSwitch, PrefText } from '../settings/prefs';
 import { SettingsSaveIssue } from '../settings/Problem';
 import { resetKeys } from '../settings/resets';
 import type { SettingsReset } from '../settings/resets';
 import { useFoundPref } from '../settings/useSettingsSearch';
 import { useResetToDefaults } from '../settings/useResetToDefaults';
 import { SubtitleFontRow } from '../settings/SubtitleFontRow';
-import { SubtitlePreview } from '../settings/SubtitlePreview';
+import { SubtitleStyleRows } from '../settings/SubtitleStyleRows';
 import { useSettings, useUpdateSetting, useUpdateSettings } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
 import { useIsPhone } from '../shell/useIsDesktop';
@@ -348,9 +335,6 @@ const GesturesScreen: FC<ScreenProps & { seekSeconds: number }> = ({
   );
 };
 
-const colorOptions = (colors: { value: number; name: string }[], t: (key: string) => string) =>
-  colors.map((color) => ({ value: color.value, label: t(`settings.player.colors.${color.name}`) }));
-
 const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLanguage: string }> = ({
   prefs,
   set,
@@ -434,106 +418,16 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
         />
       </PrefGroup>
       <PrefGroup title={t('settings.player.style')}>
-        <li className="px-1 py-2">
-          <SubtitlePreview style={style} family={family} />
-        </li>
-        <PrefSize
-          title={t('settings.player.subtitleSize')}
-          unit="%"
-          zero={100}
-          min={50}
-          max={200}
-          step={10}
-          value={style.size}
-          disabled={busy}
-          onChange={(size) => setStyle({ size })}
+        <SubtitleStyleRows
+          style={style}
+          setStyle={setStyle}
+          onReset={resetStyle}
+          resetLabel={t('settings.player.resetStyle')}
+          font={<SubtitleFontRow title={t('settings.player.subtitleFont')} />}
+          family={family}
+          busy={busy}
+          phone={phone}
         />
-        <SubtitleFontRow title={t('settings.player.subtitleFont')} />
-        <PrefSwitch
-          title={t('settings.player.bold')}
-          checked={style.bold}
-          disabled={busy}
-          onChange={(bold) => setStyle({ bold })}
-        />
-        <PrefSwitch
-          title={t('settings.player.italic')}
-          checked={style.italic}
-          disabled={busy}
-          onChange={(italic) => setStyle({ italic })}
-        />
-        {/* A colour picked wins over the file's own colours, white and "None" too. */}
-        <PrefColor
-          title={t('settings.player.textColor')}
-          value={style.textColor}
-          disabled={busy}
-          colors={colorOptions(TEXT_COLORS, t)}
-          onChange={(textColor) => setStyle({ textColor, textColorChosen: true })}
-        />
-        <PrefChoice
-          title={t('settings.player.edge')}
-          value={style.edge}
-          disabled={busy}
-          options={SUBTITLE_EDGES.map((value) => ({
-            value,
-            label: t(`settings.player.edges.${value}`),
-          }))}
-          onChange={(edge) => setStyle({ edge })}
-        />
-        <PrefColor
-          title={t('settings.player.edgeColor')}
-          value={style.edgeColor}
-          disabled={busy || style.edge === 'none'}
-          colors={colorOptions(EDGE_COLORS, t)}
-          onChange={(edgeColor) => setStyle({ edgeColor })}
-        />
-        <PrefColor
-          title={t('settings.player.backgroundColor')}
-          value={style.backgroundColor}
-          disabled={busy}
-          colors={colorOptions(BACKGROUND_COLORS, t)}
-          opacity
-          onChange={(backgroundColor) => setStyle({ backgroundColor, backgroundColorChosen: true })}
-        />
-        <PrefSlider
-          title={t('settings.player.subtitlePosition')}
-          value={style.position}
-          min={0}
-          max={40}
-          step={2}
-          format={(value) => `${value}%`}
-          disabled={busy}
-          onChange={(position) => setStyle({ position })}
-        />
-        <PrefSlider
-          title={t('settings.player.subtitleMaxWidth')}
-          summary={t('settings.player.subtitleMaxWidthHint')}
-          value={style.maxWidth}
-          min={SUBTITLE_MAX_WIDTH.min}
-          max={SUBTITLE_MAX_WIDTH.max}
-          step={SUBTITLE_MAX_WIDTH.step}
-          format={(value) => `${value}%`}
-          disabled={busy}
-          onChange={(maxWidth) => setStyle({ maxWidth })}
-        />
-        {phone && (
-          <PrefSwitch
-            title={t('settings.player.ignoreEmbedded')}
-            summary={t('settings.player.ignoreEmbeddedHint')}
-            checked={style.ignoreEmbedded}
-            disabled={busy}
-            onChange={(ignoreEmbedded) => setStyle({ ignoreEmbedded })}
-          />
-        )}
-        <li>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={resetStyle}
-            className="text-primary hover:bg-surface w-full rounded-xl px-1 py-3 text-left font-medium disabled:opacity-60"
-          >
-            {t('settings.player.resetStyle')}
-          </button>
-        </li>
       </PrefGroup>
     </>
   );
