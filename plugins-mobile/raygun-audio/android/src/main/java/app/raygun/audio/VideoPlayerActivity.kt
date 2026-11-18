@@ -644,6 +644,11 @@ class VideoPlayerActivity : AppCompatActivity() {
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && looping) wrapped()
         }
 
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            // A new speed: the wait for the next line is measured at it from now.
+            subtitleClock.refresh()
+        }
+
         override fun onRenderedFirstFrame() {
             started = true
             pickedSource = false

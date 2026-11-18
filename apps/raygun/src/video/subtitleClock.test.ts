@@ -1,7 +1,8 @@
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { smartOrder } from './smartOrder';
-import { steadySpan, subtitleTimeMs } from './subtitleClock';
+import { steadySpan, subtitleTimeMs, useSubtitleClock } from './subtitleClock';
 import { cuesAt } from './subtitles';
 import type { Cue } from './subtitles';
 
@@ -33,6 +34,51 @@ describe('subtitle delay', () => {
       from: 1_000,
       until: 2_000,
     });
+  });
+});
+
+describe('the subtitle clock', () => {
+  /** A paused video whose playhead and speed the test moves. */
+  const fakeVideo = () => {
+    const video = document.createElement('video');
+    let time = 0;
+    Object.defineProperty(video, 'currentTime', {
+      get: () => time,
+      set: (next: number) => (time = next),
+    });
+    Object.defineProperty(video, 'paused', { get: () => true });
+    const move = (seconds: number, type: string) =>
+      act(() => {
+        time = seconds;
+        video.dispatchEvent(new Event(type));
+      });
+    return { video, move };
+  };
+
+  it('reads the playhead less the delay after seeks, speed changes and delay changes', () => {
+    const { video, move } = fakeVideo();
+    const ref = { current: video };
+    const { result, rerender } = renderHook(
+      ({ delay }: { delay: number }) => useSubtitleClock(ref, cues, [], delay),
+      { initialProps: { delay: 10_000 } },
+    );
+    // Ten seconds later on a video shorter than that: before every line.
+    move(4, 'seeked');
+    expect(result.current).toBe(-6_000);
+    expect(cuesAt(cues, result.current)).toEqual([]);
+    // Played on at 2× (the delay is in the video's time): the line at 1 s shows at 11 s.
+    video.playbackRate = 2;
+    move(11, 'ratechange');
+    expect(cuesAt(cues, result.current)).toEqual(['one']);
+    // Half speed: same.
+    video.playbackRate = 0.5;
+    move(12.5, 'ratechange');
+    expect(cuesAt(cues, result.current)).toEqual(['one']);
+    // Five seconds earlier, from the very start: the line at 5 s shows at 0.
+    rerender({ delay: -5_000 });
+    move(0, 'seeked');
+    expect(result.current).toBe(5_000);
+    expect(cuesAt(cues, result.current)).toEqual(['two']);
   });
 });
 

@@ -24,6 +24,36 @@ class PlayerSubtitleClockTest {
     }
 
     @Test
+    fun aDelayLongerThanTheVideoOrBeforeItsStartBehaves() {
+        // Ten minutes later on a nine-second video: nothing ever shows, and the clock looks
+        // again at most every quarter second (no busy loop waiting for a line ten minutes off).
+        val atUs = subtitleTimeMs(9_000, 600_000) * 1000
+        assertTrue(timedAt(lines, atUs).isEmpty())
+        assertEquals(1_000_000L, nextEdgeUs(lines, atUs))
+        assertEquals(CLOCK_MAX_WAIT_MS, waitMs(nextEdgeUs(lines, atUs), atUs, 1f))
+        // Five seconds earlier, at the very start: the line at 5 s shows at 0.
+        assertEquals(listOf(lines[1]), timedAt(lines, subtitleTimeMs(0, -5_000) * 1000))
+        // Earlier than a line's start before the video starts: the clock at -1 s shows nothing.
+        assertTrue(timedAt(lines, subtitleTimeMs(0, 1_000) * 1000).isEmpty())
+        assertEquals(1_000_000L, nextEdgeUs(lines, -1_000_000))
+    }
+
+    @Test
+    fun theDelayIsInTheVideosTimeAtAnySpeed() {
+        // Two seconds of delay: the line at 1 s shows at 3 s of the video, whatever the speed;
+        // from 2.9 s it's 100 ms of video away: 50 ms at 2×, 200 ms at 0.5×.
+        val atUs = subtitleTimeMs(2_900, 2_000) * 1000
+        assertTrue(timedAt(lines, atUs).isEmpty())
+        assertEquals(50L, waitMs(nextEdgeUs(lines, atUs), atUs, 2f))
+        assertEquals(200L, waitMs(nextEdgeUs(lines, atUs), atUs, 0.5f))
+        assertEquals(listOf(lines[0]), timedAt(lines, subtitleTimeMs(3_000, 2_000) * 1000))
+        // A negative delay at 2×: the line at 5 s shows at 4.5 s of the video.
+        val earlyUs = subtitleTimeMs(4_400, -500) * 1000
+        assertEquals(50L, waitMs(nextEdgeUs(lines, earlyUs), earlyUs, 2f))
+        assertEquals(listOf(lines[1]), timedAt(lines, subtitleTimeMs(4_500, -500) * 1000))
+    }
+
+    @Test
     fun linesShowFromTheirStartUntilTheirEnd() {
         assertTrue(timedAt(lines, 999_999).isEmpty())
         assertEquals(listOf(lines[0]), timedAt(lines, 1_000_000))
