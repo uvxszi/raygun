@@ -305,8 +305,6 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal var sourceOrder: JSONArray? = null
     /** The source playing, once it has played a while. */
     internal var playingFrom: String? = null
-    /** The preferred resolution's options from every source (Rust's `preferred`): listed first. */
-    internal var preferredOptions: JSONObject? = null
     /** The source usually chosen for this kind of video (Rust's `usual`). */
     internal var usualSource: String? = null
     /** A link played on its own (Rust's `link`): its own links play first. */
@@ -870,7 +868,6 @@ class VideoPlayerActivity : AppCompatActivity() {
                 sources = update.optJSONArray("groups") ?: JSONArray()
                 sourceOrder = update.optJSONArray("order")
                 playingFrom = update.text("playingFrom")
-                preferredOptions = update.optJSONObject("preferred")
                 usualSource = update.text("usual")
                 linkSession = update.optBoolean("link")
                 sourcesAlone = update.optBoolean("alone")
@@ -2319,6 +2316,8 @@ class VideoPlayerActivity : AppCompatActivity() {
         updateSkip()
         updateSleep()
         updateWaiting()
+        // Stalls step automatic quality down (and, after a smooth stretch, back up).
+        quality.lookAtStalls(SystemClock.elapsedRealtime(), player.playWhenReady, rebuffering)
         liveStream.tick()
         // A live stream's AI subtitles are timed by its own clock.
         if (second.active) second.update(liveStream.clockMs(), state.secondSubtitleDelayMs)

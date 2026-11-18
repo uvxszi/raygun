@@ -7,6 +7,7 @@
 import type { VideoResolution } from '@raygun/bindings';
 
 import type { LiveAnchor, QualityRange, VariantInfo } from './protocol';
+import { pictureHeight } from './autoQuality';
 import { pickVariant } from './trackPicking';
 
 export type EngineTrack = {
@@ -45,6 +46,9 @@ export type MediaEngine = {
   /** Holds the variant playing now (adaptive switching stops) without dropping what's buffered;
    * false when there's no variant to hold. */
   keepQuality: () => boolean;
+  /** Automatic switching stays at or below `height` (a picture's tier, `pictureHeight`), within
+   * the preferred resolution's cap; null lifts it. True while the cap holds something back. */
+  capHeight: (height: number | null) => boolean;
   /** Keeps what played buffered behind the playhead (while looping, so the start is there when
    * the stream goes round). */
   keepStart: (keep: boolean) => void;
@@ -132,6 +136,7 @@ const NONE = {
   quality: () => -1,
   setQuality: () => {},
   keepQuality: () => false,
+  capHeight: () => false,
   keepStart: () => {},
   liveAnchor: () => null,
   livePoint: () => null,
@@ -199,6 +204,8 @@ const attachHls = async (
   });
   let recovered = false;
   let parsed = false;
+  /** The preferred resolution's cap (a level index; -1 for none). */
+  let preferredCap = -1;
   hls.on(Hls.Events.MANIFEST_PARSED, () => {
     parsed = true;
     // Starts at the preferred resolution, and automatic switching stays at or below it; the
@@ -212,6 +219,7 @@ const attachHls = async (
       resolution,
     );
     if (pick) {
+      preferredCap = pick.cap;
       hls.autoLevelCapping = pick.cap;
       hls.startLevel = pick.start;
     }
@@ -308,6 +316,21 @@ const attachHls = async (
       if (playing < 0 || hls.levels.length < 2) return false;
       hls.loadLevel = playing;
       return true;
+    },
+    capHeight: (height) => {
+      if (height === null) {
+        hls.autoLevelCapping = preferredCap;
+        return false;
+      }
+      let cap = -1;
+      hls.levels.forEach((level, index) => {
+        const fits = pictureHeight(level.width || 0, level.height || 0) <= height;
+        if (fits && (preferredCap < 0 || index <= preferredCap)) cap = Math.max(cap, index);
+      });
+      if (cap < 0) return false;
+      const holds = preferredCap < 0 ? cap < hls.levels.length - 1 : cap < preferredCap;
+      hls.autoLevelCapping = holds ? cap : preferredCap;
+      return holds;
     },
     keepStart: (keep) => {
       hls.config.backBufferLength = keep ? Infinity : backBuffer;

@@ -228,9 +228,16 @@ internal fun TextView.fillRow(
     selected: Boolean,
     enabled: Boolean,
     highlighted: Boolean = selected,
+    badge: String? = null,
 ) {
     val words = SpannableStringBuilder(text)
     if (highlighted) words.setSpan(StyleSpan(Typeface.BOLD), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    // A small tag after the name ("Preferred").
+    if (!badge.isNullOrBlank()) {
+        val at = words.length
+        words.append(badge)
+        words.setSpan(BadgeSpan(resources.displayMetrics.density), at, words.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
     if (!detail.isNullOrBlank()) words.append('\n').append(detail)
     this.text = words
     val color = when {
@@ -411,10 +418,12 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         detail: String? = null,
         selected: Boolean = false,
         highlighted: Boolean = selected,
+        /** A small tag after the name ("Preferred"). */
+        badge: String? = null,
         onClick: (() -> Unit)?,
     ): TextView {
         val view = context.sheetRow(text, detail, selected, onClick != null).apply {
-            if (highlighted != selected) fillRow(text, detail, selected, onClick != null, highlighted)
+            if (highlighted != selected || badge != null) fillRow(text, detail, selected, onClick != null, highlighted, badge)
             if (onClick != null) {
                 isClickable = true
                 isFocusable = true

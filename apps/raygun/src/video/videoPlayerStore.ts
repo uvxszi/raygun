@@ -13,7 +13,6 @@ import type {
   MusicEq,
   PlayerRequest,
   PlayerUpdate,
-  PreferredOptions,
   QualityRow,
   SourceGroup,
   SubtitleRank,
@@ -59,8 +58,6 @@ type VideoPlayerState = {
   sourceOrder: number[] | null;
   /** The source playing, once it has played a while. */
   playingFrom: string | null;
-  /** The preferred resolution's options from every source (Rust's `preferred`): listed first. */
-  preferredOptions: PreferredOptions | null;
   /** The source usually chosen for this kind of video (Rust's `usual`). */
   usualSource: string | null;
   /** A link played on its own (Rust's `link`): its own links play first. */
@@ -82,6 +79,8 @@ type VideoPlayerState = {
   qualities: QualityRow[];
   /** The step asked for in Quality (Rust's `wanted`); null while it picks by itself. */
   qualityWanted: string | null;
+  /** A link was picked by hand (Rust's `handPicked`): automatic quality doesn't step down. */
+  qualityHandPicked: boolean;
   /** Why a step tapped in Quality can't play, with when it came (each one shows once). */
   qualityNotice: { text: string; at: number } | null;
   /** Other streams of the episode for their sound, and the video they're for. */
@@ -178,7 +177,6 @@ const CLOSED = {
   sources: [],
   sourceOrder: null,
   playingFrom: null,
-  preferredOptions: null,
   usualSource: null,
   linkSession: false,
   sourcesAlone: false,
@@ -190,6 +188,7 @@ const CLOSED = {
   smartSubtitlesAvailable: false,
   qualities: [],
   qualityWanted: null,
+  qualityHandPicked: false,
   qualityNotice: null,
   audioOffers: { id: null, items: [] },
   loadedAt: 0,
@@ -253,7 +252,6 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
           return {
             sources: update.groups,
             playingFrom: update.playingFrom ?? null,
-            preferredOptions: update.preferred ?? null,
             usualSource: update.usual ?? null,
             sourceOrder: update.order ?? null,
             linkSession: update.link ?? false,
@@ -278,6 +276,7 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
           return {
             qualities: update.items,
             qualityWanted: update.wanted ?? null,
+            qualityHandPicked: update.handPicked ?? false,
             qualityNotice: update.notice ? { text: update.notice, at: Date.now() } : null,
             // A step asked for that nothing else plays: the video playing goes on as it was.
             pickedSource: update.notice ? false : state.pickedSource,

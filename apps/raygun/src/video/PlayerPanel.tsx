@@ -75,6 +75,10 @@ type OptionProps = {
   /** What plays now (a resolution, a source): set apart on a tint of the accent, also when it
    * wasn't picked (automatic quality). */
   current?: boolean;
+  /** A small tag after its name ("Preferred"). */
+  badge?: string | null;
+  /** Says it opens a menu (`aria-haspopup`), and whether that's open. */
+  expanded?: boolean;
   onSelect: () => void;
 };
 
@@ -86,6 +90,8 @@ export const PanelOption: FC<OptionProps> = ({
   disabled,
   toggle = false,
   current = false,
+  badge,
+  expanded,
   onSelect,
 }) => (
   <button
@@ -93,6 +99,8 @@ export const PanelOption: FC<OptionProps> = ({
     role={toggle ? 'menuitemcheckbox' : 'menuitemradio'}
     aria-checked={selected}
     aria-current={current ? 'true' : undefined}
+    aria-haspopup={expanded === undefined ? undefined : 'menu'}
+    aria-expanded={expanded}
     disabled={disabled}
     onClick={onSelect}
     className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40 ${
@@ -102,7 +110,17 @@ export const PanelOption: FC<OptionProps> = ({
     } ${selected || current ? 'text-primary' : ''}`}
   >
     <span className="flex min-w-0 flex-1 flex-col">
-      <span className={`truncate ${current ? 'font-semibold' : ''}`}>{label}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className={`truncate ${current ? 'font-semibold' : ''}`}>{label}</span>
+        {badge && (
+          <span
+            data-testid="option-badge"
+            className="shrink-0 rounded-full bg-white/15 px-1.5 py-px text-[0.625rem] leading-4 font-semibold text-white/85"
+          >
+            {badge}
+          </span>
+        )}
+      </span>
       {hint && <span className="truncate text-xs text-white/55">{hint}</span>}
     </span>
     {/* The mark's slot is there on every row: words start and end at the same place, ticked or not. */}

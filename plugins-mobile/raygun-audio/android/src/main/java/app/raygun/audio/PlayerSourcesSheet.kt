@@ -47,6 +47,21 @@ internal val OPTION_ORDER: Comparator<OptionRank> = Comparator { a, b ->
     a.index.compareTo(b.index)
 }
 
+/** A row of a source's options: its links' indexes, best first, and whether it's preferred. */
+internal data class SourceOptionRow(val links: List<Int>, val preferred: Boolean)
+
+/**
+ * A source's options as Sources lists them: Rust's rows (each tier and range once, the preferred
+ * resolution's first), each keeping only links the source has; without any, each link alone in
+ * the `fallback` order.
+ */
+internal fun sourceOptionRows(rust: List<SourceOptionRow>, count: Int, fallback: () -> List<Int>): List<SourceOptionRow> {
+    val rows = rust
+        .map { row -> row.copy(links = row.links.filter { it in 0 until count }.distinct()) }
+        .filter { it.links.isNotEmpty() }
+    return rows.ifEmpty { fallback().map { SourceOptionRow(listOf(it), false) } }
+}
+
 /**
  * The sources to list, by index: those in Rust's `order` first (once each, only real ones), then
  * any it left out, without those `visible` hides.
@@ -108,10 +123,13 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
     private var sourcePane: ScrollView? = null
     private var optionPane: ScrollView? = null
     private var optionPaneFor: Int? = null
+    /** The row of options whose other links show: its source and its place among the rows. */
+    private var alternativesOf: Pair<Int, Int>? = null
 
     fun open() {
         raw = false
         settingsOf = null
+        alternativesOf = null
         picked = null
         options = false
         sourcePane = null
@@ -171,7 +189,6 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         host.usualSource?.let { sheet.header(label("usualSource", "You usually watch from {n}", it)) }
         toggles(sheet)
         sourceSettings(sheet)
-        if (!raw) preferredList(sheet)
         if (raw) rawList(sheet) else cleanList(sheet)
         sheet.show()
     }
@@ -231,34 +248,6 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             sheet.dismiss()
             // The app shows them while the video waits in its small window.
             host.openAppSettings("sourceSettings", JSONObject().put("group", group))
-        }
-    }
-
-    /**
-     * The preferred resolution's options from every source, first ("Preferred · 1080p"); each
-     * stays in its own source's list too.
-     */
-    private fun preferredList(sheet: PlayerSheet) {
-        val preferred = host.preferredOptions ?: return
-        val options = preferred.optJSONArray("options") ?: return
-        val rows = (0 until options.length()).mapNotNull { index ->
-            val place = options.optJSONObject(index) ?: return@mapNotNull null
-            val group = place.optInt("group", -1)
-            val link = place.optInt("link", -1)
-            val server = groups.optJSONObject(group) ?: return@mapNotNull null
-            val entry = server.optJSONArray("links")?.optJSONObject(link) ?: return@mapNotNull null
-            Triple(group, link, server to entry)
-        }
-        if (rows.isEmpty()) return
-        sheet.header(label("preferredOptions", "Preferred") + " · ${preferred.optInt("height")}p")
-        rows.forEach { (group, link, pair) ->
-            val (server, entry) = pair
-            val current = entry.optBoolean("current")
-            sheet.row(
-                optionTitle(entry) + " · " + server.optString("name"),
-                optionDetail(entry, server),
-                selected = current,
-            ) { choose(group, link, current) }
         }
     }
 
@@ -432,7 +421,11 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         ).joinToString(" · ")
     }
 
-    /** A source's options, best picture first (then faster, then higher bit rate). */
+    /**
+     * A source's options: each tier and range once (Rust's `qualities`), the preferred
+     * resolution's first with a small "Preferred" tag. A tap plays the row's best link; tapped
+     * again while one of its links plays, the others show beneath it to pick one.
+     */
     private fun optionRows(list: LinearLayout, group: Int) {
         val server = groups.optJSONObject(group) ?: return
         val links = server.optJSONArray("links") ?: JSONArray()
@@ -440,23 +433,74 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             list.addView(paneRow(server.optString("name"), stateText(server), selected = false, onClick = null))
             return
         }
-        val ranks = (0 until links.length()).mapNotNull { index ->
-            val link = links.optJSONObject(index) ?: return@mapNotNull null
-            val facts = link.optJSONObject("facts")
-            OptionRank(
-                index = index,
-                height = facts?.number("height"),
-                range = facts?.text("range"),
-                speedKbps = link.number("speedKbps"),
-                bitrateKbps = link.number("bitrateKbps"),
-            )
+        val rows = sourceOptionRows(rustRows(server.optJSONArray("qualities")), links.length()) {
+            (0 until links.length()).mapNotNull { index ->
+                val link = links.optJSONObject(index) ?: return@mapNotNull null
+                val facts = link.optJSONObject("facts")
+                OptionRank(
+                    index = index,
+                    height = facts?.number("height"),
+                    range = facts?.text("range"),
+                    speedKbps = link.number("speedKbps"),
+                    bitrateKbps = link.number("bitrateKbps"),
+                )
+            }.sortedWith(OPTION_ORDER).map { it.index }
         }
-        ranks.sortedWith(OPTION_ORDER).forEach { rank ->
-            val link = links.optJSONObject(rank.index) ?: return@forEach
-            val current = link.optBoolean("current")
-            list.addView(paneRow(optionTitle(link), optionDetail(link, server), selected = current, playing = current) {
-                choose(group, rank.index, current)
-            })
+        rows.forEachIndexed { rowIndex, row ->
+            val playingAt = row.links.firstOrNull { links.optJSONObject(it)?.optBoolean("current") == true }
+            val shownAt = playingAt ?: row.links.first()
+            val shown = links.optJSONObject(shownAt) ?: return@forEachIndexed
+            val others = row.links.size - 1
+            val open = others > 0 && alternativesOf == group to rowIndex
+            val more = if (others > 0) {
+                if (playingAt != null) {
+                    host.countLabel("otherCopiesPick", "{n} more link: tap to pick", "{n} more links: tap to pick", others.toString(), others)
+                } else {
+                    host.countLabel("otherCopies", "{n} more link", "{n} more links", others.toString(), others)
+                }
+            } else {
+                null
+            }
+            val detail = listOfNotNull(optionDetail(shown, server), more).joinToString(" · ").ifBlank { null }
+            val playing = playingAt != null
+            list.addView(
+                paneRow(
+                    optionTitle(shown),
+                    detail,
+                    selected = playing,
+                    playing = playing,
+                    badge = if (row.preferred) label("preferredOptions", "Preferred") else null,
+                ) {
+                    when {
+                        !playing -> choose(group, shownAt, false)
+                        others > 0 -> {
+                            alternativesOf = if (open) null else group to rowIndex
+                            build()
+                        }
+                    }
+                },
+            )
+            if (open) {
+                row.links.forEach { index ->
+                    val link = links.optJSONObject(index) ?: return@forEach
+                    val current = link.optBoolean("current")
+                    list.addView(
+                        paneRow("   " + optionTitle(link), alternativeDetail(link, server), selected = current) {
+                            choose(group, index, current)
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /** Rust's rows of a source's options: each one's link indexes and whether it's preferred. */
+    private fun rustRows(qualities: JSONArray?): List<SourceOptionRow> {
+        if (qualities == null) return emptyList()
+        return (0 until qualities.length()).mapNotNull { index ->
+            val row = qualities.optJSONObject(index) ?: return@mapNotNull null
+            val links = row.optJSONArray("links") ?: return@mapNotNull null
+            SourceOptionRow((0 until links.length()).map { links.optInt(it, -1) }, row.optBoolean("preferred"))
         }
     }
 
@@ -464,7 +508,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
      * "2160p (4K) · HDR", "1080p (1920×816)" (a picture's own size beside its tier), or the
      * link's own short name when its height isn't known.
      */
-    private fun optionTitle(link: JSONObject): String {
+    internal fun optionTitle(link: JSONObject): String {
         val facts = link.optJSONObject("facts")
         val height = facts?.number("height")?.toInt()
         val nickname = when {
@@ -483,6 +527,13 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             else -> name
         }
     }
+
+    /** One of a row's links, to pick from: what's known of it, then its own name. */
+    internal fun alternativeDetail(link: JSONObject, server: JSONObject): String? =
+        listOfNotNull(
+            optionDetail(link, server),
+            link.optString("label").substringBefore('\n').trim().take(80).ifBlank { null },
+        ).joinToString(" · ").ifBlank { null }
 
     /** "HEVC 10-bit · DD+ 5.1 · 15.2 GB · ~20 Mb/s · WEB-DL · playing". */
     private fun optionDetail(link: JSONObject, server: JSONObject): String? {
@@ -564,6 +615,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         detail: String?,
         selected: Boolean,
         playing: Boolean = false,
+        badge: String? = null,
         onClick: (() -> Unit)?,
     ): TextView =
         TextView(host).apply {
@@ -571,7 +623,7 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             setPadding(host.dp(20), host.dp(12), host.dp(20), host.dp(12))
             minHeight = host.dp(48)
             gravity = Gravity.CENTER_VERTICAL
-            fillRow(text, detail, selected, onClick != null, highlighted = playing)
+            fillRow(text, detail, selected, onClick != null, highlighted = playing, badge = badge)
             if (onClick != null) {
                 isClickable = true
                 isFocusable = true
