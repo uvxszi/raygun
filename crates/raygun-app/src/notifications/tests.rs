@@ -581,7 +581,7 @@ fn a_recording_shows_how_far_it_is_and_the_time_it_takes_with_stop() {
     let actions: Vec<(&str, &str)> = shown
         .actions
         .iter()
-        .map(|action| (action.id, action.label))
+        .map(|action| (action.id, action.label.as_str()))
         .collect();
     assert_eq!(actions, [("stop", "Stop")]);
     assert_eq!(shown.actions[0].keys, ["songs:r"]);

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useAlbumMenuItems } from '../music/cardMenus';
 import { Artwork } from './Artwork';
 import { CardMenu } from '../shell/CardMenu';
+import { albumCover } from './coverTargets';
 
 /** The library's albums as covers; each has the album menu (play, queue, add to a playlist…). */
 export const AlbumGrid: FC<{ albums: LibraryAlbum[] }> = ({ albums }) => {
@@ -29,7 +30,12 @@ export const AlbumGrid: FC<{ albums: LibraryAlbum[] }> = ({ albums }) => {
             search={{ artist: album.artist, album: album.title }}
             className="flex flex-col gap-1.5"
           >
-            <Artwork url={album.artworkUrl} className="w-full rounded-lg" iconSize={40} />
+            <Artwork
+              url={album.artworkUrl}
+              fallback={albumCover(album)}
+              className="w-full rounded-lg"
+              iconSize={40}
+            />
             <span className="truncate text-sm font-medium">{album.title}</span>
             <span className="text-muted -mt-1 truncate text-xs">{album.artist}</span>
           </Link>

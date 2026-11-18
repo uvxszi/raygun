@@ -24,6 +24,7 @@ import { useFileDownloads } from '../websites/useFileDownloads';
 import type { MenuItem } from './contextMenuStore';
 import { MenuButton } from './MenuButton';
 import { Popover } from './Popover';
+import { songCover } from '../library/coverTargets';
 
 /** Rows a bar popover shows before Open… (M46.37). */
 const SHOWN = 8;
@@ -209,7 +210,14 @@ const DownloadsPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({
   const rows: DownloadRow[] = [
     ...listedSongs.map((song) => ({
       key: `s-${song.id}`,
-      picture: <Artwork url={song.artworkUrl} className="w-full rounded" iconSize={16} />,
+      picture: (
+        <Artwork
+          url={song.artworkUrl}
+          fallback={songCover(song)}
+          className="w-full rounded"
+          iconSize={16}
+        />
+      ),
       title: song.title,
       detail: [t('barPopover.song'), song.artist, stateText(song.state)]
         .filter(Boolean)

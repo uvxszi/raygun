@@ -205,8 +205,8 @@ describe('AppearanceCard', () => {
     });
     AppearanceCardWrapper.mount();
 
-    await userEvent.click(await screen.findByRole('button', { name: /^Language/ }));
-    const sheet = await screen.findByRole('dialog', { name: 'Language' });
+    await userEvent.click(await screen.findByRole('button', { name: /^App language/ }));
+    const sheet = await screen.findByRole('dialog', { name: 'App language' });
     expect(within(sheet).getByRole('radio', { name: /^System default/ })).not.toBeChecked();
     expect(within(sheet).getByRole('radio', { name: 'English' })).toBeChecked();
     await userEvent.click(within(sheet).getByRole('radio', { name: 'Deutsch' }));

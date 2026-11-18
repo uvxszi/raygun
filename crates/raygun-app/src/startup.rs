@@ -75,6 +75,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let privacy =
         tauri::async_runtime::block_on(crate::privacy::Privacy::load(&app.state::<AppDb>().0));
     app.manage(privacy);
+    // Notifications' words in the app's language, as the page last sent them.
+    tauri::async_runtime::block_on(raygun_app_base::texts::load(&app.state::<AppDb>().0));
 
     let art_dir = paths.cache(raygun_paths::CacheKind::Images);
     // Image caches with their limits from settings (M46.2).
@@ -351,9 +353,19 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     )?);
     // Covers from other sources when one's missing or fails (M46.40), and looked for in the
     // background for library songs without one.
-    app.manage(crate::cover_fallback::CoverFallbacks::new(
-        app.handle().clone(),
-    ));
+    let cover_fallbacks = crate::cover_fallback::CoverFallbacks::new(app.handle().clone());
+    // Sources installed, updated or removed: covers none had are looked for again.
+    {
+        use tauri_specta::Event as _;
+        let covers = cover_fallbacks.clone();
+        crate::events::ExtensionsChangedEvent::listen(app.handle(), move |event| {
+            let covers = covers.clone();
+            tauri::async_runtime::spawn(async move {
+                covers.extensions_loaded(&event.payload.0).await;
+            });
+        });
+    }
+    app.manage(cover_fallbacks);
     let cover_search =
         crate::cover_search::CoverSearch::new(app.handle().clone(), raygun_net::http_client()?);
     cover_search.start();

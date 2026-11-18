@@ -9100,6 +9100,15 @@ pub struct AudiobookView {
     pub speed: Option<f64>,
 }
 
+/// A comic or book read lately, for Home's Continue reading: its library entry and medium
+/// (`manga` or `novel`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ContinueReadingItem {
+    pub medium: String,
+    pub entry: MangaLibraryEntry,
+}
+
 /// An episode or a book to go on with, for Home's Continue listening (M46.48).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

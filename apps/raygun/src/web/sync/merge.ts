@@ -16,6 +16,7 @@ export const DEVICE_ONLY_SETTINGS = new Set([
   'network',
   'torrents',
   'readAloud',
+  'language',
 ]);
 
 const STAMP = ['updated_at_hlc', 'origin_device', 'deleted'];

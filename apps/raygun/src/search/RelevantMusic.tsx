@@ -33,6 +33,7 @@ import type { MusicView } from './searchTypes';
 import { rankSongs, useAlbumFinds, useArtistFinds, usePlaylistFinds } from './useMusicFinds';
 import type { RankedSong } from './useMusicFinds';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
+import { songCover } from '../library/coverTargets';
 
 /** The top result's ⋮, in its card's top right corner. */
 const TOP_MENU_CLASS =
@@ -230,6 +231,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
               {top.kind === 'song' && (
                 <Artwork
                   url={top.track.artworkUrl}
+                  fallback={songCover(top.track)}
                   className="size-24 shrink-0 rounded-lg"
                   iconSize={32}
                 />

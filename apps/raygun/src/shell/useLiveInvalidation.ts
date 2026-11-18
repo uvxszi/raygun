@@ -65,6 +65,14 @@ export const useLiveInvalidation = () => {
       // A refresh, a download, a finished or listened episode.
       events.podcastsChangedEvent.listen(() => refresh(client, PODCAST_KEYS)),
       events.extensionsChangedEvent.listen(() => refresh(client, SOURCE_KEYS)),
+      // Sources changed: covers no source had are asked for again.
+      events.coverMissesForgottenEvent.listen(
+        () =>
+          void client.invalidateQueries({
+            queryKey: ['coverFallback'],
+            predicate: (query) => query.state.data == null,
+          }),
+      ),
       // An artist's kept page was asked again in the background and changed.
       events.artistProfileEvent.listen((event) => refreshArtist(client, event.payload)),
       // Another device's changes may touch anything shown.

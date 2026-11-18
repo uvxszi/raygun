@@ -109,8 +109,29 @@ export const filterCatalog = (
 export const updateCount = (catalog: RepoCatalog[] | undefined) =>
   (catalog ?? []).reduce((count, listing) => count + listing.entries.filter(isUpdate).length, 0);
 
+const baseOf = (tag: string) => tag.split(/[-_]/)[0]!.toLowerCase();
+
+/**
+ * Languages in the order the picker lists them: Many languages first, then the ones `preferred`
+ * names (the app's and the device's language, matched by base language, exact tags first), then
+ * the rest alphabetically.
+ */
+export const orderLanguages = (langs: Iterable<string>, preferred: readonly string[] = []) => {
+  const rank = (lang: string) => {
+    if (lang === 'multi') return 0;
+    const exact = preferred.findIndex((tag) => tag.toLowerCase() === lang.toLowerCase());
+    if (exact >= 0) return 1 + exact * 2;
+    const base = preferred.findIndex((tag) => baseOf(tag) === baseOf(lang));
+    return base >= 0 ? 2 + base * 2 : Number.MAX_SAFE_INTEGER;
+  };
+  return [...langs].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+};
+
 /** The kinds and languages present, for the filter controls. */
-export const catalogFacets = (catalog: RepoCatalog[]) => {
+export const catalogFacets = (
+  catalog: RepoCatalog[],
+  preferredLanguages: readonly string[] = [],
+) => {
   const kinds = new Set<ExtensionKind>();
   const langs = new Set<string>();
   for (const listing of catalog) {
@@ -121,7 +142,7 @@ export const catalogFacets = (catalog: RepoCatalog[]) => {
   }
   return {
     kinds: EXTENSION_KINDS.filter((kind) => kinds.has(kind)),
-    langs: [...langs].sort((a, b) => a.localeCompare(b)),
+    langs: orderLanguages(langs, preferredLanguages),
   };
 };
 

@@ -886,6 +886,29 @@ pub async fn clear_history(db: &Db) -> Result<(), DbError> {
     finish(transaction, stamp).await
 }
 
+/// Tombstones every play of these songs (by track key): they leave Recently played. Returns how
+/// many songs had plays.
+pub async fn forget_plays(db: &Db, track_keys: &[String]) -> Result<u32, DbError> {
+    let (mut transaction, stamp) = begin(db).await?;
+    let mut songs = 0;
+    for key in track_keys {
+        let done = sqlx::query(
+            "UPDATE music_play_history SET deleted = 1, updated_at_hlc = ?1, origin_device = ?2
+             WHERE deleted = 0 AND track_key = ?3",
+        )
+        .bind(stamp.hlc)
+        .bind(&stamp.device)
+        .bind(key)
+        .execute(&mut *transaction)
+        .await?;
+        if done.rows_affected() > 0 {
+            songs += 1;
+        }
+    }
+    finish(transaction, stamp).await?;
+    Ok(songs)
+}
+
 // ---- Helpers ----
 
 fn track_fields(row: &SqliteRow) -> TrackFields {

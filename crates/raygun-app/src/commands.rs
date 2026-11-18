@@ -429,13 +429,17 @@ pub async fn extensions_needing_setup(
     Ok(extensions.sources_needing_setup().await)
 }
 
-/// Reloads all extensions, picking up any copied into the `extensions/` folder.
+/// Reloads all extensions, picking up any copied into the `extensions/` folder. Covers no source
+/// had are looked for again.
 #[tauri::command]
 #[specta::specta]
 pub async fn extensions_reload(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
+    covers: tauri::State<'_, Arc<crate::cover_fallback::CoverFallbacks>>,
 ) -> Result<Vec<ExtensionInfo>, String> {
-    Ok(extensions.reload().await)
+    let infos = extensions.reload().await;
+    covers.forget_misses().await;
+    Ok(infos)
 }
 
 /// Opens the miniplayer (M46.13): a small window on top with the song and its controls. Async:
@@ -3272,6 +3276,72 @@ pub async fn history_recent(
     limit: u32,
 ) -> Result<Vec<HistoryEntry>, String> {
     collections.history(limit).await
+}
+
+/// Takes songs out of Recently played (every play of each, on every linked device); returns
+/// how many were there.
+#[tauri::command]
+#[specta::specta]
+pub async fn history_remove(
+    collections: tauri::State<'_, CollectionsService>,
+    track_keys: Vec<String>,
+) -> Result<u32, String> {
+    collections.forget_plays(&track_keys).await
+}
+
+/// Takes items out of Home's Continue reading or Continue listening (`continue_hidden` keys)
+/// until they're read or listened to again; their places are kept. Returns how many.
+#[tauri::command]
+#[specta::specta]
+pub async fn continue_hide(
+    db: tauri::State<'_, crate::startup::AppDb>,
+    keys: Vec<String>,
+) -> Result<u32, String> {
+    raygun_app_base::continue_hidden::hide(&db.0, &keys).await
+}
+
+/// Comics and books read lately, newest first, for Home's Continue reading: those taken out of
+/// it (`continue_hide`) are left out until read again.
+#[tauri::command]
+#[specta::specta]
+pub async fn continue_reading(
+    db: tauri::State<'_, crate::startup::AppDb>,
+    manga: tauri::State<'_, MangaService>,
+    novels: tauri::State<'_, NovelService>,
+    limit: u32,
+) -> Result<Vec<raygun_model::ContinueReadingItem>, String> {
+    use raygun_app_base::continue_hidden;
+    let hidden = continue_hidden::hidden(&db.0).await;
+    let mut items: Vec<raygun_model::ContinueReadingItem> = Vec::new();
+    for (medium, entries) in [
+        ("manga", manga.library().await?),
+        ("novel", novels.library().await?),
+    ] {
+        items.extend(
+            entries
+                .into_iter()
+                .filter(|entry| {
+                    entry.last_read_at.is_some()
+                        && continue_hidden::shows(
+                            &hidden,
+                            &continue_hidden::reading_key(&entry.title_id),
+                            entry.last_read_at,
+                        )
+                })
+                .map(|entry| raygun_model::ContinueReadingItem {
+                    medium: medium.to_owned(),
+                    entry,
+                }),
+        );
+    }
+    items.sort_by(|a, b| {
+        b.entry
+            .last_read_at
+            .unwrap_or(0.0)
+            .total_cmp(&a.entry.last_read_at.unwrap_or(0.0))
+    });
+    items.truncate(limit as usize);
+    Ok(items)
 }
 
 #[tauri::command]

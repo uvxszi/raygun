@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { VirtualRows } from '../shell/VirtualRows';
 import { Artwork } from './Artwork';
+import { artistCover } from './coverTargets';
 
 /** The device's artists; a library of thousands draws only the ones near the screen. */
 export const ArtistList: FC<{ artists: LibraryArtist[] }> = ({ artists }) => {
@@ -23,7 +24,12 @@ export const ArtistList: FC<{ artists: LibraryArtist[] }> = ({ artists }) => {
             search={{ name: artist.name }}
             className="flex items-center gap-3 py-2"
           >
-            <Artwork url={artist.artworkUrl} className="size-12 rounded-full" iconSize={20} />
+            <Artwork
+              url={artist.artworkUrl}
+              fallback={artistCover(artist.name)}
+              className="size-12 rounded-full"
+              iconSize={20}
+            />
             <span className="flex min-w-0 flex-col">
               <span className="truncate font-medium">{artist.name}</span>
               <span className="text-muted truncate text-xs">

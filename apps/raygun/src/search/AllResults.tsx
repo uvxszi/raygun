@@ -16,7 +16,7 @@ import { useDrawnCount } from '../shell/useDrawnCount';
 import { OpeningBook } from './AudiobookSearch';
 import { useOpenBook } from './useOpenBook';
 import { SourceRow } from './CatalogSearch';
-import { LibraryMatches } from './LibraryMatches';
+import { LibraryPreview } from './LibraryMatches';
 import { NoSources } from './NoSources';
 import { MusicResults } from './MusicResults';
 import { VideoResults } from './VideoResults';
@@ -214,11 +214,6 @@ export const AllResults: FC<{
       ? []
       : [
           {
-            title: t('search.inYourLibrary'),
-            more: () => onType('library'),
-            body: <LibraryMatches query={query} limit={4} />,
-          },
-          {
             title: t('search.type.music'),
             more: () => onType('music'),
             body: <MusicResults query={query} compact />,
@@ -267,6 +262,15 @@ export const AllResults: FC<{
           onMore={() => onType('answers')}
           onAsk={(next) => (onAsk ? onAsk(next) : onType('answers'))}
         />
+      )}
+      {!blank && (
+        <LibraryPreview query={query} limit={4}>
+          {(matches) => (
+            <Section title={t('search.inYourLibrary')} onMore={() => onType('library')}>
+              {matches}
+            </Section>
+          )}
+        </LibraryPreview>
       )}
       {sections.map((section, index) => (
         <Section key={section.title} title={section.title} onMore={section.more}>

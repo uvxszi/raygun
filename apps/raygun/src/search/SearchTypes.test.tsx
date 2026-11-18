@@ -1,5 +1,5 @@
 import type { MangaCard, MangaLibraryEntry, SourceFilter } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -94,14 +94,30 @@ describe('Search by type', () => {
     expect(await within(podcasts).findByText('Frieren Talk')).toBeInTheDocument();
     // One source at a time, and only until two have something to show.
     expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'frieren', [COMICS.id]);
-    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('novel', 'frieren', [OTHER.id]);
+    await waitFor(() =>
+      expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('novel', 'frieren', [OTHER.id]),
+    );
     expect(
       commands.catalogGlobalSearch.mock.calls.every(([, , sources]) => sources.length === 1),
     ).toBe(true);
 
+    // Nothing in the library matches: no empty "In your library" section.
+    expect(within(all).queryByRole('region', { name: 'In your library' })).not.toBeInTheDocument();
+
     await user.click(within(manga).getByRole('button', { name: 'See all' }));
     expect(screen.getByRole('tab', { name: 'Comics' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByTestId('manga-search')).toBeInTheDocument();
+  });
+
+  it('shows "In your library" in All only when the library has a match', async () => {
+    commands.catalogGlobalSearch.mockResolvedValue(ok([]));
+    commands.mangaLibrary.mockResolvedValue(
+      ok([libraryEntry({ titleId: 'saved', title: 'Frieren Saved', sourceId: COMICS.id })]),
+    );
+    await AppShellWrapper.mount('/search?q=frieren');
+    const all = await screen.findByTestId('all-results');
+    const library = await within(all).findByRole('region', { name: 'In your library' });
+    expect(await within(library).findByText('Frieren Saved')).toBeInTheDocument();
   });
 
   it('searches every manga source, then one source with filters and tags', async () => {

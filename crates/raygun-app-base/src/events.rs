@@ -249,6 +249,11 @@ pub struct SkippedSegmentEvent(pub raygun_model::SkippedSegment);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct OpenWithEvent(pub raygun_model::OpenWithProblem);
 
+/// Sources changed (installed, updated, reloaded): covers no source had are looked for again.
+/// Carries how many such lookups were forgotten.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct CoverMissesForgottenEvent(pub u32);
+
 /// The Smart Chips changed: installed, removed, turned on or off, or a download moved on.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ChipsEvent(pub Vec<raygun_model::ChipInfo>);

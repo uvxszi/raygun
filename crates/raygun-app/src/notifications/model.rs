@@ -4,7 +4,23 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use raygun_app_base::texts;
 use serde::Serialize;
+
+/// An action button's label in the app's language.
+fn action_label(id: &str) -> String {
+    let english = match id {
+        "pause" => "Pause",
+        "resume" => "Resume",
+        "stop" => "Stop",
+        "skip" => "Skip",
+        "cancel" => "Cancel",
+        "cancelAll" => "Cancel all",
+        "retry" => "Retry",
+        _ => id,
+    };
+    texts::text(&format!("actions.{id}"), english)
+}
 
 /// The kinds of download, each kept by its own service.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -83,6 +99,11 @@ impl Kind {
     }
 
     /// What one is called, for a download that has no title of its own.
+    fn noun_text(self) -> String {
+        texts::text(&format!("noun.{}", self.tag()), self.noun())
+    }
+
+    /// What one is called, for a download that has no title of its own (in English).
     fn noun(self) -> &'static str {
         match self {
             Kind::Songs => "Song",
@@ -218,7 +239,7 @@ impl Download {
     fn named(&self) -> Download {
         let mut named = self.clone();
         if named.title.trim().is_empty() {
-            named.title = self.kind.noun().to_owned();
+            named.title = self.kind.noun_text();
         }
         named
     }
@@ -242,7 +263,7 @@ pub fn key(kind: Kind, id: &str) -> String {
 pub struct Action {
     /// `pause`, `resume`, `cancel`, `skip`, `cancelAll`, `retry` or `stop`.
     pub id: &'static str,
-    pub label: &'static str,
+    pub label: String,
     pub keys: Vec<String>,
 }
 
@@ -308,15 +329,14 @@ impl Shown {
     /// A line left blank says something general instead.
     fn fill_blanks(&mut self) {
         if self.title.trim().is_empty() {
-            self.title = "Downloads".into();
+            self.title = texts::text("downloads.title", "Downloads");
         }
         if self.text.trim().is_empty() {
             self.text = if self.ongoing {
-                "Downloading"
+                texts::text("downloads.downloading", "Downloading")
             } else {
-                "In Downloads"
-            }
-            .into();
+                texts::text("downloads.inDownloads", "In Downloads")
+            };
         }
     }
 }
@@ -334,10 +354,10 @@ impl Update {
         }
         if let Some(finished) = &mut self.finished {
             if finished.title.trim().is_empty() {
-                finished.title = "Downloads finished".into();
+                finished.title = texts::text("downloads.finished", "Downloads finished");
             }
             if finished.text.trim().is_empty() {
-                finished.text = "See them in Downloads".into();
+                finished.text = texts::text("downloads.seeThem", "See them in Downloads");
             }
         }
     }
@@ -600,14 +620,14 @@ impl Tracker {
             let keys: Vec<String> = held.iter().map(|d| d.key()).collect();
             let mut actions = vec![Action {
                 id: "resume",
-                label: "Resume",
+                label: action_label("resume"),
                 keys: keys.clone(),
             }];
             // A paused queue that goes on without its songs is called off at once.
             if held.iter().any(|d| d.abilities.skip && d.abilities.cancel) {
                 actions.push(Action {
                     id: "cancelAll",
-                    label: "Cancel all",
+                    label: action_label("cancelAll"),
                     keys,
                 });
             }
@@ -639,9 +659,15 @@ impl Tracker {
             shown.push(Shown {
                 key: "held".into(),
                 title: if raygun_net::network_mode::offline() {
-                    "Waiting for Offline mode to end".into()
+                    texts::text(
+                        "downloads.waitingOffline",
+                        "Waiting for Offline mode to end",
+                    )
                 } else {
-                    "Waiting for battery saver to end".into()
+                    texts::text(
+                        "downloads.waitingBattery",
+                        "Waiting for battery saver to end",
+                    )
                 },
                 text: kinds_text(held.iter().copied()),
                 info: None,
@@ -751,14 +777,14 @@ impl Tracker {
         if download.abilities.pause {
             actions.push(Action {
                 id: "pause",
-                label: "Pause",
+                label: action_label("pause"),
                 keys: vec![key.clone()],
             });
         }
         if download.abilities.stop {
             actions.push(Action {
                 id: "stop",
-                label: "Stop",
+                label: action_label("stop"),
                 keys: vec![key.clone()],
             });
         }
@@ -772,18 +798,18 @@ impl Tracker {
             // Skip goes on with the next; Cancel all calls the whole queue off.
             actions.push(Action {
                 id: "skip",
-                label: "Skip",
+                label: action_label("skip"),
                 keys: vec![key.clone()],
             });
             actions.push(Action {
                 id: "cancelAll",
-                label: "Cancel all",
+                label: action_label("cancelAll"),
                 keys: queue,
             });
         } else if download.abilities.cancel {
             actions.push(Action {
                 id: "cancel",
-                label: "Cancel",
+                label: action_label("cancel"),
                 keys: vec![key.clone()],
             });
         }
@@ -832,7 +858,7 @@ fn finish(batch: u64, ended: &[Download]) -> Option<Finished> {
                         Some(retry) => retry.keys.push(summary.key()),
                         None => finished.actions.push(Action {
                             id: "retry",
-                            label: "Retry",
+                            label: action_label("retry"),
                             keys: vec![summary.key()],
                         }),
                     }
@@ -858,7 +884,7 @@ fn finish(batch: u64, ended: &[Download]) -> Option<Finished> {
                     actions: if summary.abilities.retry {
                         vec![Action {
                             id: "retry",
-                            label: "Retry",
+                            label: action_label("retry"),
                             keys: vec![summary.key()],
                         }]
                     } else {
@@ -905,7 +931,7 @@ fn finish_downloads(batch: u64, ended: &[&Download]) -> Option<Finished> {
     } else {
         vec![Action {
             id: "retry",
-            label: "Retry",
+            label: action_label("retry"),
             keys: retry,
         }]
     };

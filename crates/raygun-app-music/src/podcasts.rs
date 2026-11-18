@@ -585,9 +585,15 @@ impl PodcastService {
 
     /// Podcast episodes and books started and not finished, the last listened first.
     pub async fn continue_listening(&self, limit: u32) -> Result<Vec<ListeningItem>, String> {
+        use raygun_app_base::continue_hidden;
         let db = self.db();
         let limit = limit.clamp(1, MAX_CONTINUE);
-        let mut items: Vec<ListeningItem> = store::episodes_in_progress(&db, limit)
+        // Ones taken out of Continue (until listened to again) aren't counted in the limit.
+        let hidden = continue_hidden::hidden(&db).await;
+        let asked = limit
+            .saturating_add(u32::try_from(hidden.len()).unwrap_or(u32::MAX))
+            .min(MAX_CONTINUE);
+        let mut items: Vec<ListeningItem> = store::episodes_in_progress(&db, asked)
             .await
             .map_err(to_message)?
             .into_iter()
@@ -611,7 +617,7 @@ impl PodcastService {
                 listened_at: row.listened_at.map(|ms| ms as f64),
             })
             .collect();
-        for book in store::books_in_progress(&db, limit)
+        for book in store::books_in_progress(&db, asked)
             .await
             .map_err(to_message)?
         {
@@ -638,6 +644,17 @@ impl PodcastService {
                 listened_at: book.listened_at.map(|ms| ms as f64),
             });
         }
+        items.retain(|item| {
+            let id = match item.kind {
+                SpokenKind::Audiobook => &item.podcast_id,
+                _ => &item.episode_id,
+            };
+            continue_hidden::shows(
+                &hidden,
+                &continue_hidden::listening_key(id),
+                item.listened_at,
+            )
+        });
         items.sort_by(|a, b| {
             b.listened_at
                 .unwrap_or(0.0)

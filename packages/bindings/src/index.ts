@@ -105,7 +105,10 @@ export const commands = {
 	 *  answer and what's missing (`SourcesSetupEvent` brings changes).
 	 */
 	extensionsNeedingSetup: () => typedError<SourceSetup[], string>(__TAURI_INVOKE("extensions_needing_setup")),
-	/**  Reloads all extensions, picking up any copied into the `extensions/` folder. */
+	/**
+	 *  Reloads all extensions, picking up any copied into the `extensions/` folder. Covers no source
+	 *  had are looked for again.
+	 */
 	extensionsReload: () => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extensions_reload")),
 	/**  Forgets an extension's cookies and stored data (M46.11), then reloads it. */
 	extensionClearData: (id: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_clear_data", { id })),
@@ -1005,6 +1008,21 @@ export const commands = {
 	/**  The latest play of each recently played track, newest first. */
 	historyRecent: (limit: number) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_recent", { limit })),
 	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
+	/**
+	 *  Takes songs out of Recently played (every play of each, on every linked device); returns
+	 *  how many were there.
+	 */
+	historyRemove: (trackKeys: string[]) => typedError<number, string>(__TAURI_INVOKE("history_remove", { trackKeys })),
+	/**
+	 *  Takes items out of Home's Continue reading or Continue listening (`continue_hidden` keys)
+	 *  until they're read or listened to again; their places are kept. Returns how many.
+	 */
+	continueHide: (keys: string[]) => typedError<number, string>(__TAURI_INVOKE("continue_hide", { keys })),
+	/**
+	 *  Comics and books read lately, newest first, for Home's Continue reading: those taken out of
+	 *  it (`continue_hide`) are left out until read again.
+	 */
+	continueReading: (limit: number) => typedError<ContinueReadingItem[], string>(__TAURI_INVOKE("continue_reading", { limit })),
 	/**  Whether incognito is on (M47). Afterwards, changes arrive as `IncognitoEvent`. */
 	incognitoStatus: () => __TAURI_INVOKE<IncognitoStatus>("incognito_status"),
 	/**
@@ -1789,6 +1807,11 @@ export const commands = {
 	/**  The webview's visibility (`document.visibilityState`): a hidden page counts as background. */
 	deviceSetVisible: (visible: boolean) => __TAURI_INVOKE<void>("device_set_visible", { visible }),
 	/**
+	 *  The page's language and its `notices.*` strings (keys as in the locale files, without the
+	 *  `notices.` prefix), used for notifications from now on and kept for the next start.
+	 */
+	appTextsSet: (language: string, texts: { [key in string]: string }) => typedError<null, string>(__TAURI_INVOKE("app_texts_set", { language, texts })),
+	/**
 	 *  Offline Mode and whether Data Saver applies now. Afterwards, changes arrive as
 	 *  `NetworkStatusEvent`.
 	 */
@@ -2053,6 +2076,7 @@ export const events = {
 	chipsEvent: makeEvent<ChipsEvent>("chips-event"),
 	connectEvent: makeEvent<ConnectEvent>("connect-event"),
 	connectRequestEvent: makeEvent<ConnectRequestEvent>("connect-request-event"),
+	coverMissesForgottenEvent: makeEvent<CoverMissesForgottenEvent>("cover-misses-forgotten-event"),
 	coverOptionsEvent: makeEvent<CoverOptionsEvent>("cover-options-event"),
 	deviceFilesEvent: makeEvent<DeviceFilesEvent>("device-files-event"),
 	deviceStateEvent: makeEvent<DeviceStateEvent>("device-state-event"),
@@ -3239,6 +3263,15 @@ export type ContentOverrides = {
 	addons?: { [key in string]: ContentOverride },
 };
 
+/**
+ *  A comic or book read lately, for Home's Continue reading: its library entry and medium
+ *  (`manga` or `novel`).
+ */
+export type ContinueReadingItem = {
+	medium: string,
+	entry: MangaLibraryEntry,
+};
+
 /**  Something started and not finished. */
 export type ContinueWatching = {
 	key: string,
@@ -3273,6 +3306,12 @@ export type ContinueWatching = {
 	/**  A link played on its own (Open link, another app): its page is `/watch/link?key=`. */
 	link?: boolean,
 };
+
+/**
+ *  Sources changed (installed, updated, reloaded): covers no source had are looked for again.
+ *  Carries how many such lookups were forgotten.
+ */
+export type CoverMissesForgottenEvent = number;
 
 /**  A cover a source has for a song, an album or an artist (M46.36), offered in Edit details. */
 export type CoverOption = {
