@@ -32,6 +32,7 @@ fn to_host_kind(kind: ServerKind) -> servers::ServerKind {
         ServerKind::Jellyfin => servers::ServerKind::Jellyfin,
         ServerKind::Emby => servers::ServerKind::Emby,
         ServerKind::Subsonic => servers::ServerKind::Subsonic,
+        ServerKind::Navidrome => servers::ServerKind::Navidrome,
         ServerKind::Audiobookshelf => servers::ServerKind::Audiobookshelf,
         ServerKind::Opds => servers::ServerKind::Opds,
     }
@@ -42,6 +43,7 @@ fn from_host_kind(kind: servers::ServerKind) -> ServerKind {
         servers::ServerKind::Jellyfin => ServerKind::Jellyfin,
         servers::ServerKind::Emby => ServerKind::Emby,
         servers::ServerKind::Subsonic => ServerKind::Subsonic,
+        servers::ServerKind::Navidrome => ServerKind::Navidrome,
         servers::ServerKind::Audiobookshelf => ServerKind::Audiobookshelf,
         servers::ServerKind::Opds => ServerKind::Opds,
     }
@@ -178,6 +180,24 @@ impl ServerService {
         tauri::async_runtime::spawn_blocking(move || connections(&dir))
             .await
             .map_err(|error| error.to_string())
+    }
+
+    /// A connection's `server.json` and its kept sign-in, for talking to the server outside the
+    /// extension host (keeping a Subsonic library in step with Raygun's).
+    pub async fn signed_in(&self, id: &str) -> Result<(ServerConfig, String), String> {
+        let config = self
+            .configs()
+            .await?
+            .into_iter()
+            .find(|(found, _)| found == id)
+            .map(|(_, config)| config)
+            .ok_or_else(|| "That server isn't connected anymore".to_owned())?;
+        let secret = self
+            .app
+            .state::<AiService>()
+            .server_secret(id)
+            .ok_or_else(|| "Raygun doesn't have this server's sign-in: sign in again".to_owned())?;
+        Ok((config, secret))
     }
 
     /// Connects a server a backup holds without signing in again, with its sign-in when the

@@ -41,7 +41,7 @@ use crate::manifest::{API_VERSION, Manifest};
 use crate::novel::NOVEL_SOURCE;
 use crate::package::{PackageError, VerifiedPackage, from_files};
 use crate::video::VIDEO_SOURCE;
-use crate::{LYRICS, MUSIC_METADATA, MUSIC_STREAM};
+use crate::{LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM};
 
 /// The connection's own file in its extension folder.
 pub const CONFIG_FILE: &str = "server.json";
@@ -61,16 +61,24 @@ pub enum ServerKind {
     Jellyfin,
     Emby,
     Subsonic,
+    /// A Subsonic server that says it's Navidrome (its ping's `type`).
+    Navidrome,
     Audiobookshelf,
     Opds,
 }
 
 impl ServerKind {
+    /// Whether it speaks the Subsonic API.
+    pub fn is_subsonic(self) -> bool {
+        matches!(self, Self::Subsonic | Self::Navidrome)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Jellyfin => "jellyfin",
             Self::Emby => "emby",
             Self::Subsonic => "subsonic",
+            Self::Navidrome => "navidrome",
             Self::Audiobookshelf => "audiobookshelf",
             Self::Opds => "opds",
         }
@@ -82,6 +90,7 @@ impl ServerKind {
             Self::Jellyfin => "Jellyfin",
             Self::Emby => "Emby",
             Self::Subsonic => "Subsonic",
+            Self::Navidrome => "Navidrome",
             Self::Audiobookshelf => "Audiobookshelf",
             Self::Opds => "OPDS",
         }
@@ -91,7 +100,9 @@ impl ServerKind {
     pub fn provides(self) -> &'static [&'static str] {
         match self {
             Self::Jellyfin | Self::Emby => &[VIDEO_SOURCE, MUSIC_METADATA, MUSIC_STREAM, LYRICS],
-            Self::Subsonic => &[MUSIC_METADATA, MUSIC_STREAM, LYRICS],
+            Self::Subsonic | Self::Navidrome => {
+                &[MUSIC_METADATA, MUSIC_STREAM, LYRICS, MUSIC_CHARTS]
+            }
             Self::Audiobookshelf => &[AUDIOBOOK_DIRECTORY],
             Self::Opds => &[MANGA_SOURCE, NOVEL_SOURCE],
         }
@@ -106,10 +117,11 @@ impl ServerKind {
                 ("streams", MUSIC_STREAM),
                 ("lyrics", LYRICS),
             ],
-            Self::Subsonic => &[
+            Self::Subsonic | Self::Navidrome => &[
                 ("music", MUSIC_METADATA),
                 ("streams", MUSIC_STREAM),
                 ("lyrics", LYRICS),
+                ("charts", MUSIC_CHARTS),
             ],
             Self::Audiobookshelf => &[("books", AUDIOBOOK_DIRECTORY)],
             Self::Opds => &[("comics", MANGA_SOURCE), ("books", NOVEL_SOURCE)],
@@ -388,7 +400,7 @@ async fn connect_at(
                 secret: Some(token),
             })
         }
-        ServerKind::Subsonic => {
+        ServerKind::Subsonic | ServerKind::Navidrome => {
             let sign = if input.api_key {
                 subsonic::Sign::Key(secret.clone())
             } else {
@@ -405,23 +417,31 @@ async fn connect_at(
             } else {
                 SecretKind::Password
             };
-            if let Err(failure) = subsonic::ping(http, url, &sign).await {
+            let answer = match subsonic::ping(http, url, &sign).await {
+                Ok(answer) => answer,
                 // Error 41: this user's password can't be checked by token (LDAP); send it as is.
-                if subsonic::error_code(&failure) == Some(41) {
+                Err(failure) if subsonic::error_code(&failure) == Some(41) => {
                     let plain = subsonic::Sign::Plain {
                         username: username.clone(),
                         password: secret.clone(),
                     };
-                    subsonic::ping(http, url, &plain)
+                    let answer = subsonic::ping(http, url, &plain)
                         .await
                         .map_err(|failure| reach(&host, failure, wrong))?;
                     secret_kind = SecretKind::PlainPassword;
-                } else if failure.answered && failure.trouble.is_none() {
-                    return Err(Reach::Answered(failure.message));
-                } else {
-                    return Err(reach(&host, failure, wrong));
+                    answer
                 }
-            }
+                Err(failure) if failure.answered && failure.trouble.is_none() => {
+                    return Err(Reach::Answered(failure.message));
+                }
+                Err(failure) => return Err(reach(&host, failure, wrong)),
+            };
+            // A server added as Subsonic that is Navidrome is connected as Navidrome.
+            let kind = if subsonic::is_navidrome(&answer) {
+                ServerKind::Navidrome
+            } else {
+                kind
+            };
             Ok(Connected {
                 config: ServerConfig {
                     kind,
@@ -649,18 +669,8 @@ impl ServerExtension {
                 register(&owner, &base, Vec::new(), client.headers());
                 Backend::Jellyfin(client)
             }
-            ServerKind::Subsonic => {
-                let sign = match config.secret {
-                    SecretKind::ApiKey => subsonic::Sign::Key(secret),
-                    SecretKind::PlainPassword => subsonic::Sign::Plain {
-                        username: config.username.clone(),
-                        password: secret,
-                    },
-                    _ => subsonic::Sign::Token {
-                        username: config.username.clone(),
-                        password: secret,
-                    },
-                };
+            ServerKind::Subsonic | ServerKind::Navidrome => {
+                let sign = subsonic::sign_for(&config, secret);
                 let client = subsonic::Subsonic::new(http, base.clone(), &sign);
                 register(&owner, &base, client.auth_query(), Vec::new());
                 Backend::Subsonic(client)
@@ -796,6 +806,7 @@ impl ServerExtension {
             (Backend::Subsonic(server), "music") => server.music_call(method, args).await,
             (Backend::Subsonic(server), "streams") => server.stream_call(method, args).await,
             (Backend::Subsonic(server), "lyrics") => server.lyrics_call(method, args).await,
+            (Backend::Subsonic(server), "charts") => server.charts_call(method, args).await,
             (Backend::Audiobookshelf(server), "books") => server.books_call(method, args).await,
             (Backend::Opds(server), "comics") => server.comics_call(method, args).await,
             (Backend::Opds(server), "books") => server.books_call(method, args).await,

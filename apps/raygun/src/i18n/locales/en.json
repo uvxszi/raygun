@@ -3908,6 +3908,7 @@
       "jellyfin": "Jellyfin",
       "emby": "Emby",
       "subsonic": "Subsonic",
+      "navidrome": "Navidrome",
       "audiobookshelf": "Audiobookshelf",
       "opds": "OPDS"
     },
@@ -3932,6 +3933,29 @@
       "audiobooks": "Audiobooks",
       "comics": "Comics",
       "books": "Books"
+    },
+    "sync": {
+      "open": "Sync with Raygun",
+      "title": "Sync with {{name}}",
+      "favorites": "Favorites and stars",
+      "favoritesNote": "Songs starred on the server are in Favorites, and the other way round",
+      "playlists": "Playlists",
+      "playlistsNote": "Your playlists on the server and in Raygun stay the same on both",
+      "scrobble": "Count plays",
+      "scrobbleNote": "Songs you play count on the server, and reach Last.fm or ListenBrainz if it sends them",
+      "playQueue": "Keep the play queue",
+      "playQueueNote": "Go on from where you were in Feishin, Navic or the server's web app",
+      "now": "Sync now",
+      "syncing": "Syncing…",
+      "never": "Not synced yet",
+      "syncedAt": "Synced {{when}}",
+      "report": "{{starred}} starred, {{favorited}} added to Favorites, {{playlists}} playlists changed",
+      "notOnServer_one": "{{count}} song isn't on the server",
+      "notOnServer_other": "{{count}} songs aren't on the server",
+      "takeQueue": "Play the server's queue",
+      "queueTaken_one": "{{count}} song from the server's queue",
+      "queueTaken_other": "{{count}} songs from the server's queue",
+      "loadFailed": "Couldn't read the sync settings"
     }
   },
   "websites": {
@@ -4351,6 +4375,7 @@
         "jellyfin": "Looks like a Jellyfin server: {{name}}",
         "emby": "Looks like an Emby server: {{name}}",
         "subsonic": "Looks like a Subsonic server: {{name}}",
+        "navidrome": "Looks like a Navidrome server: {{name}}",
         "audiobookshelf": "Looks like an Audiobookshelf server: {{name}}",
         "opds": "Looks like an OPDS catalogue: {{name}}"
       }

@@ -131,6 +131,7 @@ impl CollectionsService {
     /// Makes a song saved exactly where `saves` says: Favorites on or off, added to the playlists
     /// listed that don't hold it, every copy taken out of the ones not listed (M46.8, M46.48).
     pub async fn set_saves(&self, track: TrackInput, saves: TrackSaves) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         let index = self.index().await?;
         let keys = keys_of(&track.title, track.artist.as_deref());
         let plan = index.plan(&keys, &saves);
@@ -430,6 +431,7 @@ impl CollectionsService {
 
     /// Favorites a song once, or takes every copy of it out of Favorites (M46.48).
     pub async fn set_favorite(&self, track: TrackInput, favorite: bool) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         let copies: Vec<String> = self
             .copies(&track)
             .await?
@@ -459,6 +461,7 @@ impl CollectionsService {
         tracks: Vec<TrackInput>,
         favorite: bool,
     ) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         let index = self.index().await?;
         let favorites_of = |track: &TrackInput| -> Vec<String> {
             index
@@ -526,6 +529,7 @@ impl CollectionsService {
     }
 
     pub async fn create_playlist(&self, name: &str) -> Result<PlaylistSummary, String> {
+        crate::server_sync::lists_changed(&self.app);
         let name = playlist_name(name)?;
         let db = self.db();
         let id = collections::create_playlist(db, &name, now_ms())
@@ -551,6 +555,7 @@ impl CollectionsService {
     }
 
     pub async fn rename_playlist(&self, id: &str, name: &str) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         let name = playlist_name(name)?;
         if collections::rename_playlist(self.db(), id, &name)
             .await
@@ -565,6 +570,7 @@ impl CollectionsService {
     }
 
     pub async fn delete_playlist(&self, id: &str) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         collections::delete_playlist(self.db(), id)
             .await
             .map_err(to_message)?;
@@ -646,6 +652,7 @@ impl CollectionsService {
         tracks: Vec<TrackInput>,
         duplicates: bool,
     ) -> Result<Vec<bool>, String> {
+        crate::server_sync::lists_changed(&self.app);
         let db = self.db();
         if collections::playlist(db, id)
             .await
@@ -680,6 +687,7 @@ impl CollectionsService {
     }
 
     pub async fn remove_playlist_item(&self, item_id: &str) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         collections::remove_playlist_item(self.db(), item_id)
             .await
             .map_err(to_message)
@@ -690,6 +698,7 @@ impl CollectionsService {
         item_id: &str,
         before_item_id: Option<&str>,
     ) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         collections::move_playlist_item(self.db(), item_id, before_item_id)
             .await
             .map_err(to_message)
@@ -707,6 +716,7 @@ impl CollectionsService {
         playlist_id: &str,
         item_ids: &[String],
     ) -> Result<(), String> {
+        crate::server_sync::lists_changed(&self.app);
         collections::set_playlist_order(self.db(), playlist_id, item_ids)
             .await
             .map_err(to_message)

@@ -303,6 +303,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             tracing::warn!(%error, "couldn't scan the local folders");
         }
     });
+    // Subsonic and Navidrome servers' stars, playlists, plays and queue kept in step.
+    let server_sync = raygun_app_music::server_sync::ServerSync::new(app.handle().clone());
+    server_sync.start();
+    app.manage(server_sync);
     // Followed artists and their new releases (M46.42).
     let follows = crate::follows::ArtistFollows::new(app.handle().clone());
     follows.start();
