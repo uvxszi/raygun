@@ -71,6 +71,8 @@ import { useVideoEffects } from './effects/useVideoEffects';
 import { VideoEffectsLayer } from './effects/VideoEffectsLayer';
 import { appliedEq, useVideoSound } from './effects/videoSound';
 import { WatermarkDraw } from './effects/WatermarkDraw';
+import { WatermarkProposal } from './effects/WatermarkProposal';
+import type { Box as WatermarkBox } from './effects/watermarkBox';
 import { useMotionSources } from './effects/motionSources';
 import { useChipEnabled } from '../chips/useChips';
 import type { CueEdit, CueEdits } from './cueEdits';
@@ -641,6 +643,8 @@ const VideoStage: FC<StageProps> = ({
     savePrefs,
     smoothMotion: motion !== null,
   });
+  // What Find it found, outlined over the picture until Remove or Not this.
+  const [proposal, setProposal] = useState<WatermarkBox | null>(null);
   // The title's pitch and equalizer (its own, or the music player's).
   const videoSound = useVideoSound(titleState.videoSound, remember);
   const musicEq = useVideoPlayerStore((state) => state.musicEq);
@@ -1516,11 +1520,23 @@ const VideoStage: FC<StageProps> = ({
               effects.setWatermarkStatus(unsure ? 'unsure' : 'notFound');
               return;
             }
+            // Asked first: only Remove turns the remover on.
             effects.setWatermarkStatus('learning');
-            effects.setWatermark({ ...effects.picture.watermark, ...box, enabled: true });
+            setProposal(box);
           },
         }}
       />
+      {proposal && (
+        <WatermarkProposal
+          picture={picture}
+          box={proposal}
+          onAnswer={(remove) => {
+            setProposal(null);
+            if (remove)
+              effects.setWatermark({ ...effects.picture.watermark, ...proposal, enabled: true });
+          }}
+        />
+      )}
       {effects.drawingWatermark && (
         <WatermarkDraw
           picture={picture}

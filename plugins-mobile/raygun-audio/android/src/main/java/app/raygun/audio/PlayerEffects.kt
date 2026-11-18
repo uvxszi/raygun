@@ -687,8 +687,27 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
                 3_000,
             )
         } else {
-            val before = picture.watermark
-            setWatermark(found.copy(enabled = true, brightness = before.brightness, contrast = before.contrast, feather = before.feather))
+            // Asked first, over the picture: only Remove turns the remover on.
+            val wasOpen = host.sheetShown(sheet)
+            host.closeSheet(sheet)
+            var proposal: WatermarkProposalView? = null
+            proposal = WatermarkProposalView(
+                host,
+                found,
+                ::pictureOnScreen,
+                label("watermarkAsk", "Remove this?"),
+                label("watermarkRemoveIt", "Remove"),
+                label("watermarkNotThis", "Not this"),
+            ) { remove ->
+                proposal?.let(host::hideOverlay)
+                if (remove) {
+                    val before = picture.watermark
+                    setWatermark(found.copy(enabled = true, brightness = before.brightness, contrast = before.contrast, feather = before.feather))
+                }
+                if (wasOpen || remove) open()
+            }
+            host.showOverlay(proposal)
+            return
         }
         if (host.sheetShown(sheet)) open()
     }

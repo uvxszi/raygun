@@ -312,6 +312,12 @@ const CUT_DIFFERENCE = 0.08;
 const SHOT_MATCH = 0.04;
 /** The latest shots whose first samples are kept for that. */
 const KEPT_SHOTS = 16;
+/** A patch's box must vary at least this much (luma deviation of its mean picture): not uniform. */
+const MIN_STRUCTURE = 0.06;
+/** A patch's cells varying this much have a pattern that must hold in every shot… */
+const PATTERN_SPREAD = 0.03;
+/** …correlating at least this well (normalized cross-correlation). */
+const MIN_NCC = 0.9;
 /** A still cell changes less than this share of the picture's typical change… */
 const STILL_SHARE = 0.15;
 /** …and less than this (luma deviation) at all. */
@@ -507,7 +513,11 @@ export class OverlayFinder {
       }
       ring.sort((left, right) => left - right);
       const ringTypical = ring[Math.floor(ring.length / 2)] ?? 0;
-      if (ringTypical >= typical * RING_SHARE) best = found;
+      if (ringTypical < typical * RING_SHARE) continue;
+      const members: number[] = [];
+      for (let cell = 0; cell < cells; cell += 1)
+        if (group[cell] === groups - 1) members.push(cell);
+      if (this.structureHolds(members, found, means)) best = found;
     }
     if (!best) return { kind: 'none' };
     // One cell of margin round it, inside the picture.
@@ -526,6 +536,69 @@ export class OverlayFinder {
         height: scaleY(bottom) - scaleY(top),
       },
     };
+  }
+
+  /**
+   * A patch's own look holds across the shots: its box isn't uniform (grass, sky and walls
+   * never count), it stands out from the cells round it in every shot's first sample, and its
+   * pattern there correlates with its pattern over all samples (NCC, the patch's mean removed).
+   */
+  private structureHolds(
+    members: number[],
+    box: { left: number; top: number; right: number; bottom: number },
+    means: Float64Array,
+  ) {
+    const spread = (values: number[]) => {
+      const mean = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+      const variance =
+        values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, values.length);
+      return { mean, deviation: Math.sqrt(variance) };
+    };
+    const boxed: number[] = [];
+    for (let row = box.top; row <= box.bottom; row += 1) {
+      for (let col = box.left; col <= box.right; col += 1) {
+        boxed.push(means[row * FIND_COLS + col] ?? 0);
+      }
+    }
+    if (spread(boxed).deviation < MIN_STRUCTURE) return false;
+    const member = new Set(members);
+    const pattern = members.map((cell) => means[cell] ?? 0);
+    const shape = spread(pattern);
+    for (const start of this.shotStarts) {
+      // The patch against the cells just outside it, in this shot.
+      let contrast = 0;
+      let pairs = 0;
+      for (const cell of members) {
+        const col = cell % FIND_COLS;
+        const row = Math.floor(cell / FIND_COLS);
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const x = col + dx;
+          const y = row + dy;
+          const next = y * FIND_COLS + x;
+          if (x < 0 || y < 0 || x >= FIND_COLS || y >= FIND_ROWS || member.has(next)) continue;
+          contrast += Math.abs((start[cell] ?? 0) - (start[next] ?? 0));
+          pairs += 1;
+        }
+      }
+      if (pairs === 0 || contrast / pairs < MIN_EDGE) return false;
+      // A patch with a pattern of its own keeps it.
+      if (shape.deviation >= PATTERN_SPREAD) {
+        const seen = members.map((cell) => start[cell] ?? 0);
+        const shot = spread(seen);
+        let product = 0;
+        seen.forEach((value, index) => {
+          product += (value - shot.mean) * ((pattern[index] ?? 0) - shape.mean);
+        });
+        const ncc = product / (members.length * shot.deviation * shape.deviation || 1);
+        if (ncc < MIN_NCC) return false;
+      }
+    }
+    return true;
   }
 }
 // ---- The shader's numbers ----

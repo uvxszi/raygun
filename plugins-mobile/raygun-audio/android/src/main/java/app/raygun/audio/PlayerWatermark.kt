@@ -304,6 +304,64 @@ internal class WatermarkDrawView(
     }
 }
 
+/**
+ * What Find it found, outlined over the picture with "Remove this?": only Remove turns the remover
+ * on, Not this leaves the title as it was.
+ */
+@SuppressLint("ViewConstructor")
+internal class WatermarkProposalView(
+    context: Context,
+    private val box: WatermarkRemoval,
+    /** The picture's place, in screen pixels. */
+    private val picture: () -> RectF?,
+    question: String,
+    remove: String,
+    notThis: String,
+    answer: (Boolean) -> Unit,
+) : FrameLayout(context) {
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = context.dp(3).toFloat()
+        color = playerAccent
+    }
+
+    init {
+        setWillNotDraw(false)
+        isClickable = true
+        val row = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(context.dp(16), context.dp(6), context.dp(8), context.dp(6))
+            background = rounded(0xCC000000.toInt(), context.dp(24).toFloat())
+            addView(TextView(context).apply {
+                text = question
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            })
+            addView(context.pill(remove, filled = true) { answer(true) })
+            addView(context.pill(notThis) { answer(false) })
+        }
+        addView(row, LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = context.dp(32) })
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val shown = picture() ?: return
+        val origin = IntArray(2)
+        getLocationOnScreen(origin)
+        val scale = WatermarkMath.SCALE.toFloat()
+        val left = shown.left + box.x / scale * shown.width() - origin[0]
+        val top = shown.top + box.y / scale * shown.height() - origin[1]
+        canvas.drawRect(
+            left,
+            top,
+            left + box.width / scale * shown.width(),
+            top + box.height / scale * shown.height(),
+            stroke,
+        )
+    }
+}
+
 /** Screen boxes as the watermark's (the same as the desktop's `watermarkBox.ts`). */
 internal object WatermarkDraw {
     /** `drawn` (screen pixels) within the picture shown at `picture`, in ten-thousandths of it. */

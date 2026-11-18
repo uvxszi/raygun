@@ -199,6 +199,25 @@ class PlayerWatermarkTest {
     }
 
     @Test
+    fun takesAUniformPatchThatLooksAlikeInEveryShotForNoOverlay() {
+        val finder = OverlayFinder()
+        val random = Random(23)
+        fun grass(col: Int, row: Int) = col in 16..23 && row >= 28
+        repeat(90) {
+            val pixels = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4)
+            for (cell in 0 until OverlayFinder.COLS * OverlayFinder.ROWS) {
+                val value = if (grass(cell % OverlayFinder.COLS, cell / OverlayFinder.COLS)) 0.35 + (random.next() - 0.5) * 0.01 else random.next()
+                pixel(DoubleArray(3) { value }, pixels, cell)
+            }
+            finder.add(pixels)
+        }
+        assertTrue(finder.cuts >= 2)
+        val verdict = finder.verdict()
+        assertNull(verdict.found)
+        assertFalse(verdict.unsure)
+    }
+
+    @Test
     fun takesSceneryHeldStillWithinShotsForNoOverlay() {
         val finder = shots(withLogo = false)
         assertEquals(2, finder.cuts)

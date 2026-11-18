@@ -167,6 +167,25 @@ describe('the watermark remover as numbers', () => {
     return finder;
   };
 
+  it('takes a uniform patch that looks alike in every shot (grass) for no overlay', () => {
+    const finder = new OverlayFinder();
+    const next = random(23);
+    const grass = (col: number, row: number) => col >= 16 && col <= 23 && row >= 28;
+    for (let frame = 0; frame < 90; frame += 1) {
+      const pixels = new Uint8Array(FIND_COLS * FIND_ROWS * 4);
+      for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
+        const value = grass(cell % FIND_COLS, Math.floor(cell / FIND_COLS))
+          ? 0.35 + (next() - 0.5) * 0.01
+          : next();
+        const byte = Math.round(value * 255);
+        pixels.set([byte, byte, byte, 255], cell * 4);
+      }
+      finder.add(pixels);
+    }
+    expect(finder.cuts).toBeGreaterThanOrEqual(2);
+    expect(finder.verdict()).toEqual({ kind: 'none' });
+  });
+
   it('takes scenery held still within shots for no overlay', () => {
     const finder = shots(false);
     expect(finder.cuts).toBe(2);

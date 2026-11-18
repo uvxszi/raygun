@@ -446,7 +446,9 @@ internal class OverlayFinder {
             }
             ring.sort()
             val ringTypical = ring.getOrNull(ring.size / 2) ?: 0.0
-            if (ringTypical >= typical * RING_SHARE) best = found
+            if (ringTypical < typical * RING_SHARE) continue
+            val members = (0 until cells).filter { group[it] == groups - 1 }
+            if (structureHolds(members, found, means)) best = found
         }
         val box = best ?: return FindVerdict(null, false)
         val left = max(0, box[1] - 1)
@@ -466,6 +468,56 @@ internal class OverlayFinder {
         )
     }
 
+    private class Spread(val mean: Double, val deviation: Double)
+
+    private fun spread(values: List<Double>): Spread {
+        val mean = values.sum() / max(1, values.size)
+        val variance = values.sumOf { (it - mean) * (it - mean) } / max(1, values.size)
+        return Spread(mean, sqrt(variance))
+    }
+
+    /**
+     * A patch's own look holds across the shots: its box isn't uniform (grass, sky and walls never
+     * count), it stands out from the cells round it in every shot's first sample, and its pattern
+     * there correlates with its pattern over all samples (NCC, the patch's mean removed).
+     * `found` is count, left, top, right, bottom.
+     */
+    private fun structureHolds(members: List<Int>, found: IntArray, means: DoubleArray): Boolean {
+        val boxed = ArrayList<Double>()
+        for (row in found[2]..found[4]) for (col in found[1]..found[3]) boxed += means[row * COLS + col]
+        if (spread(boxed).deviation < MIN_STRUCTURE) return false
+        val member = members.toHashSet()
+        val pattern = members.map { means[it] }
+        val shape = spread(pattern)
+        for (start in shotStarts) {
+            var contrast = 0.0
+            var pairs = 0
+            for (cell in members) {
+                val col = cell % COLS
+                val row = cell / COLS
+                for ((dx, dy) in NEIGHBOURS) {
+                    val x = col + dx
+                    val y = row + dy
+                    val next = y * COLS + x
+                    if (x < 0 || y < 0 || x >= COLS || y >= ROWS || next in member) continue
+                    contrast += abs(start[cell] - start[next])
+                    pairs += 1
+                }
+            }
+            if (pairs == 0 || contrast / pairs < MIN_EDGE) return false
+            if (shape.deviation >= PATTERN_SPREAD) {
+                val seen = members.map { start[it] }
+                val shot = spread(seen)
+                var product = 0.0
+                seen.forEachIndexed { index, value -> product += (value - shot.mean) * (pattern[index] - shape.mean) }
+                val scale = members.size * shot.deviation * shape.deviation
+                val ncc = if (scale > 0) product / scale else 0.0
+                if (ncc < MIN_NCC) return false
+            }
+        }
+        return true
+    }
+
     companion object {
         const val COLS = 64
         const val ROWS = 36
@@ -479,6 +531,9 @@ internal class OverlayFinder {
         private const val CUT_DIFFERENCE = 0.08
         private const val SHOT_MATCH = 0.04
         private const val KEPT_SHOTS = 16
+        private const val MIN_STRUCTURE = 0.06
+        private const val PATTERN_SPREAD = 0.03
+        private const val MIN_NCC = 0.9
         private val NEIGHBOURS = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
         private const val STILL_SHARE = 0.15
         private const val STILL_MOST = 0.02
