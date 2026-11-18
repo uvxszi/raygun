@@ -511,6 +511,9 @@ jobs:
             linux: arm64
     env:
       VERSION: ${{ needs.meta.outputs.version }}
+      # The runtime goes into a user installation in the workspace (a plain bind mount): updating
+      # the one in the image's own layers failed with "Invalid cross-device link".
+      FLATPAK_USER_DIR: ${{ github.workspace }}/.flatpak-user
     steps:
       - uses: actions/checkout@v7
         with:
@@ -525,14 +528,12 @@ jobs:
         run: cp linux/*.deb packaging/flatpak/raygun.deb
 
       # `repo/` is Raygun's extension repository: the Flatpak's OSTree repository goes elsewhere.
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          manifest-path: packaging/flatpak/app.raygun.player.yml
-          bundle: Raygun_${{ env.VERSION }}_${{ matrix.arch }}.flatpak
-          arch: ${{ matrix.arch }}
-          repo-dir: flatpak-repo
-          cache: false
-          upload-artifact: false
+      - name: Build the bundle
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive --arch=${{ matrix.arch }} flathub org.gnome.Platform//50 org.gnome.Sdk//50
+          flatpak-builder --user --arch=${{ matrix.arch }} --disable-rofiles-fuse --force-clean             --repo=flatpak-repo build packaging/flatpak/app.raygun.player.yml
+          flatpak build-bundle --arch=${{ matrix.arch }} flatpak-repo             "Raygun_${VERSION}_${{ matrix.arch }}.flatpak" app.raygun.player master
 
       # Installed and started like the Linux builds; a Flatpak keeps its data in its own folder
       # (a packaged copy: no question where).
