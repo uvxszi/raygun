@@ -592,7 +592,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
             }
         })
         when {
-            watermarks.finding -> sheet.row(label("watermarkFindingCuts", "Looking for a watermark that stays through scene changes ({n} of 2 so far)…", watermarks.cuts.toString()), onClick = null)
+            watermarks.finding -> sheet.row(label("watermarkFindingCuts", "Looking for a watermark that stays through scene changes ({n} of 2 so far)…", minOf(watermarks.cuts, 2).toString()), onClick = null)
             current.active && !watermarks.masked ->
                 sheet.row(label("watermarkLearning", "Learning the watermark as the video plays…"), onClick = null)
         }

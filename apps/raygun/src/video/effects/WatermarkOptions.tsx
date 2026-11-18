@@ -37,7 +37,7 @@ export const WatermarkOptions: FC<Props> = ({ effects, onDraw }) => {
   const status = effects.watermarkStatus;
   const line =
     status === 'finding'
-      ? t('videoPlayer.watermarkFindingCuts', { n: effects.watermarkCuts })
+      ? t('videoPlayer.watermarkFindingCuts', { n: Math.min(effects.watermarkCuts, 2) })
       : status === 'notFound'
         ? t('videoPlayer.watermarkNotFound')
         : status === 'unsure'
