@@ -441,7 +441,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let sync = tauri::async_runtime::block_on(crate::device_sync::SyncService::start(
         app.handle().clone(),
     ))?;
-    // Files to linked devices (M46.57) go over sync's connections.
+    // Files to linked devices (M46.57) go over sync's connections; starting reads the paths.
+    app.manage(AppPaths(paths.clone()));
     let files = crate::file_sync::FileSyncService::new(app.handle().clone(), sync.engine());
     tauri::async_runtime::block_on(files.start());
     app.manage(files);
@@ -463,7 +464,6 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::miniplayer::MiniplayerDir(paths.webview()));
 
     app.manage(LogGuard(guard));
-    app.manage(AppPaths(paths));
 
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
