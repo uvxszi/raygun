@@ -9214,6 +9214,12 @@ export type VideoPlayerPrefs = {
 	 *  from other sources, the most alike first ("Matching"), ones unlike all others marked.
 	 */
 	smartSubtitles?: boolean,
+	/**
+	 *  While Smart Subtitles is on: cues that overlap or follow each other within a moment, short
+	 *  ones changing quickly, show together as one (lines stacked, repeats once) instead of
+	 *  flickering.
+	 */
+	joinCloseLines?: boolean,
 };
 
 /**  Muted previews (a title's trailer) in video cards. */

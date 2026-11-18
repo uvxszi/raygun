@@ -243,6 +243,7 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   leaveOutTrailers: true,
   leaveOutShort: true,
   smartSubtitles: false,
+  joinCloseLines: true,
 };
 
 /** Whether the seek bar seeks only by dragging: the setting, else on for phones, off on desktop. */

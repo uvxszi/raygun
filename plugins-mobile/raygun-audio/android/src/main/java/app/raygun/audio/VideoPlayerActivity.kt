@@ -172,6 +172,9 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal lateinit var second: SecondSubtitles
     /** The main subtitles drawn from their file here, with the delay applied exactly. */
     internal lateinit var subtitleClock: SubtitleClock
+    /** Subtitle files' lines close together show as one (Smart Subtitles, on with its option). */
+    internal val joinCloseLines: Boolean
+        get() = prefs.smartSubtitlesAvailable && prefs.smartSubtitles && prefs.joinCloseLines
     /** Smart Subtitles' order and marks for the subtitle files, by address ([SmartRanks]). */
     internal var smartRanks = SmartRanks.NONE
     /** The Sources toggles, as Rust has them. */
@@ -228,6 +231,12 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** Software decoders first: the setting, or after a hardware decoder failed. */
     private var softwareFirst = false
     private var tracksPicked = false
+    /**
+     * The subtitles on screen, kept through a reload that builds the tracks again (subtitle files
+     * arriving late): picked again, another file (another release, timed otherwise) could take
+     * over mid-play.
+     */
+    private var keepText: KeptTrack? = null
     private var aniskipAsked = false
     private var manualRotation = false
     /** The rotate button was held: the screen stays exactly as it was then. */
@@ -292,6 +301,10 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal var sourceOrder: JSONArray? = null
     /** The source playing, once it has played a while. */
     internal var playingFrom: String? = null
+    /** The preferred resolution's options from every source (Rust's `preferred`): listed first. */
+    internal var preferredOptions: JSONObject? = null
+    /** The source usually chosen for this kind of video (Rust's `usual`). */
+    internal var usualSource: String? = null
     /** A link played on its own (Rust's `link`): its own links play first. */
     internal var linkSession = false
     /** It has nothing else to switch to (Rust's `alone`): Sources says "Only this link". */
@@ -709,6 +722,16 @@ class VideoPlayerActivity : AppCompatActivity() {
                 tracksPicked = true
                 choices.pick(state, prefs, languages)
             }
+            // The subtitles shown before a reload stay on.
+            keepText?.let { keep ->
+                keepText = null
+                val listed = choices.list(C.TRACK_TYPE_TEXT)
+                val index = keptTrackIndex(
+                    listed.map { KeptTrack(sidecarOf(it.format)?.uri?.toString(), it.format.id, it.format.language, it.format.label) },
+                    keep,
+                )
+                listed.getOrNull(index ?: -1)?.takeIf { !choices.chosen(it) }?.let { choices.select(C.TRACK_TYPE_TEXT, it) }
+            }
             // A subtitle file chosen is drawn from here, with the delay applied exactly.
             subtitleClock.onTracks()
             // Another source's sound just added plays; Audio has it, the delay, the files and
@@ -824,6 +847,8 @@ class VideoPlayerActivity : AppCompatActivity() {
                 sources = update.optJSONArray("groups") ?: JSONArray()
                 sourceOrder = update.optJSONArray("order")
                 playingFrom = update.text("playingFrom")
+                preferredOptions = update.optJSONObject("preferred")
+                usualSource = update.text("usual")
                 linkSession = update.optBoolean("link")
                 sourcesAlone = update.optBoolean("alone")
                 sourcesFallback = update.optBoolean("fallback", true)
@@ -908,6 +933,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         autoSkipped.clear()
         aniskipAsked = false
         tracksPicked = false
+        keepText = null
         pendingSubtitle = null
         mainCues.set(null)
 
@@ -1010,6 +1036,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     private fun reload(positionMs: Long) {
         if (current.optString("url").isBlank()) return
         problem.hide()
+        // The same video built again: the subtitles on screen stay (`keepText`).
+        if (keepText == null) keepText = shownText()
         tracksPicked = false
         started = false
         // A live stream comes back at its live edge (or as far behind it as it was held).
@@ -1554,6 +1582,13 @@ class VideoPlayerActivity : AppCompatActivity() {
         player.playWhenReady = playing
     }
 
+    /** The subtitle track on screen (Media3's, not a live track), to keep through a reload. */
+    private fun shownText(): KeptTrack? {
+        if (tracks.textOff() || liveTracks.primary != null) return null
+        val track = tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { tracks.chosen(it) } ?: return null
+        return KeptTrack(sidecarOf(track.format)?.uri?.toString(), track.format.id, track.format.language, track.format.label)
+    }
+
     /** A subtitle file the request lists, as a sidecar; null without an address. */
     private fun sidecarOf(track: JSONObject): Sidecar? {
         val url = track.text("url") ?: return null
@@ -2006,7 +2041,8 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     private fun onBack() {
         when {
-            openSheet != null -> closeSheet(openSheet)
+            // A menu inside the sheet closes first, then the sheet.
+            openSheet != null -> if (openSheet?.onBack?.invoke() != true) closeSheet(openSheet)
             controls.locked -> controls.show()
             prefs.pipOnBack && player.isPlaying -> enterPip()
             else -> finish()

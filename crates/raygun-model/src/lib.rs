@@ -3106,6 +3106,10 @@ pub struct VideoPlayerPrefs {
     /// Smart Subtitles: subtitle and audio tracks are compared with the others of their language
     /// from other sources, the most alike first ("Matching"), ones unlike all others marked.
     pub smart_subtitles: bool,
+    /// While Smart Subtitles is on: cues that overlap or follow each other within a moment, short
+    /// ones changing quickly, show together as one (lines stacked, repeats once) instead of
+    /// flickering.
+    pub join_close_lines: bool,
 }
 
 /// A link counts as short when it lasts under this share of the median of the others' lengths
@@ -3164,6 +3168,7 @@ impl Default for VideoPlayerPrefs {
             leave_out_trailers: true,
             leave_out_short: true,
             smart_subtitles: false,
+            join_close_lines: true,
         }
     }
 }

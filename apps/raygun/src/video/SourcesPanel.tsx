@@ -1,8 +1,9 @@
-import { ChevronLeft, Settings2 } from 'lucide-react';
+import { ChevronLeft, Settings2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from '../shell/backLayers';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendRequest } from './protocol';
 import type { SourceGroup } from './protocol';
@@ -54,6 +55,22 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
   const [options, setOptions] = useState(false);
   /** The source whose button was pressed: its settings show. */
   const [settingsOf, setSettingsOf] = useState<number | null>(null);
+  const preferred = useVideoPlayerStore((state) => state.preferredOptions);
+  const usual = useVideoPlayerStore((state) => state.usualSource);
+  // A source's settings close before the sheet: Back, and Escape (taken before the player's).
+  const closeSettings = () => setSettingsOf(null);
+  useBackLayer(settingsOf !== null, closeSettings, { escape: false });
+  useEffect(() => {
+    if (settingsOf === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      setSettingsOf(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [settingsOf]);
   const leaveOutTrailers = useVideoPlayerStore((state) => state.leaveOutTrailers);
   const leaveOutShort = useVideoPlayerStore((state) => state.leaveOutShort);
   /** A Sources toggle: shown at once, saved as the setting it is. */
@@ -213,6 +230,35 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
     );
   };
 
+  // The preferred resolution's options from every source, before the list (each stays in its
+  // own place below too).
+  const preferredShown = (preferred?.options ?? []).flatMap(({ group, link }) => {
+    const source = sources[group];
+    const option = source?.links[link];
+    return source && option ? [{ group, link, source, option }] : [];
+  });
+  const preferredList = preferredShown.length > 0 && (
+    <div role="group" aria-label={t('videoPlayer.preferredOptions')} className="flex flex-col">
+      <PanelHeading>
+        {t('videoPlayer.preferredOptions')} · {preferred?.height}p
+      </PanelHeading>
+      {preferredShown.map(({ group, link, source, option }) => (
+        <PanelOption
+          key={`preferred-${group}-${link}`}
+          label={`${optionTitle(option, t)} · ${source.name}`}
+          hint={
+            [optionDetail(option, source, t), option.current ? transfer : null]
+              .filter(Boolean)
+              .join(' · ') || null
+          }
+          selected={option.current}
+          current={option.current}
+          onSelect={() => choose(group, link)}
+        />
+      ))}
+    </div>
+  );
+
   const rawList = sources.map((group, index) =>
     visible(group) ? (
       <div key={`${index}-${group.name}`} className="flex flex-col">
@@ -268,6 +314,11 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
           {t('videoPlayer.playingFrom', { n: playingFrom })}
         </p>
       )}
+      {usual && (
+        <p data-testid="sources-usual" className="text-muted px-3 pb-1 text-sm">
+          {t('videoPlayer.usualSource', { n: usual })}
+        </p>
+      )}
       {/* A link played on its own with nothing else to switch to: Sources stays, and says so. */}
       {alone && (
         <p data-testid="sources-alone" className="px-3 pb-1 text-sm text-white/70">
@@ -289,7 +340,19 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
       />
       {settingsOf !== null && sources[settingsOf] && (
         <div role="group" aria-label={sources[settingsOf].name} className="flex flex-col">
-          <PanelHeading>{sources[settingsOf].name}</PanelHeading>
+          <div className="flex items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <PanelHeading>{sources[settingsOf].name}</PanelHeading>
+            </div>
+            <button
+              type="button"
+              aria-label={t('videoPlayer.closeSourceSettings')}
+              onClick={closeSettings}
+              className="grid size-9 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10"
+            >
+              <X aria-hidden size={16} />
+            </button>
+          </div>
           {sources[settingsOf].off ? (
             <PanelOption
               label={t('videoPlayer.sourceOnHere')}
@@ -311,6 +374,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
           />
         </div>
       )}
+      {!raw && preferredList}
       {raw ? (
         rawList
       ) : landscape ? (

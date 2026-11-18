@@ -2,10 +2,10 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { MediaEngine } from './mediaEngine';
-import { PanelOption, PlayerPanel } from './PlayerPanel';
+import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendRequest } from './protocol';
 import type { QualityRow } from './protocol';
-import { stepName } from './qualityText';
+import { optionTitle, stepName } from './qualityText';
 import { useVideoPlayerStore } from './videoPlayerStore';
 
 type Props = {
@@ -45,6 +45,27 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
     }
   };
 
+  // The preferred resolution's options from every source, before the tiers (a session's).
+  const preferred = useVideoPlayerStore((state) => state.preferredOptions);
+  const sources = useVideoPlayerStore((state) => state.sources);
+  const preferredShown = session
+    ? (preferred?.options ?? []).flatMap(({ group, link }) => {
+        const source = sources[group];
+        const option = source?.links[link];
+        return source && option ? [{ group, link, source, option }] : [];
+      })
+    : [];
+  const choosePreferred = (group: number, link: number, name: string) => {
+    if (sources[group]?.links[link]?.current) {
+      onClose();
+      return;
+    }
+    onAsked(t('videoPlayer.loadingSource', { n: name }));
+    useVideoPlayerStore.setState({ pickedSource: true });
+    sendRequest(videoKey, 'source', positionMs, { group, link });
+    onClose();
+  };
+
   const pick = (row: QualityRow) => {
     const name = stepName(row.height, row.range, t, row.exact);
     if (row.state === 'variant') {
@@ -60,6 +81,14 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
         )
         .at(-1);
       if (variant) engine?.setQuality(variant.id);
+      onClose();
+      return;
+    }
+    if (row.state === 'playing' && auto) {
+      // Automatic and this one plays: it's held as it is, nothing loads again; a session keeps
+      // the step (`keep`) so no later source takes over.
+      engine?.keepQuality();
+      if (session) sendRequest(videoKey, 'quality', positionMs, { key: row.key, keep: true });
       onClose();
       return;
     }
@@ -91,6 +120,24 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
           onClose();
         }}
       />
+      {preferredShown.length > 0 && (
+        <div role="group" aria-label={t('videoPlayer.preferredOptions')} className="flex flex-col">
+          <PanelHeading>
+            {t('videoPlayer.preferredOptions')} · {preferred?.height}p
+          </PanelHeading>
+          {preferredShown.map(({ group, link, source, option }) => (
+            <PanelOption
+              key={`preferred-${group}-${link}`}
+              label={`${optionTitle(option, t)} · ${source.name}`}
+              hint={option.current ? t('videoPlayer.qualityPlaying') : null}
+              selected={option.current && !auto}
+              current={option.current}
+              onSelect={() => choosePreferred(group, link, source.name)}
+            />
+          ))}
+        </div>
+      )}
+      {preferredShown.length > 0 && <PanelHeading>{t('videoPlayer.allQualities')}</PanelHeading>}
       {rows.length === 0 && (
         <p className="px-3 py-2 text-sm text-white/60">{t('videoPlayer.qualityWaiting')}</p>
       )}
@@ -101,7 +148,7 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
           hint={detail(row)}
           selected={row.state === 'playing' && !auto}
           current={row.state === 'playing'}
-          disabled={row.state === 'playing' && !session}
+          disabled={row.state === 'playing' && !session && !auto}
           onSelect={() => pick(row)}
         />
       ))}

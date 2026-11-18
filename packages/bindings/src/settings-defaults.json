@@ -136,7 +136,8 @@
     "showEmptySources": true,
     "leaveOutTrailers": true,
     "leaveOutShort": true,
-    "smartSubtitles": false
+    "smartSubtitles": false,
+    "joinCloseLines": true
   },
   "libraryDisplay": {
     "mode": "compactGrid",

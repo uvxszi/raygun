@@ -210,7 +210,22 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 host.prefs.smartSubtitles = !on
                 if (on) host.smartRanks = SmartRanks.NONE
                 host.savePrefs(JSONObject().put("smartSubtitles", !on))
+                host.subtitleClock.refresh()
                 drawSubtitles()
+            }
+            // Lines close together shown as one, while Smart Subtitles is on.
+            if (on) {
+                val join = host.prefs.joinCloseLines
+                sheet.row(
+                    label("joinCloseLines", "Join lines close together"),
+                    label("joinCloseLinesHint", "Lines that overlap or follow each other quickly show together"),
+                    selected = join,
+                ) {
+                    host.prefs.joinCloseLines = !join
+                    host.savePrefs(JSONObject().put("joinCloseLines", !join))
+                    host.subtitleClock.refresh()
+                    drawSubtitles()
+                }
             }
         }
         val off = host.tracks.textOff() && live.primary == null

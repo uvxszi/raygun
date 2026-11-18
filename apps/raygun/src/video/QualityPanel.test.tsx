@@ -14,12 +14,14 @@ const { commands } = bindingsMock;
 /** An HLS engine with these variants, by id; automatic quality. */
 const engineWith = (variants: (VariantInfo & { id: number })[]) => {
   const setQuality = vi.fn();
+  const keepQuality = vi.fn(() => true);
   const engine = {
     variants: () => variants,
     quality: () => -1,
     setQuality,
+    keepQuality,
   } as unknown as MediaEngine;
-  return { engine, setQuality };
+  return { engine, setQuality, keepQuality };
 };
 
 describe('the Quality panel', () => {
@@ -64,8 +66,6 @@ describe('the Quality panel', () => {
         onAsked={vi.fn()}
       />,
     );
-    // What plays can't be picked again without a session's other sources.
-    expect(screen.getByRole('menuitemradio', { name: /720p \(1280×544\)/ })).toBeDisabled();
     await user.click(screen.getByRole('menuitemradio', { name: /1080p \(1920×816\)/ }));
     // The last variant of that size (the higher bit rate): switched here, nothing asked of Rust.
     expect(setQuality).toHaveBeenCalledWith(2);
@@ -73,6 +73,40 @@ describe('the Quality panel', () => {
     expect(commands.videoPlayerReport).not.toHaveBeenCalledWith(
       expect.stringContaining('"action":"quality"'),
     );
+  });
+
+  it('holds the row playing while automatic, without loading anything again', async () => {
+    const user = userEvent.setup();
+    const { engine, setQuality, keepQuality } = engineWith([
+      { id: 0, width: 1280, height: 720, range: 'sdr', codec: null },
+      { id: 1, width: 1920, height: 1080, range: 'sdr', codec: null },
+    ]);
+    useVideoPlayerStore.setState({
+      session: true,
+      qualityWanted: null,
+      qualities: [
+        { key: '1080:sdr', height: 1080, range: 'sdr', codec: null, state: 'variant' },
+        { key: '720:sdr', height: 720, range: 'sdr', codec: null, state: 'playing' },
+      ],
+    });
+    const onClose = vi.fn();
+    const onAsked = vi.fn();
+    render(
+      <QualityPanel
+        videoKey="k"
+        positionMs={5000}
+        engine={engine}
+        onClose={onClose}
+        onAsked={onAsked}
+      />,
+    );
+    await user.click(screen.getByRole('menuitemradio', { name: /720p/ }));
+    expect(keepQuality).toHaveBeenCalled();
+    expect(setQuality).not.toHaveBeenCalled();
+    // The session keeps the step; no source is asked to load.
+    expect(onAsked).not.toHaveBeenCalled();
+    expect(commands.videoPlayerReport).toHaveBeenCalledWith(expect.stringContaining('"keep":true'));
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('sets the resolution playing apart, whether it was picked or plays by itself', () => {

@@ -13,6 +13,7 @@ import type {
   MusicEq,
   PlayerRequest,
   PlayerUpdate,
+  PreferredOptions,
   QualityRow,
   SourceGroup,
   SubtitleRank,
@@ -58,6 +59,10 @@ type VideoPlayerState = {
   sourceOrder: number[] | null;
   /** The source playing, once it has played a while. */
   playingFrom: string | null;
+  /** The preferred resolution's options from every source (Rust's `preferred`): listed first. */
+  preferredOptions: PreferredOptions | null;
+  /** The source usually chosen for this kind of video (Rust's `usual`). */
+  usualSource: string | null;
   /** A link played on its own (Rust's `link`): its own links play first. */
   linkSession: boolean;
   /** It has nothing else to switch to (Rust's `alone`): Sources says "Only this link". */
@@ -173,6 +178,8 @@ const CLOSED = {
   sources: [],
   sourceOrder: null,
   playingFrom: null,
+  preferredOptions: null,
+  usualSource: null,
   linkSession: false,
   sourcesAlone: false,
   sourcesFallback: true,
@@ -246,6 +253,8 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
           return {
             sources: update.groups,
             playingFrom: update.playingFrom ?? null,
+            preferredOptions: update.preferred ?? null,
+            usualSource: update.usual ?? null,
             sourceOrder: update.order ?? null,
             linkSession: update.link ?? false,
             sourcesAlone: update.alone ?? false,

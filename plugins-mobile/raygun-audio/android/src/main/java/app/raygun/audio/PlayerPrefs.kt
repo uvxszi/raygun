@@ -144,6 +144,8 @@ internal class PlayerPrefs(json: JSONObject) {
     /** Smart Subtitles: switched on, and whether its switch shows (its Smart Chip is on). */
     var smartSubtitles: Boolean = json.optBoolean("smartSubtitles", false)
     val smartSubtitlesAvailable: Boolean = json.optBoolean("smartSubtitlesAvailable", false)
+    /** Smart Subtitles' "Join lines close together" (on unless turned off). */
+    var joinCloseLines: Boolean = json.optBoolean("joinCloseLines", true)
 
     /** The largest picture height automatic quality may use ("1080p" → 1080); null for the highest. */
     val maxHeight: Int? get() = preferredResolution.let { value ->
