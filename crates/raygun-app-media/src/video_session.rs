@@ -271,6 +271,9 @@ const SUBTITLES_WAIT_MS: i64 = 2_500;
 
 /// How far into a video a clearly better source that answers late still takes over.
 const SWITCH_WITHIN_MS: i64 = 30_000;
+/// After a trailer or short clip hands over at its end, the player's request for the next
+/// episode (sent at every end while autoplay is on) is passed over this long.
+const HANDOVER_HOLDS_NEXT_MS: i64 = 5_000;
 
 /// What a session keeps while sources answer one by one.
 #[derive(Debug, Clone, Default)]
@@ -323,6 +326,8 @@ struct Session {
     /// What was remembered before a link of this session played long enough to be kept: what
     /// "worked last time" means in the Sources sheet (a link that worked only now is "Playing").
     before: Option<Remembered>,
+    /// When a trailer or short clip that played to its end handed over to the next source.
+    handed_over_at: Option<i64>,
     /// Where the show's source is remembered across its entries ("Title" and "Title II" are one
     /// show's seasons on anime sites and Kitsu).
     show_memory: Option<String>,
@@ -1166,6 +1171,7 @@ impl VideoSessions {
             start_at,
             memory,
             before: None,
+            handed_over_at: None,
             show_memory,
             health,
             resolution,
@@ -1249,6 +1255,7 @@ impl VideoSessions {
             start_at,
             memory,
             before: None,
+            handed_over_at: None,
             show_memory: None,
             health,
             resolution,
@@ -1417,8 +1424,8 @@ impl VideoSessions {
     /// this one was asked to start for a trailer, else where it ended), for the next source to
     /// carry on. A link picked by hand, a download and a link played on its own just end.
     fn ended_early(&self, key: &str, position: i64) -> Option<(u64, i64)> {
-        let guard = self.session.lock().expect("session poisoned");
-        let session = guard.as_ref()?;
+        let mut guard = self.session.lock().expect("session poisoned");
+        let session = guard.as_mut()?;
         if session.episode().key != key || session.arriving.picked || session.arriving.live {
             return None;
         }
@@ -1439,7 +1446,23 @@ impl VideoSessions {
                 .groups
                 .iter()
                 .any(|group| group.state == GroupState::Resolving);
-        more.then_some((session.generation, at))
+        if !more {
+            return None;
+        }
+        // The player's own move to the next episode at the end isn't for this one.
+        session.handed_over_at = Some(now_ms());
+        Some((session.generation, at))
+    }
+
+    /// A trailer or short clip ended and the next source took over just now
+    /// ([`HANDOVER_HOLDS_NEXT_MS`]).
+    fn just_handed_over(&self, now: i64) -> bool {
+        self.session
+            .lock()
+            .expect("session poisoned")
+            .as_ref()
+            .and_then(|session| session.handed_over_at)
+            .is_some_and(|at| now - at < HANDOVER_HOLDS_NEXT_MS)
     }
 
     /// The link playing is far shorter than the title: it's marked so (not tried again, and not
@@ -1593,6 +1616,11 @@ impl VideoSessions {
             .and_then(Value::as_str)
             .unwrap_or_default();
         let now = now_ms();
+        // The player asks for the next episode when a link ends; a trailer's end hands over to
+        // the next source of this one instead.
+        if action == "next" && self.just_handed_over(now) {
+            return;
+        }
         match action {
             // The stream's own variants: the Quality menu, with or without a session.
             "variants" => {
@@ -3506,6 +3534,7 @@ mod tests {
             start_at: None,
             memory: Remembered::default(),
             before: None,
+            handed_over_at: None,
             show_memory: None,
             health: SourceHealth::default(),
             resolution: VideoResolution::default(),
