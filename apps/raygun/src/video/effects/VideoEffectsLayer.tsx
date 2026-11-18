@@ -76,6 +76,7 @@ export const VideoEffectsLayer: FC<Props> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const params = useRef(shaderParams(effects));
   const smooth = useRef(effects.smoothMotion);
+  const model = useRef(effects.motionModel);
   const heavy = useRef(heavyKinds(effects));
   const lastTime = useRef(Number.NaN);
   const redraw = useRef<() => void>(() => {});
@@ -96,6 +97,8 @@ export const VideoEffectsLayer: FC<Props> = ({
   useEffect(() => {
     params.current = shaderParams(effects);
     smooth.current = effects.smoothMotion;
+    model.current = effects.motionModel;
+    renderer.current?.setMotionModel(effects.motionModel);
     heavy.current = heavyKinds(effects);
     box.current = effects.watermark;
     renderer.current?.setWatermark(effects.watermark);
@@ -121,6 +124,7 @@ export const VideoEffectsLayer: FC<Props> = ({
       return;
     }
     drawing.setWatermark(box.current);
+    drawing.setMotionModel(model.current);
     renderer.current = drawing;
     const boxFrames = new WatermarkSampler(
       (mask: WatermarkMask | null) => {

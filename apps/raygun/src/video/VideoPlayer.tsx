@@ -3,6 +3,7 @@ import type {
   ExternalPlayer,
   FoundSubtitles,
   SubtitleSource,
+  SubtitleStyle,
   VideoAspect,
   VideoChapter,
   VideoSubtitle,
@@ -87,9 +88,10 @@ import {
   translationStatus,
   useVideoTranslations,
 } from './subtitleProgress';
+import { SecondStylePanel } from './SecondStylePanel';
 import { TimeBar } from './TimeBar';
 import { applyLoop, loopAround, wentRound } from './videoLoop';
-import { useSubtitleFamily } from './subtitleLook';
+import { secondStyleOf, useSubtitleFamily } from './subtitleLook';
 import { channelsName, nameTracks, useTrackWords } from './trackNames';
 import {
   byLanguages,
@@ -119,6 +121,8 @@ type PanelKind =
   | 'subtitles'
   /** Settings → Player → Subtitles, opened from the subtitles panel's Style. */
   | 'subtitleStyle'
+  /** The second subtitles' own style, kept for the title. */
+  | 'secondStyle'
   | 'audio'
   | 'quality'
   | 'aspect'
@@ -463,6 +467,10 @@ const VideoStage: FC<StageProps> = ({
 
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(true);
+  /** Play or pause pressed while it waits: shown in the ring's place for a moment. */
+  const [pressShown, setPressShown] = useState<'play' | 'pause' | null>(null);
+  const pressTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(pressTimer.current), []);
   /** A seek's wait, before the ring shows for it (`SEEK_WAIT_MS`). */
   const [seekHold, setSeekHold] = useState(false);
   const seekTimer = useRef<number | undefined>(undefined);
@@ -472,6 +480,10 @@ const VideoStage: FC<StageProps> = ({
   const [speed, setSpeed] = useState(titleState.speed ?? prefs.defaultSpeed);
   const [aspect, setAspect] = useState<VideoAspect>(titleState.aspect ?? prefs.aspect);
   const [delayMs, setDelayMs] = useState(titleState.subtitleDelayMs ?? 0);
+  const [secondDelayMs, setSecondDelayMs] = useState(titleState.secondSubtitleDelayMs ?? 0);
+  const [secondStyleOwn, setSecondStyleOwn] = useState<SubtitleStyle | null>(
+    titleState.secondSubtitleStyle ?? null,
+  );
   const [cueEdits, setCueEdits] = useState<CueEdits>(titleState.subtitleEdits ?? {});
   const [subtitleKey, setSubtitleKey] = useState<string | null>(null);
   const [lastSubtitle, setLastSubtitle] = useState<string | null>(null);
@@ -705,8 +717,16 @@ const VideoStage: FC<StageProps> = ({
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
-    if (video.paused || video.ended) void video.play().catch(() => {});
+    const play = video.paused || video.ended;
+    if (play) void video.play().catch(() => {});
     else video.pause();
+    // While it waits, the press shows in the ring's place for a moment, then the ring fades back
+    // in; paused, the video stays paused once it has what it needs.
+    if (waiting) {
+      setPressShown(play ? 'play' : 'pause');
+      window.clearTimeout(pressTimer.current);
+      pressTimer.current = window.setTimeout(() => setPressShown(null), PRESS_SHOWN_MS);
+    }
   };
   const requestEpisode = (action: 'next' | 'previous') => {
     if (action === 'next') {
@@ -732,6 +752,16 @@ const VideoStage: FC<StageProps> = ({
     const video = videoRef.current;
     if (video && subtitleKey?.startsWith('embedded:'))
       setEmbeddedLines(embeddedLinesAt(video, subtitleTimeMs(video.currentTime * 1000, next)));
+  };
+  /** The second subtitles' own delay, kept for the title. */
+  const changeSecondDelay = (next: number) => {
+    setSecondDelayMs(next);
+    remember({ secondSubtitleDelayMs: next });
+  };
+  /** The second subtitles' own style, kept for the title; null looks like the main ones. */
+  const changeSecondStyle = (next: SubtitleStyle | null) => {
+    setSecondStyleOwn(next);
+    remember({ secondSubtitleStyle: next });
   };
   /** Positive plays the sound later than the picture; kept for the title. */
   const changeAudioDelay = (next: number) => {
@@ -1373,7 +1403,15 @@ const VideoStage: FC<StageProps> = ({
   };
   // The subtitle clock: the playhead less the delay, read every frame while playing, so lines
   // change on their own times at any speed, after seeks and as the delay changes.
-  const secondCues = secondKey ? cuesOf(secondKey, secondLoaded) : NO_CUES;
+  // The second subtitles keep their own delay: their cues move by how much it differs from the
+  // main ones', which the clock takes off.
+  const secondOwnCues = secondKey ? cuesOf(secondKey, secondLoaded) : NO_CUES;
+  const secondShift = secondDelayMs - delayMs;
+  const secondStyle = secondStyleOf(secondStyleOwn, prefs.subtitleStyle);
+  const secondCues = useMemo(
+    () => shiftCues(secondOwnCues, secondShift),
+    [secondOwnCues, secondShift],
+  );
   const subtitleNowMs = useSubtitleClock(videoRef, currentCues, secondCues, delayMs);
   // AI subtitles and translations show one cue at a time (`latestCueAt`): a stretch heard again
   // would otherwise show twice, one line under the other.
@@ -1413,8 +1451,10 @@ const VideoStage: FC<StageProps> = ({
         : subtitleKey !== 'ai' && currentCues.length === 0
           ? t('desktopPlayer.translate.loading')
           : null;
+  // Drawing the watermark's box: only the drawing and its Done and Cancel show.
   const controlsVisible =
-    controlsShown || !playing || panel !== null || overControls || notice !== null;
+    !effects.drawingWatermark &&
+    (controlsShown || !playing || panel !== null || overControls || notice !== null);
   const skippable = prefs.skipButton ? skippableAt(chapters, timeMs, durationMs) : null;
   const introMs = titleState.introMs ?? prefs.introSeconds * 1000;
   const offerIntro =
@@ -1565,7 +1605,7 @@ const VideoStage: FC<StageProps> = ({
       />
       <SubtitleLines
         lines={dragged ? [] : secondLines}
-        style={prefs.subtitleStyle}
+        style={secondStyle}
         family={subtitleFamily}
         lifted={controlsVisible}
         at="top"
@@ -1585,8 +1625,12 @@ const VideoStage: FC<StageProps> = ({
             }
             onElsewhere={notice.elsewhere ? () => setPanel('players') : undefined}
           />
+        ) : busy && pressShown ? (
+          <PressShown kind={pressShown} />
         ) : busy ? (
-          <LoadingRing text={loadingText} note={waitingNote} extra={transferNote} />
+          <div key="ring" className="motion-fade">
+            <LoadingRing text={loadingText} note={waitingNote} extra={transferNote} />
+          </div>
         ) : null}
       </Middle>
 
@@ -1918,7 +1962,11 @@ const VideoStage: FC<StageProps> = ({
             onStyle={() => setPanel('subtitleStyle')}
             second={secondKey}
             onSecond={setSecondKey}
-            onAiStarted={() => selectSubtitle('ai')}
+            secondDelayMs={secondDelayMs}
+            onSecondDelay={changeSecondDelay}
+            secondStyle={secondStyle}
+            onSecondStyle={() => setPanel('secondStyle')}
+            onAiStarted={(second) => (second ? setSecondKey('ai') : selectSubtitle('ai'))}
             onClose={onClose}
             translate={{
               sourceName: trackName,
@@ -1968,6 +2016,14 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'subtitleStyle' && (
         <VideoSettingsPanel page="subtitles" onClose={() => setPanel(null)} />
+      )}
+      {panel === 'secondStyle' && (
+        <SecondStylePanel
+          style={secondStyle}
+          family={subtitleFamily}
+          onChange={changeSecondStyle}
+          onClose={() => setPanel(null)}
+        />
       )}
       {panel === 'audio' && (
         <PlayerPanel title={t('videoPlayer.audio')} onClose={() => setPanel(null)}>
@@ -2081,6 +2137,7 @@ const VideoStage: FC<StageProps> = ({
       {panel === 'effects' && (
         <EffectsPanel
           effects={effects}
+          playing={playing}
           onClose={() => setPanel(null)}
           sound={{
             speed,
@@ -2553,6 +2610,33 @@ const LoadingRing: FC<{
       {noteText && (
         <p className="max-w-sm truncate text-center text-xs text-white/70">{noteText}</p>
       )}
+    </div>
+  );
+};
+
+/** `cues` moved `byMs` later (earlier when negative); the same list when there's nothing to move. */
+const shiftCues = (cues: Cue[], byMs: number): Cue[] =>
+  byMs === 0
+    ? cues
+    : cues.map((cue) => ({ ...cue, startMs: cue.startMs + byMs, endMs: cue.endMs + byMs }));
+
+/** How long a press while the video waits shows before the ring comes back. */
+const PRESS_SHOWN_MS = 900;
+
+/** Play or pause pressed while the video waits: the press, where the ring was. */
+const PressShown: FC<{ kind: 'play' | 'pause' }> = ({ kind }) => {
+  const { t } = useTranslation();
+  const Icon = kind === 'pause' ? Pause : Play;
+  return (
+    <div
+      role="status"
+      data-testid="press-shown"
+      className="motion-pop flex flex-col items-center gap-2 text-sm text-white/90"
+    >
+      <span className="grid size-14 place-items-center rounded-full bg-black/50">
+        <Icon aria-hidden size={26} fill="currentColor" />
+      </span>
+      {t(kind === 'pause' ? 'videoPlayer.pausedWhileLoading' : 'videoPlayer.play')}
     </div>
   );
 };

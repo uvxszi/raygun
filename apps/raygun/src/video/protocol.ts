@@ -3,6 +3,7 @@ import type {
   PictureEffects,
   SmartAudio,
   SubtitleMode,
+  SubtitleStyle,
   VideoAspect,
   VideoChapter,
   VideoPlayerPrefs,
@@ -43,6 +44,9 @@ export type TitleState = {
   aspect?: VideoAspect;
   subtitle?: TrackChoice | { off: true };
   subtitleDelayMs?: number;
+  /** The second subtitles' own delay and style (none: the main style at the top). */
+  secondSubtitleDelayMs?: number;
+  secondSubtitleStyle?: SubtitleStyle | null;
   audio?: TrackChoice;
   introMs?: number;
   /** Subtitle lines changed by hand (M46.12), per episode and track. */

@@ -314,4 +314,47 @@ class PlayerWatermarkTest {
             }
         }
     }
+
+    @Test
+    fun onlyTheMarkItselfIsMaskedNotStillPictureWithoutEdges() {
+        // As `watermarkMath.test.ts`: a box half over a still, flat part of the picture (a dark
+        // band) and half over moving picture with a logo's strokes in it.
+        val layout = WatermarkMath.sampleLayout(WatermarkRemoval(x = 4_000, y = 4_000, width = 1_000, height = 1_000), 640, 360)
+        val estimator = WatermarkEstimator(layout)
+        val next = Random(5)
+        val stroke = { col: Int, row: Int ->
+            col >= layout.innerLeft + layout.innerCols / 2 + 2 && col < layout.innerLeft + layout.innerCols - 2 &&
+                row >= layout.innerTop + 2 && row < layout.innerTop + layout.innerRows - 2 && col % 3 == 0
+        }
+        val band = { col: Int -> col < layout.innerLeft + layout.innerCols / 2 }
+        repeat(200) {
+            val pixels = ByteArray(layout.cols * layout.rows * 4)
+            for (cell in 0 until layout.cols * layout.rows) {
+                val col = cell % layout.cols
+                val row = cell / layout.cols
+                val video = next.next()
+                val inside = col >= layout.innerLeft && row >= layout.innerTop &&
+                    col < layout.innerLeft + layout.innerCols && row < layout.innerTop + layout.innerRows
+                val shown = when {
+                    inside && band(col) -> 0.1
+                    stroke(col, row) -> 0.6 + 0.4 * video
+                    else -> video
+                }
+                val byte = (shown * 255).toInt().toByte()
+                pixels[cell * 4] = byte
+                pixels[cell * 4 + 1] = byte
+                pixels[cell * 4 + 2] = byte
+                pixels[cell * 4 + 3] = 0xFF.toByte()
+            }
+            estimator.add(pixels)
+        }
+        val mask = estimator.estimate()
+        assertNotNull(mask)
+        fun alphaAt(col: Int, row: Int) = mask!!.data[(row * layout.innerCols + col) * 4 + 3].toInt() and 0xFF
+        // The still band has no edge of its own inside it: untouched.
+        assertEquals(0, alphaAt(2, layout.innerRows / 2))
+        // A stroke is masked.
+        val strokeCol = (layout.innerCols / 2 + 2 until layout.innerCols - 2).first { (it + layout.innerLeft) % 3 == 0 }
+        assertTrue(alphaAt(strokeCol, layout.innerRows / 2) > 0)
+    }
 }

@@ -170,6 +170,62 @@ internal object WatermarkMath {
      * estimated opacity, mean colour and the background's; unsure cells are left alone and the
      * colour stays near grey, so no cast comes from it (`maskTexel` in `watermarkMath.ts`).
      */
+    /** A box cell this still (estimated opacity) may be part of the overlay… */
+    const val SUPPORT_STILL = 0.25
+
+    /** …which has edges: its mean luma differs from a neighbour's (box or ring) by this much. */
+    const val SUPPORT_EDGE = 0.05
+
+    /**
+     * The box's cells that are the overlay, as `overlaySupport` in `watermarkMath.ts`: still cells
+     * joined side by side into a patch with an edge somewhere (a cell standing out from a
+     * neighbour's mean picture, the ring included). `raw` is the box's opacity per cell, `lumas`
+     * the whole grid's mean luma.
+     */
+    fun overlaySupport(raw: DoubleArray, lumas: DoubleArray, layout: SampleLayout): BooleanArray {
+        val cols = layout.innerCols
+        val rows = layout.innerRows
+        val sides = arrayOf(intArrayOf(1, 0), intArrayOf(-1, 0), intArrayOf(0, 1), intArrayOf(0, -1))
+        fun still(col: Int, row: Int) = raw[row * cols + col] >= SUPPORT_STILL
+        fun luma(gridCol: Int, gridRow: Int) = lumas[gridRow * layout.cols + gridCol]
+        fun edged(col: Int, row: Int): Boolean {
+            val here = luma(col + layout.innerLeft, row + layout.innerTop)
+            return sides.any { (dx, dy) ->
+                val gridCol = col + dx + layout.innerLeft
+                val gridRow = row + dy + layout.innerTop
+                gridCol >= 0 && gridRow >= 0 && gridCol < layout.cols && gridRow < layout.rows &&
+                    abs(luma(gridCol, gridRow) - here) > SUPPORT_EDGE
+            }
+        }
+        val support = BooleanArray(cols * rows)
+        val seen = BooleanArray(cols * rows)
+        for (start in 0 until cols * rows) {
+            if (seen[start] || !still(start % cols, start / cols)) continue
+            val patch = ArrayList<Int>()
+            var hasEdge = false
+            val stack = ArrayDeque<Int>().apply { addLast(start) }
+            seen[start] = true
+            while (stack.isNotEmpty()) {
+                val cell = stack.removeLast()
+                val col = cell % cols
+                val row = cell / cols
+                patch += cell
+                if (!hasEdge && edged(col, row)) hasEdge = true
+                for ((dx, dy) in sides) {
+                    val x = col + dx
+                    val y = row + dy
+                    if (x < 0 || y < 0 || x >= cols || y >= rows) continue
+                    val next = y * cols + x
+                    if (seen[next] || !still(x, y)) continue
+                    seen[next] = true
+                    stack.addLast(next)
+                }
+            }
+            if (hasEdge) patch.forEach { support[it] = true }
+        }
+        return support
+    }
+
     fun maskTexel(rawAlpha: Double, mean: DoubleArray, background: DoubleArray): IntArray {
         val texel = IntArray(4)
         if (rawAlpha < ALPHA_FLOOR) return texel
@@ -287,26 +343,47 @@ internal class WatermarkEstimator(val layout: SampleLayout) {
             val variance = max(0.0, inner[cell * 5 + 4] / n - mean * mean)
             1 - min(1.0, sqrt(variance / reference))
         }
+        // Only the overlay itself: still cells making up a mark with edges of its own. Still parts
+        // of the picture without one stay as they are, never darkened or lightened.
+        val support = WatermarkMath.overlaySupport(raw, meanLumas(), layout)
+        if (support.none { it }) return null
         val data = ByteArray(cols * rows * 4)
         for (row in 0 until rows) {
             for (col in 0 until cols) {
+                val cell = row * cols + col
+                if (!support[cell]) continue
                 var sum = 0.0
                 var taps = 0
                 for (dy in -1..1) {
                     for (dx in -1..1) {
                         val y = row + dy
                         val x = col + dx
-                        if (x < 0 || y < 0 || x >= cols || y >= rows) continue
+                        if (x < 0 || y < 0 || x >= cols || y >= rows || !support[y * cols + x]) continue
                         sum += raw[y * cols + x]
                         taps += 1
                     }
                 }
-                val cell = row * cols + col
                 val texel = WatermarkMath.maskTexel(sum / taps, DoubleArray(3) { inner[cell * 5 + it] / n }, background)
                 for (index in 0 until 4) data[cell * 4 + index] = texel[index].toByte()
             }
         }
         return WatermarkMask(cols, rows, data)
+    }
+
+    /** The mean luma of the box's cells, and of the ring round it in its cells, rows from the top. */
+    private fun meanLumas(): DoubleArray {
+        val n = max(1.0, samples)
+        val lumas = DoubleArray(layout.cols * layout.rows)
+        for (row in 0 until layout.innerRows) {
+            for (col in 0 until layout.innerCols) {
+                lumas[(row + layout.innerTop) * layout.cols + col + layout.innerLeft] = inner[(row * layout.innerCols + col) * 5 + 3] / n
+            }
+        }
+        // The ring as the picture round the box: its mean over all its cells (one cell's own mean
+        // is too noisy to tell an edge by).
+        val ring = ringLuma.sum() / n / max(1, ringCells.size)
+        ringCells.forEach { cell -> lumas[cell] = ring }
+        return lumas
     }
 }
 

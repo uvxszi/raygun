@@ -827,6 +827,8 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
     /** Shown first when its cues come: what the viewer just asked for. */
     private var wantAi = false
     private var wantLanguage: String? = null
+    /** What was asked for shows as the second subtitles, not the main ones. */
+    private var wantSecond = false
     private var shown: LiveCue? = null
 
     private val ticker = object : Runnable {
@@ -868,10 +870,10 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
                 track.merge(update.optJSONArray("cues"), update.optBoolean("replace"))
                 if (track.kind == "ai" && wantAi) {
                     wantAi = false
-                    show(id)
+                    showWanted(id)
                 } else if (track.kind == "translation" && wantLanguage != null && track.language == wantLanguage) {
                     wantLanguage = null
-                    show(id)
+                    showWanted(id)
                 }
             }
             "subtitleAsk" -> host.sheets.askDownload(update.optDouble("downloadBytes").toLong())
@@ -883,6 +885,11 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
             }
         }
         host.sheets.refreshAi()
+    }
+
+    /** What was asked for came: shown where it was asked for, main or second. */
+    private fun showWanted(id: String) {
+        if (wantSecond) host.second.showLive(id) else show(id)
     }
 
     /** Shows `id` as the main subtitles (Media3's text track off), or none. */
@@ -918,14 +925,16 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
         listOfNotNull(tracks[id]?.at(positionMs)).map { Cue.Builder().setText(it.text).build() }
 
     /** Asks Rust to transcribe from here; the AI subtitles show as they come. */
-    fun transcribe(confirmed: Boolean = false) {
+    fun transcribe(confirmed: Boolean = false, second: Boolean = false) {
         wantAi = true
+        wantSecond = second
         host.request("transcribe", JSONObject().put("confirmed", confirmed))
     }
 
     /** Downloads the speech model, sets transcription up with it, then transcribes. */
-    fun setUpTranscription() {
+    fun setUpTranscription(second: Boolean = false) {
         wantAi = true
+        wantSecond = second
         host.request("transcribeSetup")
     }
 
@@ -936,7 +945,8 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
     }
 
     /** Asks Rust to translate `source` into `language` with `translator`. */
-    fun translate(source: JSONObject, language: String, translator: String, download: Boolean = false) {
+    fun translate(source: JSONObject, language: String, translator: String, download: Boolean = false, second: Boolean = false) {
+        wantSecond = second
         val ask = JSONObject()
             .put("source", source)
             .put("language", language)

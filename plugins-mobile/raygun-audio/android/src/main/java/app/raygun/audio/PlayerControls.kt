@@ -27,6 +27,36 @@ import androidx.media3.ui.TimeBar
  * right. The skip button floats above them. Taps that miss a button fall through to the gestures
  * underneath. While the video waits, the loading ring takes the play button's place.
  */
+/**
+ * Pausing while the video buffers: the ring keeps showing how the buffering goes (paused, it
+ * would otherwise give way to the play button at once), and the video stays paused once it has
+ * what it needs. Playing again, or the buffering ending, forgets it.
+ */
+internal class WaitPause {
+    var paused = false
+        private set
+
+    /** Play or pause was pressed; `playing` is what it asked for. */
+    fun pressed(playing: Boolean, buffering: Boolean) {
+        paused = buffering && !playing
+    }
+
+    /** The player's state, followed: buffering over, the pause is a plain one. */
+    fun followed(buffering: Boolean) {
+        if (!buffering) paused = false
+    }
+
+    /** Whether the ring shows: buffering while playing, or paused during it. */
+    fun ringShown(playWhenReady: Boolean, buffering: Boolean): Boolean = buffering && (playWhenReady || paused)
+}
+
+/** A press while the video waits shows on the button this long before the ring comes back. */
+internal const val WAIT_PRESS_SHOWN_MS = 900L
+
+/** How fast the ring and the button trade places. */
+private const val PRESS_FADE_MS = 120L
+private const val RING_FADE_MS = 250L
+
 internal class PlayerControls(private val host: VideoPlayerActivity) {
     private val context: Context = host
 
@@ -459,11 +489,45 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         note.visibility = if (text.isNullOrBlank()) View.GONE else View.VISIBLE
     }
 
-    /** While the video waits, the loading ring shows where the play button is. */
+    /**
+     * While the video waits, the loading ring shows where the play button is. The button stays
+     * there unseen, so a tap on the ring still pauses (or plays again).
+     */
     fun setBusy(waiting: Boolean) {
         if (busy == waiting) return
         busy = waiting
-        playButton.visibility = if (waiting) View.INVISIBLE else View.VISIBLE
+        host.main.removeCallbacks(ringBack)
+        playButton.animate().cancel()
+        playButton.alpha = if (waiting) 0f else 1f
+        playButton.scaleX = 1f
+        playButton.scaleY = 1f
+        host.loading.ring.animate().cancel()
+        host.loading.ring.alpha = 1f
+    }
+
+    /** The ring comes back over the button once the press was seen. */
+    private val ringBack = Runnable {
+        if (!busy) return@Runnable
+        playButton.animate().alpha(0f).setDuration(RING_FADE_MS).start()
+        host.loading.ring.animate().alpha(1f).setDuration(RING_FADE_MS).start()
+    }
+
+    /**
+     * Pressed while the video waits: the button shows what the press did (the play or pause
+     * icon, pressed in and out) in the ring's place for a moment, then the ring fades back in.
+     */
+    fun confirmPress() {
+        update()
+        host.main.removeCallbacks(ringBack)
+        if (!busy) return
+        host.loading.ring.animate().cancel()
+        host.loading.ring.animate().alpha(0f).setDuration(PRESS_FADE_MS).start()
+        playButton.animate().cancel()
+        playButton.alpha = 1f
+        playButton.scaleX = 0.82f
+        playButton.scaleY = 0.82f
+        playButton.animate().scaleX(1f).scaleY(1f).setDuration(PRESS_FADE_MS * 2).start()
+        host.main.postDelayed(ringBack, WAIT_PRESS_SHOWN_MS)
     }
 
     /** While a problem shows in the middle, the middle buttons make way for it. */

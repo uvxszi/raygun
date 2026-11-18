@@ -80,6 +80,7 @@
       "deflicker": 0,
       "denoise": 0,
       "smoothMotion": false,
+      "motionModel": "balanced",
       "watermark": {
         "enabled": false,
         "x": 0,

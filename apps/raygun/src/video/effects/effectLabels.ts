@@ -1,6 +1,7 @@
 import type { PictureLook } from '@raygun/bindings';
 
 import type { AdjustKey, Audio, HeavyKind } from './effectParams';
+import type { MotionModel } from './motionMath';
 
 /** The words of each adjustment (`videoPlayer.*`, shared with Android's player). */
 export const ADJUSTMENT_LABEL: Record<AdjustKey, string> = {
@@ -38,3 +39,16 @@ export const SMART_AUDIO: { key: keyof Audio; label: string; hint: string }[] = 
   { key: 'normalize', label: 'videoPlayer.smartNormalize', hint: 'videoPlayer.smartNormalizeHint' },
   { key: 'leveling', label: 'videoPlayer.smartLeveling', hint: 'videoPlayer.smartLevelingHint' },
 ];
+
+/** Smooth motion's models: their words and what each does. */
+export const MOTION_MODEL_LABEL: Record<MotionModel, string> = {
+  blend: 'videoPlayer.motionBlend',
+  balanced: 'videoPlayer.motionBalanced',
+  sharp: 'videoPlayer.motionSharp',
+};
+
+export const MOTION_MODEL_HINT: Record<MotionModel, string> = {
+  blend: 'videoPlayer.motionBlendHint',
+  balanced: 'videoPlayer.motionBalancedHint',
+  sharp: 'videoPlayer.motionSharpHint',
+};

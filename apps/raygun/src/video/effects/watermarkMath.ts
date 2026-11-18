@@ -234,22 +234,27 @@ export class WatermarkEstimator {
       const kept = Math.min(1, Math.sqrt(variance / reference));
       raw[cell] = 1 - kept;
     }
-    // A 3 × 3 mean steadies the opacity (each cell's variance is noisy).
+    // Only the overlay itself: the still cells that make up a mark with edges of its own. Still
+    // parts of the picture without one stay as they are, never darkened or lightened.
+    const support = overlaySupport(raw, this.meanLumas(), this.layout);
+    if (!support.some(Boolean)) return null;
+    // A 3 × 3 mean over the overlay's cells steadies the opacity (each cell's variance is noisy).
     const data = new Uint8Array(cols * rows * 4);
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < cols; col += 1) {
+        const cell = row * cols + col;
+        if (!support[cell]) continue;
         let sum = 0;
         let taps = 0;
         for (let dy = -1; dy <= 1; dy += 1) {
           for (let dx = -1; dx <= 1; dx += 1) {
             const y = row + dy;
             const x = col + dx;
-            if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+            if (x < 0 || y < 0 || x >= cols || y >= rows || !support[y * cols + x]) continue;
             sum += raw[y * cols + x] ?? 0;
             taps += 1;
           }
         }
-        const cell = row * cols + col;
         const texel = maskTexel(
           sum / taps,
           [0, 1, 2].map((channel) => (this.inner[cell * 5 + channel] ?? 0) / n),
@@ -260,7 +265,97 @@ export class WatermarkEstimator {
     }
     return { cols, rows, data };
   }
+
+  /** The mean luma of the box's cells, and of the ring round it in its cells, rows from the top. */
+  private meanLumas() {
+    const n = Math.max(1, this.count);
+    const { cols, rows, innerLeft, innerTop, innerCols, innerRows } = this.layout;
+    const lumas = new Float64Array(cols * rows);
+    for (let row = 0; row < innerRows; row += 1) {
+      for (let col = 0; col < innerCols; col += 1) {
+        lumas[(row + innerTop) * cols + col + innerLeft] =
+          (this.inner[(row * innerCols + col) * 5 + 3] ?? 0) / n;
+      }
+    }
+    // The ring as the picture round the box: its mean over all its cells (one cell's own mean is
+    // too noisy to tell an edge by).
+    const ring =
+      this.ringLuma.reduce((sum, value) => sum + value, 0) / n / Math.max(1, this.ringCells.length);
+    for (const cell of this.ringCells) lumas[cell] = ring;
+    return lumas;
+  }
 }
+
+/** A box cell this still (estimated opacity) may be part of the overlay… */
+export const SUPPORT_STILL = 0.25;
+/** …which has edges: its mean luma differs from a neighbour's (box or ring) by this much. */
+export const SUPPORT_EDGE = 0.05;
+
+/**
+ * The box's cells that are the overlay (1) or not (0), as Find it tells one: still cells joined
+ * (side by side) into a patch that has an edge somewhere, a cell whose mean picture stands out
+ * from a neighbour's, the ring round the box included (an overlay filling the box stands out from
+ * the picture round it). A still part of the picture with no edge of its own is no overlay. `raw`
+ * is the box's estimated opacity per cell, `lumas` the mean luma of the whole grid.
+ */
+export const overlaySupport = (
+  raw: ArrayLike<number>,
+  lumas: ArrayLike<number>,
+  layout: SampleLayout,
+) => {
+  const { cols: gridCols, innerLeft, innerTop, innerCols: cols, innerRows: rows } = layout;
+  const gridRows = layout.rows;
+  const still = (col: number, row: number) => (raw[row * cols + col] ?? 0) >= SUPPORT_STILL;
+  const luma = (col: number, row: number) =>
+    lumas[(row + innerTop) * gridCols + col + innerLeft] ?? 0;
+  const edged = (col: number, row: number) => {
+    const here = luma(col, row);
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const gridCol = col + dx + innerLeft;
+      const gridRow = row + dy + innerTop;
+      if (gridCol < 0 || gridRow < 0 || gridCol >= gridCols || gridRow >= gridRows) continue;
+      if (Math.abs((lumas[gridRow * gridCols + gridCol] ?? 0) - here) > SUPPORT_EDGE) return true;
+    }
+    return false;
+  };
+  const support = new Uint8Array(cols * rows);
+  const seen = new Uint8Array(cols * rows);
+  for (let start = 0; start < cols * rows; start += 1) {
+    if (seen[start] || !still(start % cols, Math.floor(start / cols))) continue;
+    const patch: number[] = [];
+    let hasEdge = false;
+    const stack = [start];
+    seen[start] = 1;
+    while (stack.length > 0) {
+      const cell = stack.pop() ?? 0;
+      const col = cell % cols;
+      const row = Math.floor(cell / cols);
+      patch.push(cell);
+      if (!hasEdge && edged(col, row)) hasEdge = true;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const x = col + dx;
+        const y = row + dy;
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+        const next = y * cols + x;
+        if (seen[next] || !still(x, y)) continue;
+        seen[next] = 1;
+        stack.push(next);
+      }
+    }
+    if (hasEdge) for (const cell of patch) support[cell] = 1;
+  }
+  return support;
+};
 
 /**
  * One cell of the mask (RGBA bytes: the overlay's colour times its opacity, then the opacity) from

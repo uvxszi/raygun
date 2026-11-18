@@ -97,6 +97,61 @@ describe('effects in the desktop player', () => {
     expect(within(player).queryByTestId('video-effects')).not.toBeInTheDocument();
   });
 
+  it('draws the paused frame at once when the first effect is turned on', async () => {
+    const { gl, draws } = fakeGl();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => gl as unknown as RenderingContext,
+    );
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    const video = (await within(player).findByTestId('desktop-video')) as HTMLVideoElement;
+    Object.defineProperty(video, 'videoWidth', { value: 640, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: 360, configurable: true });
+    Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+    Object.defineProperty(video, 'paused', { value: true, configurable: true });
+    await user.click(within(player).getByRole('button', { name: 'More' }));
+    await user.click(screen.getByRole('menuitemradio', { name: /^Effects/ }));
+    const panel = screen.getByRole('region', { name: 'Effects' });
+    expect(within(player).queryByTestId('video-effects')).not.toBeInTheDocument();
+    // Nothing was on: the effects start paused and the frame shows them without playing.
+    await user.click(within(panel).getByRole('button', { name: 'Warm' }));
+    expect(within(player).getByTestId('video-effects')).toBeInTheDocument();
+    await vi.waitFor(() => expect(draws.some((draw) => draw.pass === 'final')).toBe(true));
+    // Each further change draws it again, still paused.
+    const before = draws.filter((draw) => draw.pass === 'final').length;
+    fireEvent.change(within(panel).getByRole('slider', { name: 'Brightness' }), {
+      target: { value: '20' },
+    });
+    await vi.waitFor(() =>
+      expect(draws.filter((draw) => draw.pass === 'final').length).toBeGreaterThan(before),
+    );
+  });
+
+  it('hides the player’s controls while a watermark box is drawn, until Done or Cancel', async () => {
+    const { gl } = fakeGl();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => gl as unknown as RenderingContext,
+    );
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    await user.click(within(player).getByRole('button', { name: 'More' }));
+    await user.click(screen.getByRole('menuitemradio', { name: /^Effects/ }));
+    const panel = screen.getByRole('region', { name: 'Effects' });
+    await user.click(within(panel).getByRole('menuitemcheckbox', { name: /Remove a watermark/ }));
+    await user.click(within(panel).getByRole('button', { name: 'Draw a box' }));
+    const drawing = within(player).getByTestId('watermark-draw');
+    expect(drawing).toBeInTheDocument();
+    // Only the drawing and its Done and Cancel: the bars are hidden.
+    const bars = within(player).getByRole('button', { name: 'Effects' }).closest('.duration-200');
+    expect(bars).toHaveClass('opacity-0', 'pointer-events-none');
+    await user.click(within(drawing).getByRole('button', { name: 'Cancel' }));
+    expect(within(player).queryByTestId('watermark-draw')).not.toBeInTheDocument();
+  });
+
   it('offers smooth motion only with its Smart Chip', async () => {
     const { gl } = fakeGl();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
@@ -180,6 +235,23 @@ describe('effects in the desktop player', () => {
       'aria-checked',
       'true',
     );
+
+    // Its models: Balanced unless changed; Sharp is kept for the title and draws again at once.
+    expect(within(panel).getByRole('radio', { name: 'Balanced' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    const before = draws.length;
+    await user.click(within(panel).getByRole('radio', { name: 'Sharp' }));
+    await vi.waitFor(() =>
+      expect(requests()).toContainEqual(
+        expect.objectContaining({
+          action: 'state',
+          change: { pictureEffects: expect.objectContaining({ motionModel: 'sharp' }) },
+        }),
+      ),
+    );
+    expect(draws.length).toBeGreaterThan(before);
 
     // Smart audio is under Sound in the same panel.
     expect(within(panel).getByText('Sound')).toBeInTheDocument();

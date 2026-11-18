@@ -32,6 +32,8 @@ internal data class MotionParams(
     val speed: Float = 1f,
     /** The Smooth Motion chip's folder, which holds its shaders; none while it isn't installed and on. */
     val dir: String? = null,
+    /** How in-between frames are made ([MotionMath.MODELS]). */
+    val model: String = MotionMath.MOTION_BALANCED,
 )
 
 /** How smooth motion does on this phone, written on the GL thread. */
@@ -74,9 +76,12 @@ internal class MotionStatus {
  * sends the decoded frame itself, so Media3's video sink shows them in turn like decoded ones (and
  * its replay cache, which lets a frame in once the one before has been shown, keeps going). If no
  * frame goes on for a while as the video plays, [MotionWatchdog] turns it off. The motion is found by block matching on luma pyramids
- * (`fx_motion_*.glsl`): a coarse search, two finer ones and a half-pixel refinement, a vector
- * median, then each in-between frame follows it back and forth and blends; after a scene cut the
- * nearer frame repeats. It times itself now and then, steps down the flow's size when it takes too
+ * (`fx_motion_*.glsl`): a coarse search, two finer ones (each starting from the best of the coarser
+ * vectors round it) and the model's refinements ([MotionMath.plan]: sharp searches wider and refines
+ * to quarter pixels, blend makes no flow at all), a vector median judged by the pixel it carries and
+ * an edge-aware mean, then each in-between frame follows it back and forth, leaving out a side that
+ * falls outside the picture or on other motion (forward/backward consistency), and repeats the
+ * nearer frame where the match is unsure; after a scene cut the nearer frame repeats. It times itself now and then, steps down the flow's size when it takes too
  * long and passes frames through as they are when even the smallest is too slow
  * ([MotionStatus.gaveUp], logged as `smooth motion:` lines under `RaygunEffects`).
  */
@@ -122,6 +127,8 @@ private class SmoothMotionProgram(
     // The flow: a search target per level, the refined finest level, its median and the cut test.
     private val search = arrayOfNulls<GlTarget>(MotionMath.LEVELS)
     private var refined: GlTarget? = null
+    /** Sharp's second refinement; the two refinements are used in turn. */
+    private var refinedMore: GlTarget? = null
     private var smoothed: GlTarget? = null
     private var error: GlTarget? = null
     private var pyramidQuality = -1
@@ -265,7 +272,8 @@ private class SmoothMotionProgram(
             if (pts > lastSentPts) sends.addLast(MotionSend(pts, slot, 0f))
             return
         }
-        drawFlow(previous, slot)
+        // Blend makes its frames without the flow.
+        if (MotionMath.plan(params.motion.model) != null) drawFlow(previous, slot)
         if (measuring) {
             flowNs = finishedAt() - started
             measureMade = true
@@ -337,6 +345,7 @@ private class SmoothMotionProgram(
             warp.texture("uFlow", 2, flow.texture, GLES20.GL_LINEAR)
             warp.texture("uError", 3, error!!.texture, GLES20.GL_NEAREST)
             warp.set("uT", next.t)
+            warp.set("uModel", MotionMath.modelNumber(params.motion.model).toFloat())
             warp.set("uFlowTexel", 1f / flow.width, 1f / flow.height)
             warp.draw()
             if (timing) {
@@ -407,6 +416,7 @@ private class SmoothMotionProgram(
             search[level] = GlTarget(levelWidth, levelHeight)
         }
         refined = GlTarget(flowWidth, flowHeight)
+        refinedMore = GlTarget(flowWidth, flowHeight)
         smoothed = GlTarget(flowWidth, flowHeight)
         error = GlTarget(1, 1)
         // The frame kept has no pyramid at this size: the next pair starts afresh.
@@ -430,19 +440,27 @@ private class SmoothMotionProgram(
 
     private fun drawFlow(previous: Int, latest: Int) {
         val passes = passes!!
+        val plan = MotionMath.plan(params.motion.model) ?: return
         val searchPass = passes.search
         var init: GlTarget? = null
         for (level in MotionMath.LEVELS - 1 downTo 0) {
             val into = search[level]!!
-            searchStep(searchPass, into, previous, latest, level, init, MotionMath.RADII[MotionMath.LEVELS - 1 - level], 1f)
+            searchStep(searchPass, into, previous, latest, level, init, plan.radii[MotionMath.LEVELS - 1 - level], 1f)
             init = into
         }
-        searchStep(searchPass, refined!!, previous, latest, 0, init, 1, 0.5f)
+        // The refinements in turn (sharp takes another, at quarter steps).
+        plan.refine.forEachIndexed { index, step ->
+            val into = if (index % 2 == 0) refined!! else refinedMore!!
+            searchStep(searchPass, into, previous, latest, 0, init, 1, step.toFloat())
+            init = into
+        }
 
         val flow = smoothed!!
         flow.focus()
         passes.smooth.use()
-        passes.smooth.texture("uFlowIn", 0, refined!!.texture, GLES20.GL_NEAREST)
+        passes.smooth.texture("uFlowIn", 0, (init ?: refined!!).texture, GLES20.GL_NEAREST)
+        passes.smooth.texture("uPrevLuma", 1, pyramids[previous][0]!!.texture, GLES20.GL_LINEAR)
+        passes.smooth.texture("uCurLuma", 2, pyramids[latest][0]!!.texture, GLES20.GL_LINEAR)
         passes.smooth.set("uTexel", 1f / flow.width, 1f / flow.height)
         passes.smooth.draw()
 
@@ -532,9 +550,11 @@ private class SmoothMotionProgram(
             search[level] = null
         }
         refined?.delete()
+        refinedMore?.delete()
         smoothed?.delete()
         error?.delete()
         refined = null
+        refinedMore = null
         smoothed = null
         error = null
         pyramidQuality = -1

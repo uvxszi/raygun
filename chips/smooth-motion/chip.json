@@ -1,8 +1,8 @@
 {
   "id": "smooth-motion",
   "name": "Smooth Motion",
-  "description": "In-between frames for smoother movement in the video player, made on this device's graphics chip. Adds Smooth motion to the player's Effects.",
+  "description": "In-between frames for smoother movement in the video player, made on this device's graphics chip. Adds Smooth motion to the player's Effects, made three ways: Blend, Balanced or Sharp.",
   "kind": "feature",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "from": "apps/raygun/src/video/effects/motion"
 }
