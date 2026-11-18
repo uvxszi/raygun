@@ -30,34 +30,63 @@ describe('the Sources panel', () => {
     useVideoPlayerStore.setState({
       request: { id: 'stremio:movie:tt1' } as never,
       sources: [
-        group('Alpha', [option(2160, true), option(1080)]),
-        group('Beta', [option(1440), option(1080)]),
+        {
+          ...group('Alpha', [option(2160), option(1080, true), option(1080), option(720)]),
+          // Rust's rows: 1080p's two links once (the playing one best), preferred first.
+          qualities: [
+            { links: [1, 2], preferred: true },
+            { links: [0], preferred: false },
+            { links: [3], preferred: false },
+          ],
+        },
+        {
+          ...group('Beta', [option(1440), option(1080), option(1080)]),
+          qualities: [
+            { links: [2, 1], preferred: true },
+            { links: [0], preferred: false },
+          ],
+        },
       ],
       sourceOrder: [0, 1],
-      preferredOptions: {
-        height: 1080,
-        options: [
-          { group: 0, link: 1 },
-          { group: 1, link: 1 },
-        ],
-      },
       usualSource: 'Beta',
     });
   });
 
-  it('lists the preferred resolution’s options from every source first', async () => {
+  it('tags the preferred option within each source, lists it first and shows a tier once', async () => {
     const user = userEvent.setup();
     render(<SourcesPanel positionMs={1000} onClose={vi.fn()} />);
-    const preferred = screen.getByRole('group', { name: 'Preferred' });
-    const rows = within(preferred).getAllByRole('menuitemradio');
+    expect(screen.queryByRole('group', { name: 'Preferred' })).not.toBeInTheDocument();
+    const alpha = screen.getByRole('group', { name: 'Alpha' });
+    const rows = within(alpha).getAllByRole('menuitemradio');
     expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringContaining('1080p · Alpha'),
-      expect.stringContaining('1080p · Beta'),
+      expect.stringMatching(/^1080pPreferred.*1 more link: tap to pick/),
+      expect.stringMatching(/^2160p \(4K\)/),
+      expect.stringMatching(/^720p/),
     ]);
+    // Only the source's own options: no tag on another row.
+    expect(within(alpha).getAllByTestId('option-badge')).toHaveLength(1);
     expect(screen.getByTestId('sources-usual')).toHaveTextContent('You usually watch from Beta');
-    await user.click(rows[1]!);
+
+    // The row playing, tapped again: its links, to pick one.
+    expect(rows[0]).toHaveAttribute('aria-expanded', 'false');
+    await user.click(rows[0]!);
+    const links = screen.getByRole('menu', { name: 'Links with 1080p' });
+    const choices = within(links).getAllByRole('menuitemradio');
+    expect(choices).toHaveLength(2);
+    await user.click(choices[1]!);
     expect(commands.videoPlayerReport).toHaveBeenCalledWith(
-      expect.stringContaining('"action":"source","positionMs":1000,"group":1,"link":1'),
+      expect.stringContaining('"action":"source","positionMs":1000,"group":0,"link":2'),
+    );
+  });
+
+  it('plays the best of a tier’s links on the first tap', async () => {
+    const user = userEvent.setup();
+    render(<SourcesPanel positionMs={0} onClose={vi.fn()} />);
+    await user.click(screen.getByRole('menuitemradio', { name: /^Beta/ }));
+    const beta = screen.getByRole('group', { name: 'Beta' });
+    await user.click(within(beta).getAllByRole('menuitemradio')[0]!);
+    expect(commands.videoPlayerReport).toHaveBeenCalledWith(
+      expect.stringContaining('"action":"source","positionMs":0,"group":1,"link":2'),
     );
   });
 

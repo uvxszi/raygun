@@ -7,7 +7,14 @@ import { useBackLayer } from '../shell/backLayers';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendRequest } from './protocol';
 import type { SourceGroup } from './protocol';
-import { formatSpeed, leftOutText, optionDetail, optionTitle, sortedOptions } from './qualityText';
+import {
+  alternativeDetail,
+  formatSpeed,
+  leftOutText,
+  optionDetail,
+  optionRows,
+  optionTitle,
+} from './qualityText';
 import { transferText } from './transferText';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { sourceName } from './waiting';
@@ -55,7 +62,8 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
   const [options, setOptions] = useState(false);
   /** The source whose button was pressed: its settings show. */
   const [settingsOf, setSettingsOf] = useState<number | null>(null);
-  const preferred = useVideoPlayerStore((state) => state.preferredOptions);
+  /** The row of options whose other links show (`<source>:<row>`): its tap-again menu. */
+  const [alternativesOf, setAlternativesOf] = useState<string | null>(null);
   const usual = useVideoPlayerStore((state) => state.usualSource);
   // A source's settings close before the sheet: Back, and Escape (taken before the player's).
   const closeSettings = () => setSettingsOf(null);
@@ -204,6 +212,9 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
     </div>
   );
 
+  // A source's options: each tier and range once, the preferred resolution's first and tagged.
+  // A tap plays the row's best link; tapped again while one of its links plays, the others show
+  // beneath it to pick one.
   const optionList = (index: number | null) => {
     const group = index === null ? undefined : sources[index];
     if (index === null || !group) return null;
@@ -212,52 +223,68 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
     }
     return (
       <div className="flex flex-col" aria-label={group.name} role="group">
-        {sortedOptions(group).map(({ link, index: linkIndex }) => (
-          <PanelOption
-            key={`${linkIndex}-${link.label}`}
-            label={optionTitle(link, t)}
-            hint={
-              [leftOutText(link, t), optionDetail(link, group, t), link.current ? transfer : null]
-                .filter(Boolean)
-                .join(' · ') || null
-            }
-            selected={link.current}
-            current={link.current}
-            onSelect={() => choose(index, linkIndex)}
-          />
-        ))}
+        {optionRows(group).map((row, rowIndex) => {
+          const playingHere = row.links.find(({ link }) => link.current);
+          const shown = playingHere ?? row.links[0];
+          if (!shown) return null;
+          const key = `${index}:${rowIndex}`;
+          const others = row.links.length - 1;
+          const open = alternativesOf === key && others > 0;
+          const title = optionTitle(shown.link, t);
+          return (
+            <div key={`${rowIndex}-${shown.index}`} className="flex flex-col">
+              <PanelOption
+                label={title}
+                badge={row.preferred ? t('videoPlayer.preferredOptions') : null}
+                hint={
+                  [
+                    leftOutText(shown.link, t),
+                    optionDetail(shown.link, group, t),
+                    shown.link.current ? transfer : null,
+                    others > 0
+                      ? t(playingHere ? 'videoPlayer.otherCopiesPick' : 'videoPlayer.otherCopies', {
+                          count: others,
+                        })
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || null
+                }
+                selected={Boolean(playingHere)}
+                current={Boolean(playingHere)}
+                expanded={playingHere && others > 0 ? open : undefined}
+                onSelect={() => {
+                  if (!playingHere) {
+                    choose(index, shown.index);
+                    return;
+                  }
+                  if (others > 0) setAlternativesOf(open ? null : key);
+                }}
+              />
+              {open && (
+                <div
+                  role="menu"
+                  aria-label={t('videoPlayer.linksWith', { n: title })}
+                  className="ml-4 flex flex-col border-l border-white/15 pl-1"
+                >
+                  {row.links.map(({ link, index: linkIndex }) => (
+                    <PanelOption
+                      key={`${linkIndex}-${link.label}`}
+                      label={optionTitle(link, t)}
+                      hint={alternativeDetail(link, group, t) || null}
+                      selected={link.current}
+                      current={link.current}
+                      onSelect={() => choose(index, linkIndex)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   };
-
-  // The preferred resolution's options from every source, before the list (each stays in its
-  // own place below too).
-  const preferredShown = (preferred?.options ?? []).flatMap(({ group, link }) => {
-    const source = sources[group];
-    const option = source?.links[link];
-    return source && option ? [{ group, link, source, option }] : [];
-  });
-  const preferredList = preferredShown.length > 0 && (
-    <div role="group" aria-label={t('videoPlayer.preferredOptions')} className="flex flex-col">
-      <PanelHeading>
-        {t('videoPlayer.preferredOptions')} · {preferred?.height}p
-      </PanelHeading>
-      {preferredShown.map(({ group, link, source, option }) => (
-        <PanelOption
-          key={`preferred-${group}-${link}`}
-          label={`${optionTitle(option, t)} · ${source.name}`}
-          hint={
-            [optionDetail(option, source, t), option.current ? transfer : null]
-              .filter(Boolean)
-              .join(' · ') || null
-          }
-          selected={option.current}
-          current={option.current}
-          onSelect={() => choose(group, link)}
-        />
-      ))}
-    </div>
-  );
 
   const rawList = sources.map((group, index) =>
     visible(group) ? (
@@ -374,7 +401,6 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
           />
         </div>
       )}
-      {!raw && preferredList}
       {raw ? (
         rawList
       ) : landscape ? (

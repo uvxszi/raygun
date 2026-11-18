@@ -90,6 +90,33 @@ export const sortedOptions = (group: SourceGroup): { link: SourceLink; index: nu
         a.index - b.index,
     );
 
+/** A row of a source's options: links of one tier and range, best first. */
+export type OptionRow = { links: { link: SourceLink; index: number }[]; preferred: boolean };
+
+/**
+ * A source's options as Sources lists them: Rust's rows (`qualities`: each tier and range once,
+ * the preferred resolution's first), else each link alone, best picture first.
+ */
+export const optionRows = (group: SourceGroup): OptionRow[] => {
+  const fromRust = (group.qualities ?? [])
+    .map((row) => ({
+      preferred: row.preferred,
+      links: row.links.flatMap((index) => {
+        const link = group.links[index];
+        return link ? [{ link, index }] : [];
+      }),
+    }))
+    .filter((row) => row.links.length > 0);
+  if (fromRust.length > 0) return fromRust;
+  return sortedOptions(group).map((option) => ({ links: [option], preferred: false }));
+};
+
+/** "HEVC · 15.2 GB · ~20 Mb/s · WEB-DL", then its own name: one of a row's links, to pick from. */
+export const alternativeDetail = (link: SourceLink, group: SourceGroup, t: TFunction): string =>
+  [optionDetail(link, group, t), link.label.split('\n')[0]?.trim().slice(0, 80)]
+    .filter(Boolean)
+    .join(' · ');
+
 /** Why a link isn't played by itself and how long it measured, for its line in Sources. */
 export const leftOutText = (link: SourceLink, t: (key: string) => string): string | null => {
   const reason =

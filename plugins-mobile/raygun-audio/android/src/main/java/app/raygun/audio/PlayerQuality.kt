@@ -68,8 +68,9 @@ internal fun rangeOf(format: Format): String {
  * own size when it isn't the tier's plain one ("1080p (1920×816)"). A row the stream playing has
  * (an HLS or DASH variant) switches here; one the source playing has as another link, or only
  * another source has, is asked of Rust (`quality`), which plays it from where the video is.
- * Tapping the row that plays again tries the next source with it. The stream's variants go to
- * Rust with their own sides as they become known (`variants`).
+ * The row picked, tapped again, lists every link with it to choose one. The stream's variants go
+ * to Rust with their own sides as they become known (`variants`). While automatic, stalls step
+ * the quality down ([lookAtStalls]).
  */
 internal class PlayerQuality(private val host: VideoPlayerActivity) {
     private var rows = JSONArray()
@@ -77,6 +78,13 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     private var wanted: String? = null
     private var sheet: PlayerSheet? = null
     private var reported = ""
+    /** A link was picked by hand (Rust's `handPicked`): automatic quality leaves it be. */
+    private var handPicked = false
+    /** The row whose links show in the sheet (its key): the row picked, tapped again. */
+    private var listed: String? = null
+    private val stalls = StallWatch()
+    /** The cap on the stream's variants while stepped down (a tier); null at the preferred one. */
+    private var loweredCap: Int? = null
 
     /** Whether the button has anything to offer: a session's sources, or variants to pick. */
     val offered: Boolean get() = host.session || host.tracks.qualities().size > 1
@@ -85,6 +93,7 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     fun onUpdate(update: JSONObject) {
         rows = update.optJSONArray("items") ?: JSONArray()
         wanted = update.text("wanted")
+        handPicked = update.optBoolean("handPicked")
         update.text("notice")?.let {
             host.pickedNothing()
             host.showHint(it, 3_000)
@@ -97,6 +106,64 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         host.qualityHold.held = false
         reported = ""
         rows = JSONArray()
+        listed = null
+        // Each video starts afresh: its stalls are its own; the load applies the preferred cap.
+        stalls.reset(android.os.SystemClock.elapsedRealtime())
+        loweredCap = null
+    }
+
+    /** Rust's rows as the steps see them. */
+    private fun steps(): List<QualityStep> = (0 until rows.length()).mapNotNull { index ->
+        val row = rows.optJSONObject(index) ?: return@mapNotNull null
+        val sizes = row.optJSONArray("sizes") ?: JSONArray()
+        QualityStep(
+            key = row.optString("key"),
+            height = row.optInt("height"),
+            range = row.optString("range", "sdr"),
+            state = row.optString("state"),
+            sizes = (0 until sizes.length()).mapNotNull { at ->
+                sizes.optJSONObject(at)?.let { it.optInt("width") to it.optInt("height") }
+            },
+        )
+    }
+
+    /**
+     * Automatic quality that keeps the video playing ([StallWatch]), looked at every tick: while
+     * nothing was picked by hand (a step here, a variant held, a link chosen in Sources), stalls
+     * cap an HLS or DASH stream a variant lower, or ask Rust for a lower step's link from where
+     * the video is (`quality` with `auto`); a long smooth stretch lifts the cap a step at a time.
+     * Never below the lowest.
+     */
+    fun lookAtStalls(now: Long, playing: Boolean, stalled: Boolean) {
+        val locked = wanted != null || handPicked || !host.tracks.qualityAuto()
+        if (locked) return
+        val adaptive = host.tracks.qualities().size > 1
+        val preferred = host.prefs.maxHeight ?: Int.MAX_VALUE
+        when (stalls.tick(now, playing, stalled, adaptive && loweredCap != null)) {
+            StallAction.LOWER -> {
+                val step = lowerStep(steps(), adaptive) ?: return
+                if (adaptive) {
+                    val cap = capOf(step)
+                    if (cap >= preferred) return
+                    host.tracks.limit(cap)
+                    loweredCap = cap
+                } else if (host.session) {
+                    host.request("quality", JSONObject().put("key", step.key).put("auto", true))
+                } else {
+                    return
+                }
+                stalls.stepped(now)
+                host.showHint(host.label("qualityLowered", "Lowered to {n} to keep playing", stepName(step)), 2_500)
+            }
+            StallAction.RAISE -> {
+                val cap = loweredCap ?: return
+                val next = raiseStep(steps(), cap)?.let { capOf(it) }?.takeIf { it < preferred }
+                host.tracks.limit(next ?: host.prefs.maxHeight)
+                loweredCap = next
+                stalls.stepped(now)
+            }
+            null -> Unit
+        }
     }
 
     /**
@@ -129,15 +196,19 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         host.request("variants", json)
     }
 
-    private fun stepName(row: JSONObject): String {
-        val height = row.optInt("height")
+    private fun stepName(row: JSONObject): String =
+        stepName(row.optInt("height"), row.optString("range"), row.text("exact"))
+
+    private fun stepName(step: QualityStep): String = stepName(step.height, step.range, null)
+
+    private fun stepName(height: Int, range: String, exact: String?): String {
         val nickname = when (height) {
             4320 -> host.label("quality8k", "{n}p (8K)", height.toString())
             2160 -> host.label("quality4k", "{n}p (4K)", height.toString())
             else -> null
         }
-        val name = qualityName(height, row.text("exact"), nickname)
-        return when (row.optString("range")) {
+        val name = qualityName(height, exact, nickname)
+        return when (range) {
             "hdr" -> "$name · HDR"
             "dv" -> "$name · Dolby Vision"
             else -> name
@@ -147,8 +218,12 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     /**
      * The sheet. Automatic is ticked while nothing was picked here; the row playing is always
      * set apart (on a tint of the accent, "Playing" under it), and ticked too when it was picked.
+     * The preferred resolution's row comes first with a small "Preferred" tag (Rust's order); the
+     * row picked, tapped again, lists every link with that tier to pick one (`alternatives`).
      */
     fun open() {
+        // Drawn again over itself (a row's links shown, an update): it stays where it was.
+        val before = sheet?.takeIf { host.sheetShown(it) }?.scrolled ?: 0
         val sheet = PlayerSheet(host, host.label("quality", "Quality"))
         this.sheet = sheet
         val auto = automatic(host.tracks.qualityAuto(), wanted)
@@ -157,7 +232,6 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
             if (host.session) host.request("quality", JSONObject().put("key", JSONObject.NULL))
             sheet.dismiss()
         }
-        if (host.session && preferredRows(sheet, auto)) sheet.header(host.label("allQualities", "All qualities"))
         if (rows.length() == 0) {
             sheet.row(host.label("qualityWaiting", "Finding qualities…"), onClick = null)
         }
@@ -165,8 +239,20 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
             val row = rows.optJSONObject(index) ?: continue
             val codec = row.text("codec")
             val state = row.optString("state")
+            val key = row.optString("key")
+            val alternatives = row.optJSONArray("alternatives") ?: JSONArray()
+            val several = state == "playing" && !auto && alternatives.length() > 1
+            val more = alternatives.length() - 1
             val detail = when (state) {
-                "playing" -> listOfNotNull(host.label("qualityPlaying", "Playing"), codec).joinToString(" · ")
+                "playing" -> listOfNotNull(
+                    host.label("qualityPlaying", "Playing"),
+                    codec,
+                    if (several) {
+                        host.countLabel("otherCopiesPick", "{n} more link: tap to pick", "{n} more links: tap to pick", more.toString(), more)
+                    } else {
+                        null
+                    },
+                ).joinToString(" · ")
                 "otherSource" -> host.label(
                     "qualityElsewhere",
                     "Not in this source · plays from {n}",
@@ -179,10 +265,12 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
                 // While automatic, the row playing is kept as it is (nothing loads again).
                 "playing" -> when {
                     auto -> { { keepPlaying(row); sheet.dismiss() } }
-                    host.session -> { { ask(row, again = true); sheet.dismiss() } }
+                    // Picked, and tapped again: its links, to choose one.
+                    several -> { { listed = if (listed == key) null else key; open() } }
+                    host.session -> { { sheet.dismiss() } }
                     else -> null
                 }
-                else -> { { ask(row, again = false); sheet.dismiss() } }
+                else -> { { ask(row); sheet.dismiss() } }
             }
             val playing = state == "playing"
             val shown = sheet.row(
@@ -190,45 +278,35 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
                 detail,
                 selected = playing && !auto,
                 highlighted = playing,
+                badge = if (row.optBoolean("preferred")) host.label("preferredOptions", "Preferred") else null,
                 onClick = onClick,
             )
-            if (playing) sheet.reveal(shown)
+            if (playing && before == 0) sheet.reveal(shown)
+            if (several && listed == key) linkRows(sheet, row, alternatives)
         }
+        sheet.scrolled = before
         sheet.show()
     }
 
-    /**
-     * The preferred resolution's options from every source (the Sources sheet's "Preferred"),
-     * before the tiers; a tap plays that source's link from where the video is. False when
-     * there are none.
-     */
-    private fun preferredRows(sheet: PlayerSheet, auto: Boolean): Boolean {
-        val preferred = host.preferredOptions ?: return false
-        val options = preferred.optJSONArray("options") ?: return false
-        var any = false
-        for (index in 0 until options.length()) {
-            val place = options.optJSONObject(index) ?: continue
+    /** A row's links, each with its source and what's known of it; a tap plays it from here. */
+    private fun linkRows(sheet: PlayerSheet, row: JSONObject, alternatives: JSONArray) {
+        sheet.header(host.label("linksWith", "Links with {n}", stepName(row.optInt("height"), row.optString("range"), null)))
+        for (index in 0 until alternatives.length()) {
+            val place = alternatives.optJSONObject(index) ?: continue
             val group = place.optInt("group", -1)
             val link = place.optInt("link", -1)
             val server = host.sources.optJSONObject(group) ?: continue
             val entry = server.optJSONArray("links")?.optJSONObject(link) ?: continue
-            if (!any) sheet.header(host.label("preferredOptions", "Preferred") + " · ${preferred.optInt("height")}p")
-            any = true
             val current = entry.optBoolean("current")
-            val height = entry.optJSONObject("facts")?.number("height")?.toInt()
-            val name = height?.let { qualityName(it, entry.optJSONObject("facts")?.text("exact"), null) }
-                ?: entry.optString("label").substringBefore(" · ").take(60)
             sheet.row(
-                name + " · " + server.optString("name"),
-                if (current) host.label("qualityPlaying", "Playing") else null,
-                selected = current && !auto,
-                highlighted = current,
+                "   " + host.sourcesSheet.optionTitle(entry) + " · " + server.optString("name"),
+                host.sourcesSheet.alternativeDetail(entry, server),
+                selected = current,
             ) {
                 sheet.dismiss()
                 if (!current) host.chooseSource(group, link)
             }
         }
-        return any
     }
 
     /** The stream's own variant of this row: the best of those it holds ([heldVariants]). */
@@ -260,9 +338,9 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     }
 
     /** Asks Rust for another link with this step; the ring names the source while it loads. */
-    private fun ask(row: JSONObject, again: Boolean) {
+    private fun ask(row: JSONObject) {
         val source = row.text("source") ?: host.playingSourceName()
-        host.pickedQuality(source, stepName(row), again)
+        host.pickedQuality(source, stepName(row), again = false)
         host.request("quality", JSONObject().put("key", row.optString("key")))
     }
 }

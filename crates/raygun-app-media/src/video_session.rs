@@ -350,6 +350,9 @@ struct Session {
     wanted: Option<QualityKey>,
     /// Links already tried for `wanted`: tapping it again plays the next one.
     quality_tried: HashSet<(usize, usize)>,
+    /// A link was picked by hand in Sources or a quality row's list: automatic quality leaves it be
+    /// (never steps down from it) until Automatic is picked again or another episode plays.
+    hand_picked: bool,
     /// The playing stream's own variants and the one playing, as the player reports them.
     variants: Vec<Variant>,
     playing_variant: Option<QualityKey>,
@@ -673,11 +676,14 @@ impl Session {
             current: self.current,
             variants: &self.variants,
             playing: self.playing_variant,
+            resolution: Some(self.resolution),
         });
         json!({
             "type": "qualities",
             "items": rows,
             "wanted": self.wanted.map(|key| key.text()),
+            // A link picked by hand: automatic quality doesn't step down from it.
+            "handPicked": self.hand_picked,
             "notice": notice,
         })
     }
@@ -725,6 +731,7 @@ fn variants_update(variants: &[Variant], playing: Option<QualityKey>) -> Value {
         current: None,
         variants,
         playing,
+        resolution: None,
     });
     json!({ "type": "qualities", "items": rows, "wanted": Value::Null, "notice": Value::Null })
 }
@@ -806,9 +813,36 @@ fn sources_update(session: &Session, now: i64) -> Value {
                     })
                 })
                 .collect();
+            // Its options as Sources lists them: each tier and range once, best link first (how
+            // it stands, measured speed, the codec that plays most widely, the higher bit rate),
+            // the preferred resolution's first and marked.
+            let ranked: Vec<(Option<QualityKey>, _)> = group
+                .links
+                .iter()
+                .zip(&facts)
+                .map(|(link, facts)| {
+                    let key = facts.height.map(|height| QualityKey::of(height, facts.range));
+                    let rank = (
+                        !usable(link),
+                        ranking.link_key(&group.name, link),
+                        Reverse(
+                            session
+                                .link_speeds
+                                .get(&link.request.url)
+                                .copied()
+                                .unwrap_or(0),
+                        ),
+                        video_quality::codec_support(facts.codec),
+                        Reverse(facts.size_bytes.unwrap_or(0)),
+                    );
+                    (key, rank)
+                })
+                .collect();
+            let qualities = video_quality::source_options(&ranked, session.resolution);
             json!({
                 "name": group.name,
                 "state": state,
+                "qualities": qualities,
                 "error": error,
                 // A link played on its own: shown whatever its state (why it failed included).
                 "own": session.link.is_some() && own_group(true, group),
@@ -831,8 +865,6 @@ fn sources_update(session: &Session, now: i64) -> Value {
         "leaveOutTrailers": session.picking.prefs.leave_out_trailers,
         "leaveOutShort": session.picking.prefs.leave_out_short,
         "groups": groups,
-        // The preferred resolution's options from every source, listed first ("Preferred").
-        "preferred": preferred_update(&session.offers(now), session.resolution),
         // The source usually chosen for this kind of video, when it's among these.
         "usual": ranking
             .usual()
@@ -920,44 +952,6 @@ fn source_kind(session: &Session, group: &Group) -> &'static str {
         _ if group.id.contains('/') => "provider",
         _ => "addon",
     }
-}
-
-/// The preferred resolution's options among `offers` (in the order a session tries them): the
-/// tier a session would play at that preference (the highest at or below it, else the lowest
-/// above), every link with it whichever source has it. Empty when it would only repeat the whole
-/// list (every option is of that tier and from one source).
-fn preferred_options(offers: &[Offer], resolution: VideoResolution) -> (Option<u32>, Vec<&Offer>) {
-    let Some(tier) = offers
-        .iter()
-        .map(|offer| offer.key.height)
-        .min_by_key(|height| video_quality::rank(Some(*height), resolution))
-    else {
-        return (None, Vec::new());
-    };
-    let options: Vec<&Offer> = offers
-        .iter()
-        .filter(|offer| offer.key.height == tier)
-        .collect();
-    let sources: HashSet<usize> = options.iter().map(|offer| offer.group).collect();
-    if options.len() == offers.len() && sources.len() < 2 {
-        return (Some(tier), Vec::new());
-    }
-    (Some(tier), options)
-}
-
-/// The `preferred` part of the `sources` update: the tier and its options as `{group, link}`.
-fn preferred_update(offers: &[Offer], resolution: VideoResolution) -> Value {
-    let (tier, options) = preferred_options(offers, resolution);
-    if options.is_empty() {
-        return Value::Null;
-    }
-    json!({
-        "height": tier,
-        "options": options
-            .iter()
-            .map(|offer| json!({ "group": offer.group, "link": offer.link }))
-            .collect::<Vec<_>>(),
-    })
 }
 
 /// Whether a link ranked `new` is worth leaving one ranked `playing` for: it names the episode
@@ -1278,6 +1272,7 @@ impl VideoSessions {
             settled: false,
             wanted: None,
             quality_tried: HashSet::new(),
+            hand_picked: false,
             variants: Vec::new(),
             playing_variant: None,
             duration_ms: None,
@@ -1366,6 +1361,7 @@ impl VideoSessions {
             settled: false,
             wanted: None,
             quality_tried: HashSet::new(),
+            hand_picked: false,
             variants: Vec::new(),
             playing_variant: None,
             duration_ms: None,
@@ -1765,7 +1761,12 @@ impl VideoSessions {
                     Some(key) if report.get("keep").and_then(Value::as_bool) == Some(true) => {
                         self.keep_quality(key).await
                     }
-                    Some(key) => self.choose_quality(key, position).await,
+                    // Automatic stepping down while playback keeps stalling: another link with
+                    // that step plays from here, and the quality stays automatic.
+                    Some(key) if report.get("auto").and_then(Value::as_bool) == Some(true) => {
+                        self.choose_quality(key, position, false).await
+                    }
+                    Some(key) => self.choose_quality(key, position, true).await,
                     // Automatic: the session picks by itself again.
                     None => self.forget_quality().await,
                 }
@@ -1873,6 +1874,7 @@ impl VideoSessions {
             session.resolving_since = now_ms();
             session.settled = false;
             session.quality_tried.clear();
+            session.hand_picked = false;
             session.variants.clear();
             session.playing_variant = None;
             session.duration_ms = None;
@@ -1908,6 +1910,7 @@ impl VideoSessions {
             session.start_at = (position > 0).then_some(position);
             // A link picked by hand: no step of the Quality menu is asked for anymore.
             session.wanted = None;
+            session.hand_picked = true;
             session.arriving.picked = true;
             session.quality_tried.clear();
             // A source picked by hand counts toward what's chosen for this kind of video (a
@@ -1931,8 +1934,10 @@ impl VideoSessions {
 
     /// A step tapped in the Quality menu: the source playing's link with it, else another
     /// source's (the first a session would try), from where the video is. Tapped again while one
-    /// plays, the next source with it; links with the step stay first when one fails.
-    async fn choose_quality(&self, key: QualityKey, position: i64) {
+    /// plays, the next source with it; links with the step stay first when one fails. Not
+    /// `by_hand` (the player stepping down by itself): the quality stays automatic, but the
+    /// session stops trading up to links that answer later.
+    async fn choose_quality(&self, key: QualityKey, position: i64, by_hand: bool) {
         let picked = {
             let mut guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_mut() else {
@@ -1946,14 +1951,16 @@ impl VideoSessions {
                     .find(|offer| (offer.group, offer.link) == current)
                     .map(|offer| offer.key)
             });
-            let again = session.wanted == Some(key) && playing_key == Some(key);
+            let again = by_hand && session.wanted == Some(key) && playing_key == Some(key);
             if !again {
                 session.quality_tried.clear();
             }
             if let Some(current) = session.current.filter(|_| again) {
                 session.quality_tried.insert(current);
             }
-            session.wanted = Some(key);
+            if by_hand {
+                session.wanted = Some(key);
+            }
             session.arriving.picked = true;
             match video_quality::pick(&offers, key, session.current, &session.quality_tried) {
                 Some((group, link)) => {
@@ -2005,6 +2012,7 @@ impl VideoSessions {
                 return;
             };
             session.wanted = None;
+            session.hand_picked = false;
             session.quality_tried.clear();
             session.quality_update(now_ms(), None)
         };
@@ -3716,6 +3724,7 @@ mod tests {
             settled: false,
             wanted: None,
             quality_tried: HashSet::new(),
+            hand_picked: false,
             variants: Vec::new(),
             playing_variant: None,
             duration_ms: None,
@@ -4260,40 +4269,42 @@ mod tests {
     }
 
     #[test]
-    fn the_preferred_resolutions_options_come_from_every_source() {
-        let offer = |group: usize, link: usize, height: u32| Offer {
-            group,
-            link,
-            key: QualityKey::of(height, video_quality::Range::Sdr),
-            codec: None,
-            picture: None,
-            rank: group * 10 + link,
-        };
-        // 2160p, 1440p, 1080p from two sources: both 1080p options, in play order.
-        let offers = [
-            offer(0, 0, 2160),
-            offer(0, 1, 1080),
-            offer(1, 0, 1440),
-            offer(1, 1, 1080),
-        ];
-        let (tier, options) = preferred_options(&offers, VideoResolution::P1080);
-        assert_eq!(tier, Some(1080));
-        let places: Vec<(usize, usize)> = options.iter().map(|o| (o.group, o.link)).collect();
-        assert_eq!(places, [(0, 1), (1, 1)]);
-        // A preference no source has: the tier a session would play (the highest below it).
-        let (tier, options) = preferred_options(&offers, VideoResolution::P720);
-        assert_eq!(tier, Some(1080));
-        assert_eq!(options.len(), 2);
-        let (tier, options) = preferred_options(&offers, VideoResolution::Highest);
-        assert_eq!(tier, Some(2160));
-        assert_eq!(options.len(), 1);
-        // Everything of that tier from one source: nothing to set apart.
-        let one = [offer(0, 0, 1080), offer(0, 1, 1080)];
-        assert!(preferred_options(&one, VideoResolution::P1080).1.is_empty());
-        assert_eq!(preferred_update(&one, VideoResolution::P1080), Value::Null);
-        let update = preferred_update(&offers, VideoResolution::P1080);
-        assert_eq!(update["height"], 1080);
-        assert_eq!(update["options"][1], json!({ "group": 1, "link": 1 }));
+    fn each_source_lists_a_tier_once_its_preferred_one_first() {
+        let mut state = session(
+            vec![
+                Group::finished(
+                    "a".into(),
+                    "Alpha".into(),
+                    vec![
+                        link("a 2160p", None),
+                        link("a 1080p x264", None),
+                        link("a 1080p x265", None),
+                        link("a extra", None),
+                    ],
+                    None,
+                ),
+                Group::finished("b".into(), "Beta".into(), vec![link("b 720p", None)], None),
+            ],
+            vec![episode("e1", None)],
+        );
+        state.resolution = VideoResolution::P1080;
+        // The H.264 copy failed: it goes after the one that can play.
+        state.groups[0].links[1].failed = Some("gone".into());
+        let update = sources_update(&state, NOW);
+        let alpha = &update["groups"][0]["qualities"];
+        assert_eq!(alpha[0], json!({ "links": [2, 1], "preferred": true }));
+        assert_eq!(alpha[1], json!({ "links": [0], "preferred": false }));
+        assert_eq!(alpha[2], json!({ "links": [3], "preferred": false }));
+        // Beta has no 1080p: nothing of it is marked, never another source's.
+        assert_eq!(
+            update["groups"][1]["qualities"],
+            json!([{ "links": [0], "preferred": false }])
+        );
+        assert!(update.get("preferred").is_none());
+        // A link picked by hand: the players' automatic quality leaves it be.
+        assert_eq!(state.quality_update(NOW, None)["handPicked"], false);
+        state.hand_picked = true;
+        assert_eq!(state.quality_update(NOW, None)["handPicked"], true);
     }
 
     #[test]

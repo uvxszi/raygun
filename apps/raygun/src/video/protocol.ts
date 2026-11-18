@@ -167,6 +167,11 @@ export type QualityRow = {
   exact?: string | null;
   /** The stream's own variants in this row: the one to switch to is among them. */
   sizes?: VariantSize[];
+  /** The preferred resolution's row: marked, and listed first. */
+  preferred?: boolean;
+  /** Every link with this tier and range, best first: the row tapped again while it plays
+   * lists them to pick one. */
+  alternatives?: LinkPlace[];
 } & (
   | { state: 'playing' | 'variant' }
   | { state: 'thisSource'; group: number; link: number }
@@ -238,10 +243,16 @@ export type SourceGroup = {
   off?: boolean;
   /** What it is, for its button: `none` has none. */
   kind?: SourceKind;
+  /** Its options as Sources lists them: each tier once, the preferred resolution's first. */
+  qualities?: SourceOption[];
 };
 
-/** The preferred resolution's tier and its options, as places in the sources' links. */
-export type PreferredOptions = { height: number; options: { group: number; link: number }[] };
+/** A link's place in the session: its source and its index there. */
+export type LinkPlace = { group: number; link: number };
+
+/** One row of a source's options (`video_quality::SourceOption`): links of one tier and range,
+ * best first; a link of unknown size alone. */
+export type SourceOption = { links: number[]; preferred: boolean };
 
 export type PlayerUpdate =
   | { type: 'load'; request: PlayerRequest }
@@ -271,8 +282,6 @@ export type PlayerUpdate =
       /** The Sources toggles. */
       leaveOutTrailers?: boolean;
       leaveOutShort?: boolean;
-      /** The preferred resolution's options from every source, listed first. */
-      preferred?: PreferredOptions | null;
       /** The source usually chosen for this kind of video. */
       usual?: string | null;
     }
@@ -285,7 +294,14 @@ export type PlayerUpdate =
   /** The torrent playing, once a second. */
   | ({ type: 'transfer'; id: string } & TorrentTransfer)
   /** The Quality menu; `notice` when a step tapped can't play. */
-  | { type: 'qualities'; items: QualityRow[]; wanted?: string | null; notice?: string | null }
+  | {
+      type: 'qualities';
+      items: QualityRow[];
+      wanted?: string | null;
+      notice?: string | null;
+      /** A link was picked by hand: automatic quality doesn't step down from it. */
+      handPicked?: boolean;
+    }
   /** Other streams of the episode for their sound; `id` is the video they're for. */
   | { type: 'audioSources'; id: string | null; items: AudioOffer[] }
   /** Settings changed in the app while a video plays (`video::settings_changed`): followed at

@@ -108,6 +108,7 @@ import {
 import type { LanguageInput } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { VideoSettingsPanel } from './VideoSettingsPanel';
+import { useAutoQuality } from './useAutoQuality';
 import { sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
 import { seekByDragging } from '../settings/playerOptions';
@@ -665,11 +666,18 @@ const VideoStage: FC<StageProps> = ({
     () => ({ pitch: videoSound.sound.pitch, eq: appliedEq(videoSound.sound, musicEq) }),
     [videoSound.sound, musicEq],
   );
-  const showHint = (text: string) => {
+  const showHint = (text: string, forMs = 1_200) => {
     setHint(text);
     window.clearTimeout(hintTimer.current);
-    hintTimer.current = window.setTimeout(() => setHint(null), 1_200);
+    hintTimer.current = window.setTimeout(() => setHint(null), forMs);
   };
+  // Automatic quality steps down while playback keeps stalling, and says so briefly.
+  useAutoQuality({
+    videoRef,
+    engine,
+    videoKey: id,
+    onLowered: (text) => showHint(text, 2_500),
+  });
   const bump = () => {
     setControlsShown(true);
     window.clearTimeout(hideTimer.current);

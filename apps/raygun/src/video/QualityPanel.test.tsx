@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { bindingsMock } from '../test/bindingsMock';
@@ -172,5 +172,75 @@ describe('the Quality panel', () => {
     const picked = screen.getByRole('menuitemradio', { name: /1080p/ });
     expect(picked).toHaveAttribute('aria-current', 'true');
     expect(picked).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('tags the preferred row, and lists its links when the row picked is tapped again', async () => {
+    const user = userEvent.setup();
+    const { engine } = engineWith([]);
+    const link = (label: string, height: number, current = false) => ({
+      label,
+      current,
+      failed: false,
+      facts: { height, range: 'sdr', codec: 'HEVC', sizeBytes: 2_000_000_000 } as never,
+    });
+    useVideoPlayerStore.setState({
+      session: true,
+      qualityWanted: '1080:sdr',
+      sources: [
+        { name: 'Alpha', state: 'ready', error: null, links: [link('A 1080p', 1080, true)] },
+        { name: 'Beta', state: 'ready', error: null, links: [link('B 1080p WEB', 1080)] },
+      ],
+      qualities: [
+        {
+          key: '1080:sdr',
+          height: 1080,
+          range: 'sdr',
+          codec: null,
+          state: 'playing',
+          preferred: true,
+          alternatives: [
+            { group: 0, link: 0 },
+            { group: 1, link: 0 },
+          ],
+        },
+        {
+          key: '2160:sdr',
+          height: 2160,
+          range: 'sdr',
+          codec: null,
+          state: 'otherSource',
+          group: 1,
+          link: 1,
+          source: 'Beta',
+        },
+      ],
+    });
+    const onClose = vi.fn();
+    render(
+      <QualityPanel
+        videoKey="k"
+        positionMs={3000}
+        engine={engine}
+        onClose={onClose}
+        onAsked={vi.fn()}
+      />,
+    );
+    const rows = screen.getAllByRole('menuitemradio');
+    // Automatic, then the preferred row (tagged), then the rest.
+    expect(rows[1]).toHaveTextContent(/^1080pPreferred/);
+    expect(screen.getAllByTestId('option-badge')).toHaveLength(1);
+    await user.click(rows[1]!);
+    expect(onClose).not.toHaveBeenCalled();
+    const links = screen.getByRole('menu', { name: 'Links with 1080p' });
+    const choices = within(links).getAllByRole('menuitemradio');
+    expect(choices.map((choice) => choice.textContent)).toEqual([
+      expect.stringContaining('1080p · Alpha'),
+      expect.stringMatching(/1080p · Beta.*HEVC.*2\.0 GB.*B 1080p WEB/),
+    ]);
+    await user.click(choices[1]!);
+    expect(commands.videoPlayerReport).toHaveBeenCalledWith(
+      expect.stringContaining('"action":"source","positionMs":3000,"group":1,"link":0'),
+    );
+    expect(onClose).toHaveBeenCalled();
   });
 });

@@ -663,8 +663,100 @@ pub struct QualityRow {
     /// The stream's own variants in this row, by their sides as reported: the one to switch to
     /// is among them.
     pub sizes: Vec<VariantSize>,
+    /// The preferred resolution's row ([`preferred_tier`]): marked, and listed first.
+    pub preferred: bool,
+    /// Every link of the session with this tier and range, best first (the order a session tries
+    /// them): the row tapped again while it plays lists them to pick one.
+    pub alternatives: Vec<Place>,
     #[serde(flatten)]
     pub state: RowState,
+}
+
+/// A link's place in the session: its source and its index there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Place {
+    pub group: usize,
+    pub link: usize,
+}
+
+/// The tier the preferred resolution names among `heights`: with Highest the highest; otherwise
+/// its own tier, when one of them is it. None when none is.
+pub fn preferred_tier(
+    heights: impl IntoIterator<Item = u32>,
+    preferred: VideoResolution,
+) -> Option<u32> {
+    let mut tiers = heights.into_iter().map(step);
+    match preferred.max_height() {
+        None => tiers.max(),
+        Some(limit) => {
+            let tier = step(limit);
+            tiers.any(|height| height == tier).then_some(tier)
+        }
+    }
+}
+
+/// One row of a source's options in Sources: links of the same tier and range shown once, best
+/// first (a tap plays the first; tapped again while one of them plays, they're listed to pick
+/// from). A link whose size isn't known is a row of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourceOption {
+    /// The links' indexes in the source, best first.
+    pub links: Vec<usize>,
+    /// The preferred resolution's: marked, and listed first.
+    pub preferred: bool,
+}
+
+/// A source's options as Sources lists them: each tier and range once ([`SourceOption`]), the
+/// preferred resolution's first, then largest first (Dolby Vision, HDR, then SDR at a tier), then
+/// links of unknown size as listed. `links` holds each link's tier and range, when known, and its
+/// rank (lower is better: how it stands, then what else tells links apart); within a row links go
+/// by rank, then as listed.
+pub fn source_options<R: Ord + Copy>(
+    links: &[(Option<QualityKey>, R)],
+    preferred: VideoResolution,
+) -> Vec<SourceOption> {
+    let tier = preferred_tier(
+        links
+            .iter()
+            .filter_map(|(key, _)| key.map(|key| key.height)),
+        preferred,
+    );
+    let mut keyed: Vec<(QualityKey, Vec<usize>)> = Vec::new();
+    let mut unknown = Vec::new();
+    for (index, (key, _)) in links.iter().enumerate() {
+        match key {
+            Some(key) => match keyed.iter_mut().find(|(found, _)| found == key) {
+                Some((_, list)) => list.push(index),
+                None => keyed.push((*key, vec![index])),
+            },
+            None => unknown.push(index),
+        }
+    }
+    keyed.sort_by_key(|(key, _)| (Some(key.height) != tier, Reverse(*key)));
+    keyed
+        .into_iter()
+        .map(|(key, mut list)| {
+            list.sort_by_key(|index| (links[*index].1, *index));
+            SourceOption {
+                links: list,
+                preferred: Some(key.height) == tier,
+            }
+        })
+        .chain(unknown.into_iter().map(|index| SourceOption {
+            links: vec![index],
+            preferred: false,
+        }))
+        .collect()
+}
+
+/// How widely a codec plays, lower first: a tie-break between links of the same tier and standing.
+pub fn codec_support(codec: Option<&str>) -> u8 {
+    match codec {
+        Some("H.264") => 0,
+        Some("HEVC") | None => 1,
+        Some("VP9") => 2,
+        Some(_) => 3,
+    }
 }
 
 /// What the Quality menu is made from.
@@ -679,6 +771,8 @@ pub struct Menu<'a> {
     pub variants: &'a [Variant],
     /// The variant playing, when the stream has several.
     pub playing: Option<QualityKey>,
+    /// The preferred resolution, which marks its row; none marks nothing.
+    pub resolution: Option<VideoResolution>,
 }
 
 /// The menu's rows, largest first: the tiers the stream's variants and the session's links have,
@@ -767,6 +861,12 @@ pub fn rows(menu: &Menu) -> Vec<QualityRow> {
         } else {
             continue;
         };
+        let mut same: Vec<&Offer> = menu
+            .offers
+            .iter()
+            .filter(|offer| offer.key == key)
+            .collect();
+        same.sort_by_key(|offer| offer.rank);
         out.push(QualityRow {
             key: key.text(),
             height: key.height,
@@ -780,8 +880,25 @@ pub fn rows(menu: &Menu) -> Vec<QualityRow> {
                     height: variant.height,
                 })
                 .collect(),
+            preferred: false,
+            alternatives: same
+                .iter()
+                .map(|offer| Place {
+                    group: offer.group,
+                    link: offer.link,
+                })
+                .collect(),
             state,
         });
+    }
+    // The preferred resolution's row (rows, one range each) first, marked.
+    if let Some(resolution) = menu.resolution
+        && let Some(tier) = preferred_tier(out.iter().map(|row| row.height), resolution)
+    {
+        for row in &mut out {
+            row.preferred = row.height == tier;
+        }
+        out.sort_by_key(|row| !row.preferred);
     }
     out
 }
@@ -1148,6 +1265,7 @@ mod tests {
             current: Some((0, 0)),
             variants: &[],
             playing: None,
+            resolution: None,
         };
         // No row for a tier nobody has (1440p, 480p and below).
         assert_eq!(
@@ -1185,6 +1303,7 @@ mod tests {
             current: Some((0, 0)),
             variants: &[],
             playing: None,
+            resolution: None,
         };
         let rows = rows(&menu);
         assert_eq!(
@@ -1221,6 +1340,7 @@ mod tests {
             current: Some((0, 0)),
             variants: &variants,
             playing: Some(QualityKey::of(720, Range::Sdr)),
+            resolution: None,
         };
         let rows = rows(&menu);
         assert_eq!(
@@ -1253,6 +1373,7 @@ mod tests {
             current: None,
             variants: &variants,
             playing: Some(QualityKey::of(1080, Range::Sdr)),
+            resolution: None,
         };
         let rows = super::rows(&alone);
         assert_eq!(
@@ -1355,5 +1476,105 @@ mod tests {
             ),
             Some((1, 0))
         );
+    }
+
+    #[test]
+    fn the_preferred_tier_is_the_one_the_preference_names() {
+        assert_eq!(
+            preferred_tier([2160, 1080, 720], VideoResolution::P1080),
+            Some(1080)
+        );
+        // A cropped 1080p picture is 1080p.
+        assert_eq!(
+            preferred_tier([816, 480], VideoResolution::P1080),
+            Some(1080)
+        );
+        // Nothing of the preferred tier: nothing is marked.
+        assert_eq!(preferred_tier([720, 480], VideoResolution::P1080), None);
+        assert_eq!(
+            preferred_tier([720, 2160], VideoResolution::Highest),
+            Some(2160)
+        );
+        assert_eq!(preferred_tier([], VideoResolution::Highest), None);
+    }
+
+    #[test]
+    fn the_menu_marks_the_preferred_row_and_lists_it_first_with_its_links() {
+        let names = vec!["Alpha".to_owned(), "Beta".to_owned()];
+        let offers = [
+            offer(0, 0, 2160, Range::Sdr, 0),
+            offer(1, 0, 1080, Range::Sdr, 2),
+            offer(0, 1, 1080, Range::Sdr, 1),
+            offer(1, 1, 720, Range::Sdr, 3),
+        ];
+        let menu = Menu {
+            offers: &offers,
+            names: &names,
+            current: Some((0, 0)),
+            variants: &[],
+            playing: None,
+            resolution: Some(VideoResolution::P1080),
+        };
+        let rows = rows(&menu);
+        assert_eq!(
+            states(&rows),
+            owned(&[
+                ("1080:sdr", "here 0/1"),
+                ("2160:sdr", "playing"),
+                ("720:sdr", "from Beta"),
+            ])
+        );
+        assert!(rows[0].preferred);
+        assert!(!rows[1].preferred && !rows[2].preferred);
+        // Every 1080p link once, best first, whichever source has it.
+        assert_eq!(
+            rows[0].alternatives,
+            vec![Place { group: 0, link: 1 }, Place { group: 1, link: 0 }]
+        );
+        assert_eq!(rows[1].alternatives, vec![Place { group: 0, link: 0 }]);
+        // Without a preference nothing is marked or moved.
+        let plain = Menu {
+            resolution: None,
+            ..menu
+        };
+        let rows = super::rows(&plain);
+        assert_eq!(rows[0].key, "2160:sdr");
+        assert!(rows.iter().all(|row| !row.preferred));
+    }
+
+    #[test]
+    fn a_sources_options_show_each_tier_once_the_preferred_one_first() {
+        let sdr = |height| Some(QualityKey::of(height, Range::Sdr));
+        let links = [
+            (sdr(720), 4),
+            (sdr(1080), 3),
+            (sdr(2160), 0),
+            (None, 9),
+            (sdr(1080), 1),
+            (Some(QualityKey::of(1080, Range::Hdr)), 2),
+            (sdr(1036), 1),
+        ];
+        let options = source_options(&links, VideoResolution::P1080);
+        let shown: Vec<(Vec<usize>, bool)> = options
+            .into_iter()
+            .map(|option| (option.links, option.preferred))
+            .collect();
+        assert_eq!(
+            shown,
+            vec![
+                // 1080p HDR and SDR, marked; within one, by rank then as listed.
+                (vec![5], true),
+                (vec![4, 6, 1], true),
+                (vec![2], false),
+                (vec![0], false),
+                // A link of unknown size alone, last.
+                (vec![3], false),
+            ]
+        );
+        // No 1080p in this source: nothing is marked, largest first.
+        let other = source_options(&[(sdr(720), 0), (sdr(2160), 1)], VideoResolution::P1080);
+        assert_eq!(other[0].links, vec![1]);
+        assert!(other.iter().all(|option| !option.preferred));
+        assert!(codec_support(Some("H.264")) < codec_support(Some("AV1")));
     }
 }
