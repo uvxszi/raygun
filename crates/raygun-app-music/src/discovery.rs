@@ -36,9 +36,19 @@ const TAGGER_FAILURES: u32 = 5;
 
 type ChartKey = (String, String, String);
 
+/// Charts kept: when, from which sources (sorted ids), and what they answered.
+type KeptCharts = (Instant, Vec<String>, MusicCharts);
+
+/// Kept charts answer while they're recent and no chart source came or went since (a server or
+/// extension added shows its charts at once).
+fn charts_fresh(kept: &KeptCharts, sources: &[String]) -> bool {
+    kept.0.elapsed() < CHARTS_FOR && kept.1 == sources
+}
+
 pub struct DiscoveryService {
     app: AppHandle,
-    charts: Mutex<HashMap<String, (Instant, MusicCharts)>>,
+    /// Charts by region, with the chart sources they came from.
+    charts: Mutex<HashMap<String, KeptCharts>>,
     songs: Mutex<HashMap<ChartKey, (Instant, Vec<OnlineTrack>)>>,
     tag_sources: Mutex<HashMap<(String, String), (Instant, MusicTagSources)>>,
     wake: Arc<Notify>,
@@ -110,10 +120,11 @@ impl DiscoveryService {
     pub async fn charts(&self, region: Option<String>) -> MusicCharts {
         let region = region.filter(|region| !region.is_empty());
         let key = region.clone().unwrap_or_default();
-        if let Some((at, charts)) = self.charts.lock().unwrap().get(&key)
-            && at.elapsed() < CHARTS_FOR
+        let sources = self.extensions().chart_provider_ids().await;
+        if let Some(kept) = self.charts.lock().unwrap().get(&key)
+            && charts_fresh(kept, &sources)
         {
-            return charts.clone();
+            return kept.2.clone();
         }
         let answers = self.extensions().music_charts(region.as_deref()).await;
         let mut found = MusicCharts {
@@ -140,7 +151,7 @@ impl DiscoveryService {
             self.charts
                 .lock()
                 .unwrap()
-                .insert(key, (Instant::now(), found.clone()));
+                .insert(key, (Instant::now(), sources, found.clone()));
         }
         found
     }
@@ -425,6 +436,23 @@ impl DiscoveryService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kept_charts_are_asked_again_when_a_chart_source_comes_or_goes() {
+        let empty = MusicCharts {
+            charts: Vec::new(),
+            errors: Vec::new(),
+        };
+        let sources = vec!["a/charts".to_owned()];
+        let kept: KeptCharts = (Instant::now(), sources.clone(), empty);
+        assert!(charts_fresh(&kept, &sources));
+        let added = vec![
+            "a/charts".to_owned(),
+            "server.navidrome.1/charts".to_owned(),
+        ];
+        assert!(!charts_fresh(&kept, &added));
+        assert!(!charts_fresh(&kept, &[]));
+    }
 
     #[test]
     fn file_genres_split_on_separators() {

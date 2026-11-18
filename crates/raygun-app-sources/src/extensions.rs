@@ -969,6 +969,20 @@ impl ExtensionService {
         self.host.youtube_live(extension_id, video, limit).await
     }
 
+    /// The chart sources there are now (sorted): kept charts are from these.
+    pub async fn chart_provider_ids(&self) -> Vec<String> {
+        let _ready = self.loading.read().await;
+        let mut ids: Vec<String> = self
+            .host
+            .providers(raygun_ext_host::MUSIC_CHARTS)
+            .await
+            .into_iter()
+            .map(|provider| provider.id)
+            .collect();
+        ids.sort();
+        ids
+    }
+
     /// The stream sources searches use now: not turned off, nor left out as 18+.
     pub async fn stream_provider_ids(&self) -> std::collections::HashSet<String> {
         let _ready = self.loading.read().await;
