@@ -57,6 +57,10 @@ internal class MotionStatus {
     /** When frames last went on (stamped on the GL thread, checked on the main thread). */
     val watchdog = MotionWatchdog()
 
+    /** The video's frames already come as often as the screen's rate: nothing is made between them. */
+    @Volatile
+    var alreadySmooth = false
+
     fun again() {
         retry = true
         gaveUp = false
@@ -234,7 +238,7 @@ private class SmoothMotionProgram(
 
     /** A new frame: kept, its luma pyramid made, then the frames up to it planned. */
     private fun take(input: GlTextureInfo, pts: Long) {
-        val passes = passes ?: MotionPasses(context, params.motion.dir).also { passes = it }
+        val passes = passes ?: loadPasses().also { passes = it }
         if (input.width != width || input.height != height) resize(input.width, input.height)
         if (status.quality != pyramidQuality) makePyramids()
         val slot = if (keptCount == 0) 0 else 1 - latest
@@ -255,6 +259,7 @@ private class SmoothMotionProgram(
         val measuring = making && frames++ % MEASURE_EVERY == 5L
         val started = if (measuring) finishedAt() else 0L
         drawPyramid(slot, frame)
+        if (keptCount == 2) noteFrequency(gap, interval, making)
         if (!making) {
             // The first frame, or frames that come often enough (or too far apart): as they are.
             if (pts > lastSentPts) sends.addLast(MotionSend(pts, slot, 0f))
@@ -270,6 +275,42 @@ private class SmoothMotionProgram(
         for (each in MotionMath.steps(keptPts[previous], pts, interval)) {
             if (each.pts <= lastSentPts) continue
             sends.addLast(if (each.t >= 1f) MotionSend(each.pts, slot, 0f) else MotionSend(each.pts, previous, each.t))
+        }
+    }
+
+    /** Smooth motion's programs from the chip's folder; a file or shader that fails is logged by name. */
+    private fun loadPasses(): MotionPasses {
+        val dir = params.motion.dir
+        return try {
+            MotionPasses(context, dir).also {
+                Log.i(EFFECTS_TAG, "smooth motion: shaders loaded from $dir")
+            }
+        } catch (failure: Exception) {
+            Log.e(EFFECTS_TAG, "smooth motion: shaders from $dir failed to load or compile: ${failure.message}", failure)
+            throw failure
+        }
+    }
+
+    /**
+     * Says once (until that changes) when the video's frames already come as often as the screen's
+     * rate (a 60 fps video), so no frame is made between them: smooth motion is on but has nothing
+     * to add.
+     */
+    private fun noteFrequency(gapUs: Long, interval: Double, making: Boolean) {
+        val often = !making && gapUs in 1..MotionMath.MAX_GAP_US
+        if (often == status.alreadySmooth) return
+        status.alreadySmooth = often
+        if (often) {
+            Log.i(
+                EFFECTS_TAG,
+                String.format(
+                    Locale.ROOT,
+                    "smooth motion: nothing to make, frames already come every %.1f ms (%.0f fps) for a %.0f fps screen",
+                    gapUs / 1000.0, 1e6 / gapUs, 1e6 / interval,
+                ),
+            )
+        } else {
+            Log.i(EFFECTS_TAG, String.format(Locale.ROOT, "smooth motion: making frames, the video's come every %.1f ms", gapUs / 1000.0))
         }
     }
 
@@ -536,7 +577,11 @@ private class MotionPasses(context: Context, dir: String?) {
         val assets = context.assets
         fun read(name: String) = assets.open(name).bufferedReader().use { it.readText() }
         val folder = File(dir ?: throw IllegalStateException("the Smooth Motion chip isn't installed"))
-        fun chip(name: String) = File(folder, name).readText()
+        fun chip(name: String): String {
+            val file = File(folder, name)
+            if (!file.canRead()) throw java.io.FileNotFoundException("the Smooth Motion chip has no readable $name in $folder")
+            return file.readText()
+        }
         val vertex = read("fx_vertex.glsl")
         val common = read("fx_common.glsl") + "\n" + chip("fx_motion_common.glsl")
         fun fragment(name: String) = common + "\n" + chip(name)

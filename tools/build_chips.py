@@ -33,12 +33,13 @@ TEXT = {".json", ".glsl", ".txt", ".md", ".js"}
 def files_of(folder: Path, manifest: dict) -> list[tuple[str, bytes]]:
     """The package's files as (name, bytes): the chip's own folder, then its `from` folder."""
     found: dict[str, bytes] = {}
-    sources = [folder]
+    sources = [(folder, None)]
     if manifest.get("from"):
-        sources.append(ROOT / manifest["from"])
-    for source in sources:
+        # Only the app folder's shaders: its TypeScript stays with the app.
+        sources.append((ROOT / manifest["from"], ".glsl"))
+    for source, only in sources:
         for path in sorted(source.rglob("*")):
-            if not path.is_file():
+            if not path.is_file() or (only and path.suffix != only):
                 continue
             name = path.relative_to(source).as_posix()
             data = path.read_bytes()

@@ -479,6 +479,8 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         status.hdr -> label("effectsHdr", "HDR videos play without picture effects")
         picture.smoothMotion && motionStatus.gaveUp ->
             label("effectsSmoothSlow", "Smooth motion turned off: this phone can't keep up")
+        applied.smoothMotion && motionStatus.alreadySmooth ->
+            label("effectsSmoothAlready", "This video already has a frame for every screen refresh: smooth motion has nothing to add")
         dropped.isNotEmpty() ->
             label("effectsDropped", "{n} turned off: frames were dropping", dropped.joinToString(", ") { adjustmentName(it) })
         status.limited -> label("effectsLimited", "Only the colours apply on this phone")

@@ -3142,6 +3142,7 @@
     "effectSmoothMotion": "Smooth motion",
     "effectSmoothMotionHint": "In-between frames for smoother movement",
     "effectsSmoothSlow": "Smooth motion turned off: this phone can't keep up",
+    "effectsSmoothAlready": "This video already has a frame for every screen refresh: smooth motion has nothing to add",
     "effectsSound": "Sound",
     "smartAudio": "Smart audio",
     "smartDialogue": "Clearer dialogue",

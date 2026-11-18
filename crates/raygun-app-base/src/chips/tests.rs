@@ -15,6 +15,13 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The committed package the catalogue names for `id`.
+fn package_of(id: &str) -> PathBuf {
+    let entry = catalog().into_iter().find(|entry| entry.id == id).unwrap();
+    let name = entry.package.url.rsplit('/').next().unwrap().to_owned();
+    repo().join("chips/packages").join(name)
+}
+
 /// Serves `body` for every request, as GitHub raw would serve a package.
 async fn serve(body: Vec<u8>) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -85,7 +92,7 @@ fn every_chip_has_a_package_in_the_repository_as_the_catalogue_pins_it() {
 #[tokio::test]
 async fn smooth_motion_installs_from_its_package_with_its_shaders() {
     let temp = tempfile::tempdir().unwrap();
-    let bytes = std::fs::read(repo().join("chips/packages/smooth-motion-1.0.0.tar.gz")).unwrap();
+    let bytes = std::fs::read(package_of("smooth-motion")).unwrap();
     let url = serve(bytes).await;
     let chips = service(temp.path(), vec![served("smooth-motion", &url)]);
     assert!(!chips.is_enabled(ChipId::SmoothMotion));
@@ -102,6 +109,19 @@ async fn smooth_motion_installs_from_its_package_with_its_shaders() {
         .await
         .unwrap();
     assert!(shader.contains("uFlowTexel"));
+    // Only the shaders and the chip's manifest: the app's TypeScript stays out.
+    let mut names: Vec<String> = std::fs::read_dir(chips.folder(ChipId::SmoothMotion))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| !name.starts_with('.'))
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 8, "{names:?}");
+    assert!(
+        names
+            .iter()
+            .all(|name| name.ends_with(".glsl") || name == "chip.json")
+    );
     assert!(
         !shader.contains('\r'),
         "text is packed with LF line endings"
@@ -139,8 +159,7 @@ async fn smooth_motion_installs_from_its_package_with_its_shaders() {
 #[tokio::test]
 async fn a_damaged_package_installs_nothing_and_says_so() {
     let temp = tempfile::tempdir().unwrap();
-    let mut bytes =
-        std::fs::read(repo().join("chips/packages/smart-shuffle-1.0.0.tar.gz")).unwrap();
+    let mut bytes = std::fs::read(package_of("smart-shuffle")).unwrap();
     let last = bytes.len() - 1;
     bytes[last] ^= 0xff;
     let url = serve(bytes).await;
