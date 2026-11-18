@@ -687,6 +687,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             started = true
             pickedSource = false
             updateWaiting()
+            quality.onFirstFrame()
         }
 
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {

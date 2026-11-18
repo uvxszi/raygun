@@ -86,6 +86,11 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     private val stalls = StallWatch()
     /** The cap on the stream's variants while stepped down (a tier); null at the preferred one. */
     private var loweredCap: Int? = null
+    /**
+     * A step down to another link says so once that link shows its first frame: the load it
+     * brings clears hints and covers the picture with its ring, which would hide it.
+     */
+    private var loweredNotice: String? = null
 
     /** Whether the button has anything to offer: a session's sources, or variants to pick. */
     val offered: Boolean get() = host.session || host.tracks.qualities().size > 1
@@ -96,6 +101,8 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         wanted = update.text("wanted")
         handPicked = update.optBoolean("handPicked")
         update.text("notice")?.let {
+            // Nothing loads (no other link has that step): the notice says so instead.
+            loweredNotice = null
             host.pickedNothing()
             host.showHint(it, 3_000)
         }
@@ -111,6 +118,13 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         // Each video starts afresh: its stalls are its own; the load applies the preferred cap.
         stalls.reset(android.os.SystemClock.elapsedRealtime())
         loweredCap = null
+    }
+
+    /** The first frame of a load: a step down that brought it is said now. */
+    fun onFirstFrame() {
+        val notice = loweredNotice ?: return
+        loweredNotice = null
+        host.showHint(notice, 2_500)
     }
 
     /** Rust's rows as the steps see them. */
@@ -148,13 +162,15 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
                     if (cap >= preferred) return
                     host.tracks.limit(cap)
                     loweredCap = cap
-                } else if (host.session) {
+                }
+                val notice = host.label("qualityLowered", "Lowered to {n} to keep playing", stepName(step))
+                if (!adaptive) {
+                    if (!host.session) return
+                    loweredNotice = notice
                     host.request("quality", JSONObject().put("key", step.key).put("auto", true))
-                } else {
-                    return
                 }
                 stalls.stepped(now)
-                host.showHint(host.label("qualityLowered", "Lowered to {n} to keep playing", stepName(step)), 2_500)
+                host.showHint(notice, 2_500)
             }
             StallAction.RAISE -> {
                 val cap = loweredCap ?: return
