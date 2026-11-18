@@ -1,8 +1,10 @@
 import {
+  ALPHA_MAX,
   FIND_COLS,
   FIND_ROWS,
   MIN_SAMPLES,
   OverlayFinder,
+  restorePixel,
   sampleLayout,
   shaderBox,
   watermarkContrast,
@@ -67,7 +69,9 @@ describe('the watermark remover as numbers', () => {
     const centre = at(Math.floor(innerCols / 2), Math.floor(innerRows / 2));
     expect((mask?.data[centre + 3] ?? 0) / 255).toBeGreaterThan(0.4);
     expect((mask?.data[centre + 3] ?? 0) / 255).toBeLessThan(0.6);
-    expect((mask?.data[centre] ?? 0) / 255).toBeGreaterThan(0.85);
+    // The colour is stored times the opacity.
+    const alpha = (mask?.data[centre + 3] ?? 1) / 255;
+    expect((mask?.data[centre] ?? 0) / 255 / alpha).toBeGreaterThan(0.85);
     // The box's corner has no overlay.
     expect(mask?.data[at(0, 0) + 3]).toBe(0);
   });
@@ -133,5 +137,88 @@ describe('the watermark remover as numbers', () => {
     expect(watermarkContrast(100)).toBe(2);
     expect(watermarkContrast(-100)).toBe(0.5);
     expect(watermarkFeather(50)).toBe(0.25);
+  });
+  it('finds nothing in moving video without an overlay, and can�t tell in a still one', () => {
+    const finder = new OverlayFinder();
+    const next = random(3);
+    for (let frame = 0; frame < 48; frame += 1) {
+      const pixels = new Uint8Array(FIND_COLS * FIND_ROWS * 4);
+      for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
+        pixels.set([next() * 255, next() * 255, next() * 255, 255].map(Math.round), cell * 4);
+      }
+      finder.add(pixels);
+    }
+    expect(finder.verdict()).toEqual({ kind: 'none' });
+
+    const still = new OverlayFinder();
+    const flat = new Uint8Array(FIND_COLS * FIND_ROWS * 4).fill(90);
+    for (let frame = 0; frame < 48; frame += 1) still.add(flat);
+    expect(still.verdict()).toEqual({ kind: 'unsure' });
+  });
+
+  it('finds a still text block, and takes half-clear white text out without tinting the picture', () => {
+    // Coloured video changing every frame, a caption over the bottom left.
+    const opacity = 0.4;
+    const inBlock = (col: number, row: number) => col >= 4 && col <= 14 && row >= 29 && row <= 32;
+    const finder = new OverlayFinder();
+    const next = random(13);
+    for (let frame = 0; frame < 48; frame += 1) {
+      const pixels = new Uint8Array(FIND_COLS * FIND_ROWS * 4);
+      for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
+        const col = cell % FIND_COLS;
+        const block = inBlock(col, Math.floor(cell / FIND_COLS));
+        // A caption: a dark box that stays, its letters white at 80 % (every other column).
+        const video = block ? [0.1, 0.08, 0.06] : [next(), next(), next()];
+        const letter = block && col % 2 === 0 ? 0.8 : 0;
+        const shown = video.map((value) => letter + (1 - letter) * value);
+        pixels.set([...shown.map((value) => Math.round(value * 255)), 255], cell * 4);
+      }
+      finder.add(pixels);
+    }
+    const verdict = finder.verdict();
+    expect(verdict.kind).toBe('found');
+    const box = verdict.kind === 'found' ? verdict.box : null;
+    expect((box?.x ?? 0) / 10_000).toBeLessThanOrEqual(4 / 64);
+    expect(((box?.x ?? 0) + (box?.width ?? 0)) / 10_000).toBeGreaterThanOrEqual(15 / 64);
+    expect((box?.y ?? 0) / 10_000).toBeLessThanOrEqual(29 / 36);
+
+    // The remover learns it from frames whose video changes under it, then restores colours.
+    const layout = sampleLayout({ x: 4_000, y: 4_000, width: 1_000, height: 1_000 }, 640, 360);
+    const estimator = new WatermarkEstimator(layout);
+    const { cols, rows, innerLeft, innerTop, innerCols, innerRows } = layout;
+    const covered = (col: number, row: number) =>
+      col >= innerLeft &&
+      col < innerLeft + innerCols &&
+      row >= innerTop &&
+      row < innerTop + innerRows;
+    for (let frame = 0; frame < 300; frame += 1) {
+      const pixels = new Uint8Array(cols * rows * 4);
+      for (let cell = 0; cell < cols * rows; cell += 1) {
+        const video = [next(), next(), next()];
+        const over = covered(cell % cols, Math.floor(cell / cols));
+        const shown = video.map((value) => (over ? opacity + (1 - opacity) * value : value));
+        pixels.set([...shown.map((value) => Math.round(value * 255)), 255], cell * 4);
+      }
+      estimator.add(pixels);
+    }
+    const mask = estimator.estimate();
+    expect(mask).not.toBeNull();
+    const cell = (Math.floor(innerRows / 2) * innerCols + Math.floor(innerCols / 2)) * 4;
+    const texel = Array.from(mask?.data.subarray(cell, cell + 4) ?? []);
+    expect((texel[3] ?? 0) / 255).toBeLessThanOrEqual(ALPHA_MAX + 0.01);
+    for (const video of [
+      [0.6, 0.3, 0.2],
+      [0.1, 0.5, 0.8],
+      [0.9, 0.9, 0.2],
+    ]) {
+      const shown = video.map((value) => opacity + (1 - opacity) * value);
+      const restored = restorePixel(shown, texel);
+      restored.forEach((value, channel) => {
+        expect(Math.abs(value - (video[channel] ?? 0))).toBeLessThan(0.1);
+      });
+      // The channels keep their order: no hue shift.
+      const order = (rgb: number[]) => [0, 1, 2].sort((a, b) => (rgb[b] ?? 0) - (rgb[a] ?? 0));
+      if (new Set(video).size === 3) expect(order(restored)).toEqual(order(video));
+    }
   });
 });

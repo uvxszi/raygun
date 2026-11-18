@@ -105,7 +105,13 @@ internal object WatermarkMath {
     const val MAX_CELLS = 48
     const val MIN_SAMPLES = 24
     const val MIN_REFERENCE_VARIANCE = 0.0015
-    const val ALPHA_FLOOR = 0.06
+    const val ALPHA_FLOOR = 0.08
+
+    /** The most opacity the remover takes out: more would amplify noise (and casts) past use. */
+    const val ALPHA_MAX = 0.6
+
+    /** How far the overlay's colour may stray from grey (per channel from its luma). */
+    const val CHROMA_LIMIT = 0.08
     const val SAMPLE_CAP = 1_500
 
     fun boxPixels(box: WatermarkRemoval, frameWidth: Int, frameHeight: Int) = PixelRect(
@@ -159,6 +165,31 @@ internal object WatermarkMath {
         1f - box.y.toFloat() / SCALE,
     )
 
+    /**
+     * One mask cell (RGBA bytes: the overlay's colour times its opacity, then the opacity) from its
+     * estimated opacity, mean colour and the background's; unsure cells are left alone and the
+     * colour stays near grey, so no cast comes from it (`maskTexel` in `watermarkMath.ts`).
+     */
+    fun maskTexel(rawAlpha: Double, mean: DoubleArray, background: DoubleArray): IntArray {
+        val texel = IntArray(4)
+        if (rawAlpha < ALPHA_FLOOR) return texel
+        val alpha = min(ALPHA_MAX, rawAlpha)
+        val markLuma = (luma(mean[0], mean[1], mean[2]) - (1 - alpha) * luma(background[0], background[1], background[2])) / alpha
+        if (markLuma < -0.1 || markLuma > 1.1) return texel
+        for (channel in 0 until 3) {
+            val colour = (mean[channel] - (1 - alpha) * background[channel]) / alpha
+            val near = markLuma + (colour - markLuma).coerceIn(-CHROMA_LIMIT, CHROMA_LIMIT)
+            texel[channel] = roundHalfUp(alpha * near.coerceIn(0.0, 1.0) * 255)
+        }
+        texel[3] = roundHalfUp(alpha * 255)
+        return texel
+    }
+
+    /** What `fx_watermark.glsl` does with a pixel (0–1 RGB) under a mask texel (bytes). */
+    fun restorePixel(pixel: DoubleArray, texel: IntArray): DoubleArray {
+        val alpha = texel[3] / 255.0
+        return DoubleArray(3) { ((pixel[it] - texel[it] / 255.0) / max(1 - alpha, 0.4)).coerceIn(0.0, 1.0) }
+    }
     fun brightness(value: Int): Double = value / 100.0 * 0.25
 
     fun contrast(value: Int): Double = 2.0.pow(value / 100.0)
@@ -271,30 +302,25 @@ internal class WatermarkEstimator(val layout: SampleLayout) {
                     }
                 }
                 val cell = row * cols + col
-                val mean = sum / taps
-                val alpha = if (mean < WatermarkMath.ALPHA_FLOOR) 0.0 else min(0.98, mean)
-                val out = cell * 4
-                if (alpha > 0) {
-                    for (channel in 0 until 3) {
-                        val colour = (inner[cell * 5 + channel] / n - (1 - alpha) * background[channel]) / alpha
-                        data[out + channel] = WatermarkMath.roundHalfUp(colour.coerceIn(0.0, 1.0) * 255).toByte()
-                    }
-                }
-                data[out + 3] = WatermarkMath.roundHalfUp(alpha * 255).toByte()
+                val texel = WatermarkMath.maskTexel(sum / taps, DoubleArray(3) { inner[cell * 5 + it] / n }, background)
+                for (index in 0 until 4) data[cell * 4 + index] = texel[index].toByte()
             }
         }
         return WatermarkMask(cols, rows, data)
     }
 }
 
-/** Luma of the whole picture over time, to find a static overlay ([find]). */
+/** What finding concluded: a box ([found]), none, or that the picture moved too little to tell. */
+internal class FindVerdict(val found: WatermarkRemoval?, val unsure: Boolean)
+
+/** Luma of the whole picture over time, to find a static overlay ([verdict]). */
 internal class OverlayFinder {
     var samples = 0
         private set
     private val sums = DoubleArray(COLS * ROWS)
     private val squares = DoubleArray(COLS * ROWS)
 
-    /** One sample: `COLS Ã— ROWS` RGBA bytes, rows from the top. */
+    /** One sample: `COLS × ROWS` RGBA bytes, rows from the top. */
     fun add(pixels: ByteArray) {
         for (cell in 0 until COLS * ROWS) {
             val at = cell * 4
@@ -309,31 +335,36 @@ internal class OverlayFinder {
         samples += 1
     }
 
+    fun find(): WatermarkRemoval? = verdict().found
+
     /**
-     * The box round the largest still, edged patch (a logo stays while the video moves), or null
-     * when there's none or the picture hardly changes.
+     * A box round the largest patch that stays put while the picture round it moves a lot, stands
+     * out from its neighbours and is logo-sized; nothing unless the evidence is strong; unsure
+     * when too little of the picture moved (`OverlayFinder.verdict` in `watermarkMath.ts`).
      */
-    fun find(): WatermarkRemoval? {
+    fun verdict(): FindVerdict {
+        val unsure = FindVerdict(null, true)
+        if (samples < 2) return unsure
         val n = samples.toDouble()
-        if (samples < 2) return null
         val cells = COLS * ROWS
         val means = DoubleArray(cells) { sums[it] / n }
         val deviations = DoubleArray(cells) { sqrt(max(0.0, squares[it] / n - means[it] * means[it])) }
         val typical = deviations.sorted()[cells / 2]
-        if (typical < MIN_CHANGE) return null
-        fun meanAt(col: Int, row: Int) = means[row.coerceIn(0, ROWS - 1) * COLS + col.coerceIn(0, COLS - 1)]
+        if (typical < MIN_CHANGE) return unsure
+        val stillLimit = min(typical * STILL_SHARE, STILL_MOST)
+        if (deviations.count { it < stillLimit } > cells * MOST_STILL) return unsure
+        fun inside(col: Int, row: Int) = col >= 0 && row >= 0 && col < COLS && row < ROWS
         val still = BooleanArray(cells)
         for (row in 0 until ROWS) {
             for (col in 0 until COLS) {
-                val here = meanAt(col, row)
-                val edge = maxOf(
-                    abs(meanAt(col + 1, row) - here),
-                    abs(meanAt(col - 1, row) - here),
-                    abs(meanAt(col, row + 1) - here),
-                    abs(meanAt(col, row - 1) - here),
-                )
                 val cell = row * COLS + col
-                if (deviations[cell] < typical * STILL_SHARE && edge > MIN_EDGE) still[cell] = true
+                if (deviations[cell] >= stillLimit) continue
+                var edge = 0.0
+                for ((dx, dy) in NEIGHBOURS) {
+                    if (!inside(col + dx, row + dy)) continue
+                    edge = max(edge, abs(means[(row + dy) * COLS + col + dx] - means[cell]))
+                }
+                if (edge > MIN_EDGE) still[cell] = true
             }
         }
         val group = IntArray(cells) { -1 }
@@ -358,7 +389,7 @@ internal class OverlayFinder {
                     for (dx in -2..2) {
                         val x = col + dx
                         val y = row + dy
-                        if (x < 0 || y < 0 || x >= COLS || y >= ROWS) continue
+                        if (!inside(x, y)) continue
                         val next = y * COLS + x
                         if (!still[next] || group[next] >= 0) continue
                         group[next] = groups
@@ -367,23 +398,38 @@ internal class OverlayFinder {
                 }
             }
             groups += 1
-            val area = (found[3] - found[1] + 1).toDouble() * (found[4] - found[2] + 1) / cells
-            // A line across most of the picture is a letterbox's edge, not a logo.
-            val narrow = found[3] - found[1] + 1 <= COLS * MAX_SPAN && found[4] - found[2] + 1 <= ROWS * MAX_SPAN
-            if (found[0] >= 3 && area <= MAX_AREA && narrow && (best == null || found[0] > best[0])) best = found
+            val width = found[3] - found[1] + 1
+            val height = found[4] - found[2] + 1
+            val plausible = found[0] >= MIN_CELLS && width.toDouble() * height / cells <= MAX_AREA &&
+                width <= COLS * MAX_SPAN && height <= ROWS * MAX_SPAN
+            if (!plausible || (best != null && found[0] <= best[0])) continue
+            // The picture just round the patch must move: a still patch in a still corner is scenery.
+            val ring = ArrayList<Double>()
+            for (row in found[2] - 2..found[4] + 2) {
+                for (col in found[1] - 2..found[3] + 2) {
+                    val onRing = row < found[2] || row > found[4] || col < found[1] || col > found[3]
+                    if (onRing && inside(col, row)) ring += deviations[row * COLS + col]
+                }
+            }
+            ring.sort()
+            val ringTypical = ring.getOrNull(ring.size / 2) ?: 0.0
+            if (ringTypical >= typical * RING_SHARE) best = found
         }
-        val box = best ?: return null
+        val box = best ?: return FindVerdict(null, false)
         val left = max(0, box[1] - 1)
         val top = max(0, box[2] - 1)
         val right = min(COLS, box[3] + 2)
         val bottom = min(ROWS, box[4] + 2)
         fun scaleX(col: Int) = WatermarkMath.roundHalfUp(col.toDouble() / COLS * WatermarkMath.SCALE)
         fun scaleY(row: Int) = WatermarkMath.roundHalfUp(row.toDouble() / ROWS * WatermarkMath.SCALE)
-        return WatermarkRemoval(
-            x = scaleX(left),
-            y = scaleY(top),
-            width = scaleX(right) - scaleX(left),
-            height = scaleY(bottom) - scaleY(top),
+        return FindVerdict(
+            WatermarkRemoval(
+                x = scaleX(left),
+                y = scaleY(top),
+                width = scaleX(right) - scaleX(left),
+                height = scaleY(bottom) - scaleY(top),
+            ),
+            false,
         )
     }
 
@@ -391,10 +437,15 @@ internal class OverlayFinder {
         const val COLS = 64
         const val ROWS = 36
         const val SAMPLES = 40
-        private const val STILL_SHARE = 0.35
-        private const val MIN_CHANGE = 0.02
-        private const val MIN_EDGE = 0.035
-        private const val MAX_AREA = 0.2
-        private const val MAX_SPAN = 0.6
+        private val NEIGHBOURS = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
+        private const val STILL_SHARE = 0.15
+        private const val STILL_MOST = 0.02
+        private const val MIN_CHANGE = 0.04
+        private const val MOST_STILL = 0.15
+        private const val MIN_EDGE = 0.08
+        private const val RING_SHARE = 0.5
+        private const val MIN_CELLS = 6
+        private const val MAX_AREA = 0.1
+        private const val MAX_SPAN = 0.4
     }
 }

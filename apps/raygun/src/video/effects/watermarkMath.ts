@@ -49,7 +49,11 @@ export const MIN_SAMPLES = 24;
 /** The video around the box must change at least this much (luma variance) for an estimate. */
 export const MIN_REFERENCE_VARIANCE = 0.0015;
 /** Opacity under this is no overlay. */
-export const ALPHA_FLOOR = 0.06;
+export const ALPHA_FLOOR = 0.08;
+/** The most opacity the remover takes out: more would amplify noise (and casts) past use. */
+export const ALPHA_MAX = 0.6;
+/** How far the overlay's colour may stray from grey (per channel from its luma). */
+export const CHROMA_LIMIT = 0.08;
 /** Past this many samples the sums halve, so the estimate keeps following. */
 export const SAMPLE_CAP = 1_500;
 
@@ -246,22 +250,51 @@ export class WatermarkEstimator {
           }
         }
         const cell = row * cols + col;
-        const alpha = sum / taps < ALPHA_FLOOR ? 0 : Math.min(0.98, sum / taps);
-        const out = cell * 4;
-        if (alpha > 0) {
-          for (let channel = 0; channel < 3; channel += 1) {
-            const mean = (this.inner[cell * 5 + channel] ?? 0) / n;
-            const colour = (mean - (1 - alpha) * (background[channel] ?? 0)) / alpha;
-            data[out + channel] = Math.round(Math.min(1, Math.max(0, colour)) * 255);
-          }
-        }
-        data[out + 3] = Math.round(alpha * 255);
+        const texel = maskTexel(
+          sum / taps,
+          [0, 1, 2].map((channel) => (this.inner[cell * 5 + channel] ?? 0) / n),
+          background,
+        );
+        data.set(texel, cell * 4);
       }
     }
     return { cols, rows, data };
   }
 }
 
+/**
+ * One cell of the mask (RGBA bytes: the overlay's colour times its opacity, then the opacity) from
+ * its estimated opacity, its mean colour and the background's. Unsure cells (a colour the blend
+ * can't explain) are left alone; the colour stays near grey, so no cast comes from it.
+ */
+export const maskTexel = (rawAlpha: number, mean: number[], background: number[]) => {
+  const texel = [0, 0, 0, 0];
+  if (rawAlpha < ALPHA_FLOOR) return texel;
+  const alpha = Math.min(ALPHA_MAX, rawAlpha);
+  const [red = 0, green = 0, blue = 0] = mean;
+  const [backRed = 0, backGreen = 0, backBlue = 0] = background;
+  const markLuma =
+    (lumaOf(red, green, blue) - (1 - alpha) * lumaOf(backRed, backGreen, backBlue)) / alpha;
+  if (markLuma < -0.1 || markLuma > 1.1) return texel;
+  for (let channel = 0; channel < 3; channel += 1) {
+    const colour = ((mean[channel] ?? 0) - (1 - alpha) * (background[channel] ?? 0)) / alpha;
+    const near = markLuma + Math.min(CHROMA_LIMIT, Math.max(-CHROMA_LIMIT, colour - markLuma));
+    texel[channel] = Math.round(alpha * Math.min(1, Math.max(0, near)) * 255);
+  }
+  texel[3] = Math.round(alpha * 255);
+  return texel;
+};
+
+/**
+ * What `fx_watermark.glsl` does with a pixel (0�1 RGB) under a mask texel (bytes): the blend
+ * inverted, each channel kept to 0�1.
+ */
+export const restorePixel = (pixel: number[], texel: number[]) => {
+  const alpha = (texel[3] ?? 0) / 255;
+  return pixel.map((value, channel) =>
+    Math.min(1, Math.max(0, (value - (texel[channel] ?? 0) / 255) / Math.max(1 - alpha, 0.4))),
+  );
+};
 // ---- Finding the overlay ----
 
 /** The grid the whole picture is sampled on to find an overlay. */
@@ -269,16 +302,30 @@ export const FIND_COLS = 64;
 export const FIND_ROWS = 36;
 /** Samples before looking. */
 export const FIND_SAMPLES = 40;
-/** A still cell changes less than this share of the picture's typical change. */
-const STILL_SHARE = 0.35;
+/** A still cell changes less than this share of the picture's typical change� */
+const STILL_SHARE = 0.15;
+/** �and less than this (luma deviation) at all. */
+const STILL_MOST = 0.02;
 /** The picture must change at least this much (median luma deviation) to tell still parts. */
-const MIN_CHANGE = 0.02;
-/** A still cell must have some edge in it (logos do, black bars don't). */
-const MIN_EDGE = 0.035;
+const MIN_CHANGE = 0.04;
+/** More of the picture than this still: too little moves to tell an overlay from the scene. */
+const MOST_STILL = 0.15;
+/** A still cell must stand out from a neighbour by this much (logos do, flat areas don't). */
+const MIN_EDGE = 0.08;
+/** The picture round a patch must move at least this share of the typical change. */
+const RING_SHARE = 0.5;
+/** The fewest cells a patch has. */
+const MIN_CELLS = 6;
 /** The largest box found, as a share of the picture. */
-const MAX_AREA = 0.2;
+const MAX_AREA = 0.1;
 /** The most of the picture's width or height a box found spans. */
-const MAX_SPAN = 0.6;
+const MAX_SPAN = 0.4;
+
+/** What finding concluded: a box, none, or that the picture moved too little to tell. */
+export type FindVerdict =
+  | { kind: 'found'; box: Pick<Watermark, 'x' | 'y' | 'width' | 'height'> }
+  | { kind: 'none' }
+  | { kind: 'unsure' };
 
 /** Luma sums of the whole picture over time, to find a static overlay. */
 export class OverlayFinder {
@@ -290,7 +337,7 @@ export class OverlayFinder {
     return this.count;
   }
 
-  /** One sample: `FIND_COLS × FIND_ROWS` RGBA bytes, rows from the top. */
+  /** One sample: `FIND_COLS � FIND_ROWS` RGBA bytes, rows from the top. */
   add(pixels: ArrayLike<number>) {
     for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
       const at = cell * 4;
@@ -305,13 +352,20 @@ export class OverlayFinder {
     this.count += 1;
   }
 
-  /**
-   * The box round the largest still, edged patch (a logo stays while the video moves), in
-   * ten-thousandths of the picture; null when there's none or the picture hardly changes.
-   */
+  /** The box of `verdict()`, or null. */
   find(): Pick<Watermark, 'x' | 'y' | 'width' | 'height'> | null {
+    const verdict = this.verdict();
+    return verdict.kind === 'found' ? verdict.box : null;
+  }
+
+  /**
+   * A box round the largest patch that stays put while the picture round it moves a lot, stands
+   * out from its neighbours and is logo-sized; nothing unless the evidence is strong; unsure
+   * when too little of the picture moved.
+   */
+  verdict(): FindVerdict {
     const n = this.count;
-    if (n < 2) return null;
+    if (n < 2) return { kind: 'unsure' };
     const cells = FIND_COLS * FIND_ROWS;
     const means = new Float64Array(cells);
     const deviations = new Float64Array(cells);
@@ -322,27 +376,33 @@ export class OverlayFinder {
     }
     const sorted = Array.from(deviations).sort((left, right) => left - right);
     const typical = sorted[Math.floor(sorted.length / 2)] ?? 0;
-    if (typical < MIN_CHANGE) return null;
-    const meanAt = (col: number, row: number) =>
-      means[
-        Math.min(FIND_ROWS - 1, Math.max(0, row)) * FIND_COLS +
-          Math.min(FIND_COLS - 1, Math.max(0, col))
-      ] ?? 0;
+    if (typical < MIN_CHANGE) return { kind: 'unsure' };
+    const stillLimit = Math.min(typical * STILL_SHARE, STILL_MOST);
+    let stillCount = 0;
+    for (const deviation of deviations) if (deviation < stillLimit) stillCount += 1;
+    if (stillCount > cells * MOST_STILL) return { kind: 'unsure' };
+    const inside = (col: number, row: number) =>
+      col >= 0 && row >= 0 && col < FIND_COLS && row < FIND_ROWS;
     const still = new Uint8Array(cells);
     for (let row = 0; row < FIND_ROWS; row += 1) {
       for (let col = 0; col < FIND_COLS; col += 1) {
         const cell = row * FIND_COLS + col;
-        const here = meanAt(col, row);
-        const edge = Math.max(
-          Math.abs(meanAt(col + 1, row) - here),
-          Math.abs(meanAt(col - 1, row) - here),
-          Math.abs(meanAt(col, row + 1) - here),
-          Math.abs(meanAt(col, row - 1) - here),
-        );
-        if ((deviations[cell] ?? 0) < typical * STILL_SHARE && edge > MIN_EDGE) still[cell] = 1;
+        if ((deviations[cell] ?? 1) >= stillLimit) continue;
+        const here = means[cell] ?? 0;
+        let edge = 0;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          if (!inside(col + dx, row + dy)) continue;
+          edge = Math.max(edge, Math.abs((means[(row + dy) * FIND_COLS + col + dx] ?? 0) - here));
+        }
+        if (edge > MIN_EDGE) still[cell] = 1;
       }
     }
-    // Neighbours one cell apart join (a logo's letters), then the largest group wins.
+    // Neighbours two cells apart join (a logo's letters), then the largest group wins.
     const group = new Int32Array(cells).fill(-1);
     let best: { count: number; left: number; top: number; right: number; bottom: number } | null =
       null;
@@ -365,7 +425,7 @@ export class OverlayFinder {
           for (let dx = -2; dx <= 2; dx += 1) {
             const x = col + dx;
             const y = row + dy;
-            if (x < 0 || y < 0 || x >= FIND_COLS || y >= FIND_ROWS) continue;
+            if (!inside(x, y)) continue;
             const next = y * FIND_COLS + x;
             if (!still[next] || (group[next] ?? -1) >= 0) continue;
             group[next] = groups;
@@ -374,16 +434,28 @@ export class OverlayFinder {
         }
       }
       groups += 1;
-      const area = ((found.right - found.left + 1) * (found.bottom - found.top + 1)) / cells;
-      // A line across most of the picture is a letterbox's edge, not a logo.
-      const narrow =
-        found.right - found.left + 1 <= FIND_COLS * MAX_SPAN &&
-        found.bottom - found.top + 1 <= FIND_ROWS * MAX_SPAN;
-      if (found.count >= 3 && area <= MAX_AREA && narrow && (!best || found.count > best.count)) {
-        best = found;
+      const width = found.right - found.left + 1;
+      const height = found.bottom - found.top + 1;
+      const plausible =
+        found.count >= MIN_CELLS &&
+        (width * height) / cells <= MAX_AREA &&
+        width <= FIND_COLS * MAX_SPAN &&
+        height <= FIND_ROWS * MAX_SPAN;
+      if (!plausible || (best && found.count <= best.count)) continue;
+      // The picture just round the patch must move: a still patch in a still corner is scenery.
+      const ring: number[] = [];
+      for (let row = found.top - 2; row <= found.bottom + 2; row += 1) {
+        for (let col = found.left - 2; col <= found.right + 2; col += 1) {
+          const onRing =
+            row < found.top || row > found.bottom || col < found.left || col > found.right;
+          if (onRing && inside(col, row)) ring.push(deviations[row * FIND_COLS + col] ?? 0);
+        }
       }
+      ring.sort((left, right) => left - right);
+      const ringTypical = ring[Math.floor(ring.length / 2)] ?? 0;
+      if (ringTypical >= typical * RING_SHARE) best = found;
     }
-    if (!best) return null;
+    if (!best) return { kind: 'none' };
     // One cell of margin round it, inside the picture.
     const left = Math.max(0, best.left - 1);
     const top = Math.max(0, best.top - 1);
@@ -392,14 +464,16 @@ export class OverlayFinder {
     const scaleX = (col: number) => Math.round((col / FIND_COLS) * WATERMARK_SCALE);
     const scaleY = (row: number) => Math.round((row / FIND_ROWS) * WATERMARK_SCALE);
     return {
-      x: scaleX(left),
-      y: scaleY(top),
-      width: scaleX(right) - scaleX(left),
-      height: scaleY(bottom) - scaleY(top),
+      kind: 'found',
+      box: {
+        x: scaleX(left),
+        y: scaleY(top),
+        width: scaleX(right) - scaleX(left),
+        height: scaleY(bottom) - scaleY(top),
+      },
     };
   }
 }
-
 // ---- The shader's numbers ----
 
 /** The box in the shaders' texture coordinates (origin at the bottom left): x0, y0, x1, y1. */

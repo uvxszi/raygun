@@ -69,7 +69,8 @@ class PlayerWatermarkTest {
         val centre = at(layout.innerCols / 2, layout.innerRows / 2)
         val alpha = (mask!!.data[centre + 3].toInt() and 0xFF) / 255.0
         assertTrue("opacity $alpha", alpha > 0.4 && alpha < 0.6)
-        assertTrue((mask.data[centre].toInt() and 0xFF) / 255.0 > 0.85)
+        // The colour is stored times the opacity.
+        assertTrue((mask.data[centre].toInt() and 0xFF) / 255.0 / alpha > 0.85)
         assertEquals(0, mask.data[at(0, 0) + 3].toInt())
     }
 
@@ -166,5 +167,82 @@ class PlayerWatermarkTest {
         assertEquals("0", VideoSoundMath.pitchText(0))
         assertTrue(VideoSound().neutral)
         assertFalse(VideoSound(pitch = 5).neutral)
+    }
+    private fun pixel(values: DoubleArray, pixels: ByteArray, cell: Int) {
+        for (channel in 0 until 3) pixels[cell * 4 + channel] = WatermarkMath.roundHalfUp(values[channel] * 255).toByte()
+        pixels[cell * 4 + 3] = -1
+    }
+
+    @Test
+    fun findsNothingInMovingVideoWithoutAnOverlayAndCantTellInAStillOne() {
+        val finder = OverlayFinder()
+        val random = Random(3)
+        repeat(48) {
+            val pixels = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4)
+            for (cell in 0 until OverlayFinder.COLS * OverlayFinder.ROWS) {
+                pixel(doubleArrayOf(random.next(), random.next(), random.next()), pixels, cell)
+            }
+            finder.add(pixels)
+        }
+        val moving = finder.verdict()
+        assertNull(moving.found)
+        assertFalse(moving.unsure)
+
+        val still = OverlayFinder()
+        val flat = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4) { 90 }
+        repeat(48) { still.add(flat) }
+        assertTrue(still.verdict().unsure)
+    }
+
+    @Test
+    fun findsAStillTextBlockAndTakesHalfClearWhiteTextOutWithoutTinting() {
+        val opacity = 0.4
+        fun inBlock(col: Int, row: Int) = col in 4..14 && row in 29..32
+        val finder = OverlayFinder()
+        val random = Random(13)
+        repeat(48) {
+            val pixels = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4)
+            for (cell in 0 until OverlayFinder.COLS * OverlayFinder.ROWS) {
+                val col = cell % OverlayFinder.COLS
+                val block = inBlock(col, cell / OverlayFinder.COLS)
+                // A caption: a dark box that stays, its letters white at 80 % (every other column).
+                val video = if (block) doubleArrayOf(0.1, 0.08, 0.06) else doubleArrayOf(random.next(), random.next(), random.next())
+                val letter = if (block && col % 2 == 0) 0.8 else 0.0
+                pixel(DoubleArray(3) { letter + (1 - letter) * video[it] }, pixels, cell)
+            }
+            finder.add(pixels)
+        }
+        val box = finder.verdict().found
+        assertNotNull(box)
+        assertTrue(box!!.x / 10_000.0 <= 4.0 / 64)
+        assertTrue((box.x + box.width) / 10_000.0 >= 15.0 / 64)
+        assertTrue(box.y / 10_000.0 <= 29.0 / 36)
+
+        val layout = WatermarkMath.sampleLayout(WatermarkRemoval(x = 4_000, y = 4_000, width = 1_000, height = 1_000), 640, 360)
+        val estimator = WatermarkEstimator(layout)
+        fun covered(col: Int, row: Int) = col >= layout.innerLeft && col < layout.innerLeft + layout.innerCols &&
+            row >= layout.innerTop && row < layout.innerTop + layout.innerRows
+        repeat(300) {
+            val pixels = ByteArray(layout.cols * layout.rows * 4)
+            for (cell in 0 until layout.cols * layout.rows) {
+                val video = doubleArrayOf(random.next(), random.next(), random.next())
+                val over = covered(cell % layout.cols, cell / layout.cols)
+                pixel(DoubleArray(3) { if (over) opacity + (1 - opacity) * video[it] else video[it] }, pixels, cell)
+            }
+            estimator.add(pixels)
+        }
+        val mask = estimator.estimate()
+        assertNotNull(mask)
+        val cell = ((layout.innerRows / 2) * layout.innerCols + layout.innerCols / 2) * 4
+        val texel = IntArray(4) { mask!!.data[cell + it].toInt() and 0xFF }
+        assertTrue(texel[3] / 255.0 <= WatermarkMath.ALPHA_MAX + 0.01)
+        for (video in listOf(doubleArrayOf(0.6, 0.3, 0.2), doubleArrayOf(0.1, 0.5, 0.8), doubleArrayOf(0.9, 0.9, 0.2))) {
+            val shown = DoubleArray(3) { opacity + (1 - opacity) * video[it] }
+            val restored = WatermarkMath.restorePixel(shown, texel)
+            for (channel in 0 until 3) assertTrue("channel $channel", abs(restored[channel] - video[channel]) < 0.1)
+            if (video.toSet().size == 3) {
+                assertEquals((0..2).sortedByDescending { video[it] }, (0..2).sortedByDescending { restored[it] })
+            }
+        }
     }
 }

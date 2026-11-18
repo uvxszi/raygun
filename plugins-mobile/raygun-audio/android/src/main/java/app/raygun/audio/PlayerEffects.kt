@@ -673,9 +673,17 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         open()
     }
 
-    private fun watermarkFound(found: WatermarkRemoval?) {
+    private fun watermarkFound(verdict: FindVerdict) {
+        val found = verdict.found
         if (found == null) {
-            host.showHint(label("watermarkNotFound", "No watermark found; draw a box round it"), 3_000)
+            host.showHint(
+                if (verdict.unsure) {
+                    label("watermarkUnsure", "Couldn't tell; try again while something moves, or draw a box")
+                } else {
+                    label("watermarkNotFound", "No watermark found; draw a box round it")
+                },
+                3_000,
+            )
         } else {
             val before = picture.watermark
             setWatermark(found.copy(enabled = true, brightness = before.brightness, contrast = before.contrast, feather = before.feather))

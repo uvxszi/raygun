@@ -35,7 +35,8 @@ export class WatermarkSampler {
 
   constructor(
     private readonly onMask: (mask: WatermarkMask | null) => void,
-    private readonly onFound: (box: Box | null) => void,
+    /** What finding found: a box, or none (unsure: too little moved to tell). */
+    private readonly onFound: (box: Box | null, unsure: boolean) => void,
   ) {
     let context: CanvasRenderingContext2D | null;
     try {
@@ -103,7 +104,8 @@ export class WatermarkSampler {
     finder.add(pixels);
     if (finder.samples < FIND_SAMPLES) return;
     this.finder = null;
-    this.onFound(finder.find());
+    const verdict = finder.verdict();
+    this.onFound(verdict.kind === 'found' ? verdict.box : null, verdict.kind === 'unsure');
   }
 
   private sampleBox(context: CanvasRenderingContext2D, video: HTMLVideoElement, box: Watermark) {

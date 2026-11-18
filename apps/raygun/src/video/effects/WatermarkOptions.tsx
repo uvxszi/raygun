@@ -40,9 +40,11 @@ export const WatermarkOptions: FC<Props> = ({ effects, onDraw }) => {
       ? t('videoPlayer.watermarkFinding')
       : status === 'notFound'
         ? t('videoPlayer.watermarkNotFound')
-        : hasBox && status === 'learning'
-          ? t('videoPlayer.watermarkLearning')
-          : null;
+        : status === 'unsure'
+          ? t('videoPlayer.watermarkUnsure')
+          : hasBox && status === 'learning'
+            ? t('videoPlayer.watermarkLearning')
+            : null;
   return (
     <>
       <PanelHeading>{t('videoPlayer.effectsWatermark')}</PanelHeading>

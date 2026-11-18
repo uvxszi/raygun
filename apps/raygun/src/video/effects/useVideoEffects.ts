@@ -16,7 +16,7 @@ import type { Watermark } from './watermarkMath';
  * Where the watermark remover stands: learning the overlay from the frames, removing it (a mask
  * found), looking for one (Find it), or none found.
  */
-export type WatermarkStatus = 'learning' | 'ready' | 'finding' | 'notFound';
+export type WatermarkStatus = 'learning' | 'ready' | 'finding' | 'notFound' | 'unsure';
 
 /** A slider's last value is kept for the title this long after it stops moving. */
 const KEEP_AFTER_MS = 400;

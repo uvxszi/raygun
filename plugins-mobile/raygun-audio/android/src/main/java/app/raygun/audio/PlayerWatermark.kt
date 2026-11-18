@@ -41,9 +41,9 @@ internal class WatermarkState {
     @Volatile
     var masked = false
 
-    /** What finding found (null: nothing), called on the GL thread. */
+    /** What finding concluded, called on the GL thread. */
     @Volatile
-    var onFound: ((WatermarkRemoval?) -> Unit)? = null
+    var onFound: ((FindVerdict) -> Unit)? = null
 
     /** The first mask for a box, called on the GL thread. */
     @Volatile
@@ -149,7 +149,7 @@ internal class WatermarkGl(context: Context, private val state: WatermarkState) 
         if (looking.samples < OverlayFinder.SAMPLES) return
         state.finding = false
         finder = null
-        state.onFound?.invoke(looking.find())
+        state.onFound?.invoke(looking.verdict())
     }
 
     /** `rect` of the frame drawn into a `cols × rows` grid and read back, rows from the top. */
