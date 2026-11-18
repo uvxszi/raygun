@@ -38,6 +38,17 @@ describe('locale files', () => {
       }
     }
   });
+
+  it("gives the native video player's words only the placeholders it fills", () => {
+    // `usePlayerLabels` turns {{n}}, {{seconds}} and {{of}} into the player's own marks; any
+    // other name would reach the player as written.
+    for (const [key, text] of english) {
+      if (!key.startsWith('videoPlayer.')) continue;
+      for (const name of placeholders(text)) {
+        expect(['n', 'seconds', 'of'], `${key} uses {{${name}}}`).toContain(name);
+      }
+    }
+  });
 });
 
 describe('language matching', () => {

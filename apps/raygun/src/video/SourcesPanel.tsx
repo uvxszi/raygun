@@ -244,6 +244,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
                     others > 0
                       ? t(playingHere ? 'videoPlayer.otherCopiesPick' : 'videoPlayer.otherCopies', {
                           count: others,
+                          n: others,
                         })
                       : null,
                   ]

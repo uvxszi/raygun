@@ -49,7 +49,7 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
           ? [t('videoPlayer.qualityElsewhere', { n: row.source })]
           : [row.codec];
     if (row.state === 'playing' && !auto && more > 0) {
-      words.push(t('videoPlayer.otherCopiesPick', { count: more }));
+      words.push(t('videoPlayer.otherCopiesPick', { count: more, n: more }));
     }
     return words.filter(Boolean).join(' · ') || null;
   };
