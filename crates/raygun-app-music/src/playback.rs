@@ -1127,9 +1127,14 @@ impl PlaybackService {
                     EngineEvent::Ended => inner.plays.ended(report.load_id),
                     _ => false,
                 };
-            let played = counted
+            let mut played = counted
                 .then(|| inner.core.current_item().cloned())
                 .flatten();
+            // What plays now, in case the report moves on to the next song early (a crossfade).
+            let playing_before =
+                (current && !counted && matches!(report.event, EngineEvent::Progress { .. }))
+                    .then(|| inner.core.current_item().cloned())
+                    .flatten();
             match &report.event {
                 // A stream cut off by Offline Mode isn't the stream's fault: the song is passed
                 // over, nothing marked or looked for again.
@@ -1234,6 +1239,14 @@ impl PlaybackService {
             }
             let reported = report.load_id;
             let mut effects = inner.core.report(report);
+            // A crossfade started the next song before this one ended: it ended all the same (a
+            // short song counts only by ending, and its end report now belongs to an old load).
+            let now_load = inner.core.load_id();
+            if let Some(item) = playing_before
+                && inner.plays.moved_on(reported, now_load)
+            {
+                played = Some(item);
+            }
             // A part SponsorBlock lists that's skipped: the song goes on after it (unless the
             // report ended it, at its end trim).
             let still = inner.core.load_id() == reported;

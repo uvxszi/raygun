@@ -46,6 +46,12 @@ impl PlayCounter {
         self.count(self.short)
     }
 
+    /// A report on `load_id` started `now_load` early (a crossfade into the next song): the song
+    /// ended for counting, though its own end report comes for a load no longer playing.
+    pub fn moved_on(&mut self, load_id: u32, now_load: u32) -> bool {
+        now_load != load_id && self.load_id == Some(load_id) && self.ended(load_id)
+    }
+
     fn follow(&mut self, load_id: u32) {
         if self.load_id != Some(load_id) {
             *self = Self {
@@ -124,6 +130,22 @@ mod tests {
         assert!(
             !skipped.ended(1),
             "skipping to the end of a long track isn't a play"
+        );
+    }
+
+    #[test]
+    fn a_short_song_crossfaded_into_the_next_counts() {
+        let mut counter = PlayCounter::default();
+        // A 20 s song; the crossfade starts the next (load 2) at 18 s.
+        assert!(!play(&mut counter, 1, 0.0, 18_000.0, 20_000.0));
+        assert!(!counter.moved_on(1, 1), "still the same load");
+        assert!(counter.moved_on(1, 2));
+        assert!(!counter.moved_on(1, 2), "counted once");
+        let mut skipped = PlayCounter::default();
+        assert!(!play(&mut skipped, 1, 175_000.0, 179_000.0, 180_000.0));
+        assert!(
+            !skipped.moved_on(1, 2),
+            "a long song crossfaded from near its end isn't a play"
         );
     }
 
