@@ -286,8 +286,8 @@ export const maskTexel = (rawAlpha: number, mean: number[], background: number[]
 };
 
 /**
- * What `fx_watermark.glsl` does with a pixel (0�1 RGB) under a mask texel (bytes): the blend
- * inverted, each channel kept to 0�1.
+ * What `fx_watermark.glsl` does with a pixel (0–1 RGB) under a mask texel (bytes): the blend
+ * inverted, each channel kept to 0–1.
  */
 export const restorePixel = (pixel: number[], texel: number[]) => {
   const alpha = (texel[3] ?? 0) / 255;
@@ -300,11 +300,21 @@ export const restorePixel = (pixel: number[], texel: number[]) => {
 /** The grid the whole picture is sampled on to find an overlay. */
 export const FIND_COLS = 64;
 export const FIND_ROWS = 36;
-/** Samples before looking. */
+/** Samples before looking, at least. */
 export const FIND_SAMPLES = 40;
-/** A still cell changes less than this share of the picture's typical change� */
+/** The most samples taken (about a minute at a sample every 4th frame) before giving up. */
+export const FIND_MAX_SAMPLES = 450;
+/** Scene changes an overlay must stay through: scenery holds still within a shot, a logo across them. */
+export const FIND_CUTS = 2;
+/** A sample this different from its shot's first (mean luma difference per cell) starts a new shot. */
+const CUT_DIFFERENCE = 0.08;
+/** A patch's cell in each shot's first sample is within this of its mean over all of them. */
+const SHOT_MATCH = 0.04;
+/** The latest shots whose first samples are kept for that. */
+const KEPT_SHOTS = 16;
+/** A still cell changes less than this share of the picture's typical change… */
 const STILL_SHARE = 0.15;
-/** �and less than this (luma deviation) at all. */
+/** …and less than this (luma deviation) at all. */
 const STILL_MOST = 0.02;
 /** The picture must change at least this much (median luma deviation) to tell still parts. */
 const MIN_CHANGE = 0.04;
@@ -327,18 +337,42 @@ export type FindVerdict =
   | { kind: 'none' }
   | { kind: 'unsure' };
 
-/** Luma sums of the whole picture over time, to find a static overlay. */
+/**
+ * Luma sums of the whole picture over time, to find a static overlay. Samples go on until the
+ * picture has changed shot at least [FIND_CUTS] times (each a sample far from its shot's first),
+ * since within one held shot scenery with edges looks just like an overlay; a patch that stays
+ * the same across the shots (its deviation over all samples stays tiny) is one.
+ */
 export class OverlayFinder {
   private count = 0;
   private readonly sums = new Float64Array(FIND_COLS * FIND_ROWS);
   private readonly squares = new Float64Array(FIND_COLS * FIND_ROWS);
+  /** The current shot's first sample, to tell a scene change. */
+  private shotStart: Float64Array | null = null;
+  /** The first samples of the latest shots, to check a patch looks the same across each cut. */
+  private readonly shotStarts: Float64Array[] = [];
+  private changes = 0;
 
   get samples() {
     return this.count;
   }
 
-  /** One sample: `FIND_COLS � FIND_ROWS` RGBA bytes, rows from the top. */
+  /** Scene changes seen so far. */
+  get cuts() {
+    return this.changes;
+  }
+
+  /** Enough to answer: the scene changes and samples needed, or as many samples as are taken. */
+  get ready() {
+    return (
+      (this.changes >= FIND_CUTS && this.count >= FIND_SAMPLES) || this.count >= FIND_MAX_SAMPLES
+    );
+  }
+
+  /** One sample: `FIND_COLS × FIND_ROWS` RGBA bytes, rows from the top. */
   add(pixels: ArrayLike<number>) {
+    const lumas = new Float64Array(FIND_COLS * FIND_ROWS);
+    let difference = 0;
     for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
       const at = cell * 4;
       const luma = lumaOf(
@@ -346,8 +380,16 @@ export class OverlayFinder {
         (pixels[at + 1] ?? 0) / 255,
         (pixels[at + 2] ?? 0) / 255,
       );
+      lumas[cell] = luma;
+      if (this.shotStart) difference += Math.abs(luma - (this.shotStart[cell] ?? 0));
       this.sums[cell] = (this.sums[cell] ?? 0) + luma;
       this.squares[cell] = (this.squares[cell] ?? 0) + luma * luma;
+    }
+    if (!this.shotStart || difference / (FIND_COLS * FIND_ROWS) > CUT_DIFFERENCE) {
+      if (this.shotStart) this.changes += 1;
+      this.shotStart = lumas;
+      this.shotStarts.push(lumas);
+      if (this.shotStarts.length > KEPT_SHOTS) this.shotStarts.shift();
     }
     this.count += 1;
   }
@@ -360,12 +402,13 @@ export class OverlayFinder {
 
   /**
    * A box round the largest patch that stays put while the picture round it moves a lot, stands
-   * out from its neighbours and is logo-sized; nothing unless the evidence is strong; unsure
-   * when too little of the picture moved.
+   * out from its neighbours, is logo-sized and stays the same across [FIND_CUTS] scene changes
+   * (nearer the picture's edges wins a tie); nothing unless the evidence is strong; unsure when
+   * too little of the picture moved or the scene didn't change often enough.
    */
   verdict(): FindVerdict {
     const n = this.count;
-    if (n < 2) return { kind: 'unsure' };
+    if (n < 2 || this.changes < FIND_CUTS) return { kind: 'unsure' };
     const cells = FIND_COLS * FIND_ROWS;
     const means = new Float64Array(cells);
     const deviations = new Float64Array(cells);
@@ -388,6 +431,10 @@ export class OverlayFinder {
       for (let col = 0; col < FIND_COLS; col += 1) {
         const cell = row * FIND_COLS + col;
         if ((deviations[cell] ?? 1) >= stillLimit) continue;
+        // The same before and after each cut, not just on average.
+        const mean = means[cell] ?? 0;
+        if (this.shotStarts.some((start) => Math.abs((start[cell] ?? 0) - mean) > SHOT_MATCH))
+          continue;
         const here = means[cell] ?? 0;
         let edge = 0;
         for (const [dx, dy] of [
@@ -441,7 +488,14 @@ export class OverlayFinder {
         (width * height) / cells <= MAX_AREA &&
         width <= FIND_COLS * MAX_SPAN &&
         height <= FIND_ROWS * MAX_SPAN;
-      if (!plausible || (best && found.count <= best.count)) continue;
+      // Larger wins; of two the same size, the one nearer the picture's edge (where logos sit).
+      const fromEdge = (patch: typeof found) =>
+        Math.min(patch.left, patch.top, FIND_COLS - 1 - patch.right, FIND_ROWS - 1 - patch.bottom);
+      const better =
+        !best ||
+        found.count > best.count ||
+        (found.count === best.count && fromEdge(found) < fromEdge(best));
+      if (!plausible || !better) continue;
       // The picture just round the patch must move: a still patch in a still corner is scenery.
       const ring: number[] = [];
       for (let row = found.top - 2; row <= found.bottom + 2; row += 1) {

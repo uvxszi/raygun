@@ -1510,6 +1510,7 @@ const VideoStage: FC<StageProps> = ({
             if (effects.watermarkStatus === 'finding') return;
             effects.setWatermarkStatus(found ? 'ready' : 'learning');
           },
+          onProgress: effects.setWatermarkCuts,
           onFound: (box, unsure) => {
             if (!box) {
               effects.setWatermarkStatus(unsure ? 'unsure' : 'notFound');

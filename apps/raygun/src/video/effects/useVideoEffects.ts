@@ -61,6 +61,9 @@ export type VideoEffects = {
   markUnavailable: () => void;
   watermarkStatus: WatermarkStatus;
   setWatermarkStatus: (status: WatermarkStatus) => void;
+  /** Scene changes Find it has seen so far. */
+  watermarkCuts: number;
+  setWatermarkCuts: (cuts: number) => void;
   /** The box is being drawn over the picture. */
   drawingWatermark: boolean;
   setDrawingWatermark: (drawing: boolean) => void;
@@ -103,6 +106,7 @@ export const useVideoEffects = ({
   const [dropped, setDropped] = useState<HeavyKind[]>([]);
   const [unavailable, setUnavailable] = useState(false);
   const [watermarkStatus, setWatermarkStatus] = useState<WatermarkStatus>('learning');
+  const [watermarkCuts, setWatermarkCuts] = useState(0);
   const [drawingWatermark, setDrawingWatermark] = useState(false);
   const pending = useRef<{ timer: number; change: Effects } | null>(null);
   const rememberRef = useRef(remember);
@@ -209,6 +213,8 @@ export const useVideoEffects = ({
     markUnavailable: () => setUnavailable(true),
     watermarkStatus,
     setWatermarkStatus,
+    watermarkCuts,
+    setWatermarkCuts,
     drawingWatermark,
     setDrawingWatermark,
     setWatermark: (watermark) => {

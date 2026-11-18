@@ -173,6 +173,56 @@ class PlayerWatermarkTest {
         pixels[cell * 4 + 3] = -1
     }
 
+    /** Three held shots of different scenery with strong edges (a little noise), a logo or not. */
+    private fun shots(withLogo: Boolean, count: Int = 3): OverlayFinder {
+        val finder = OverlayFinder()
+        val random = Random(17)
+        fun logo(col: Int, row: Int) = col in 50..58 && row in 3..6 && (col + row) % 2 == 0
+        val blocks = DoubleArray(22 * 12) { random.next() }
+        repeat(count) { shot ->
+            // Scenery: blocks of 3 × 3 cells at their own levels, held for the whole shot; each
+            // shot's level of a block is another third of the way round, so the shots differ.
+            val levels = DoubleArray(blocks.size) { 0.1 + 0.8 * ((blocks[it] + shot / 3.0) % 1.0) }
+            repeat(30) {
+                val pixels = ByteArray(OverlayFinder.COLS * OverlayFinder.ROWS * 4)
+                for (cell in 0 until OverlayFinder.COLS * OverlayFinder.ROWS) {
+                    val col = cell % OverlayFinder.COLS
+                    val row = cell / OverlayFinder.COLS
+                    val scenery = levels[(row / 3) * 22 + col / 3] + (random.next() - 0.5) * 0.02
+                    val value = if (withLogo && logo(col, row)) 0.95 else scenery
+                    pixel(DoubleArray(3) { value.coerceIn(0.0, 1.0) }, pixels, cell)
+                }
+                finder.add(pixels)
+            }
+        }
+        return finder
+    }
+
+    @Test
+    fun takesSceneryHeldStillWithinShotsForNoOverlay() {
+        val finder = shots(withLogo = false)
+        assertEquals(2, finder.cuts)
+        assertTrue(finder.ready)
+        val verdict = finder.verdict()
+        assertNull(verdict.found)
+        assertFalse(verdict.unsure)
+    }
+
+    @Test
+    fun findsALogoThatStaysTheSameAcrossSceneChanges() {
+        val box = shots(withLogo = true).find()
+        assertNotNull(box)
+        assertTrue(box!!.x / 10_000.0 <= 50.0 / 64)
+        assertTrue((box.x + box.width) / 10_000.0 >= 59.0 / 64)
+    }
+
+    @Test
+    fun waitsForSceneChangesInOneHeldShotAndCantTellWithoutThem() {
+        val finder = shots(withLogo = true, count = 1)
+        assertFalse(finder.ready)
+        assertTrue(finder.verdict().unsure)
+    }
+
     @Test
     fun findsNothingInMovingVideoWithoutAnOverlayAndCantTellInAStillOne() {
         val finder = OverlayFinder()

@@ -138,7 +138,71 @@ describe('the watermark remover as numbers', () => {
     expect(watermarkContrast(-100)).toBe(0.5);
     expect(watermarkFeather(50)).toBe(0.25);
   });
-  it('finds nothing in moving video without an overlay, and can�t tell in a still one', () => {
+
+  /** Three held shots of different scenery with strong edges (a little noise), a logo or not. */
+  const shots = (withLogo: boolean) => {
+    const finder = new OverlayFinder();
+    const next = random(17);
+    const logo = (col: number, row: number) =>
+      col >= 50 && col <= 58 && row >= 3 && row <= 6 && (col + row) % 2 === 0;
+    const blocks = Array.from({ length: 22 * 12 }, () => next());
+    for (let shot = 0; shot < 3; shot += 1) {
+      // Scenery: blocks of 3 × 3 cells at their own levels, held for the whole shot; each shot's
+      // level of a block is another third of the way round, so the shots differ.
+      const levels = blocks.map((block) => 0.1 + 0.8 * ((block + shot / 3) % 1));
+      for (let frame = 0; frame < 30; frame += 1) {
+        const pixels = new Uint8Array(FIND_COLS * FIND_ROWS * 4);
+        for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
+          const col = cell % FIND_COLS;
+          const row = Math.floor(cell / FIND_COLS);
+          const scenery =
+            (levels[Math.floor(row / 3) * 22 + Math.floor(col / 3)] ?? 0) + (next() - 0.5) * 0.02;
+          const value = withLogo && logo(col, row) ? 0.95 : scenery;
+          const byte = Math.round(Math.min(1, Math.max(0, value)) * 255);
+          pixels.set([byte, byte, byte, 255], cell * 4);
+        }
+        finder.add(pixels);
+      }
+    }
+    return finder;
+  };
+
+  it('takes scenery held still within shots for no overlay', () => {
+    const finder = shots(false);
+    expect(finder.cuts).toBe(2);
+    expect(finder.ready).toBe(true);
+    expect(finder.verdict()).toEqual({ kind: 'none' });
+  });
+
+  it('finds a logo that stays the same across scene changes', () => {
+    const finder = shots(true);
+    const box = finder.find();
+    expect(box).not.toBeNull();
+    expect((box?.x ?? 0) / 10_000).toBeLessThanOrEqual(50 / 64);
+    expect(((box?.x ?? 0) + (box?.width ?? 0)) / 10_000).toBeGreaterThanOrEqual(59 / 64);
+  });
+
+  it('waits for scene changes in one held shot, and can’t tell without them', () => {
+    const finder = new OverlayFinder();
+    const next = random(19);
+    const levels = Array.from({ length: 22 * 12 }, () => 0.1 + next() * 0.8);
+    for (let frame = 0; frame < 120; frame += 1) {
+      const pixels = new Uint8Array(FIND_COLS * FIND_ROWS * 4);
+      for (let cell = 0; cell < FIND_COLS * FIND_ROWS; cell += 1) {
+        const level =
+          levels[
+            Math.floor(Math.floor(cell / FIND_COLS) / 3) * 22 + Math.floor((cell % FIND_COLS) / 3)
+          ] ?? 0;
+        const byte = Math.round((level + (next() - 0.5) * 0.02) * 255);
+        pixels.set([byte, byte, byte, 255], cell * 4);
+      }
+      finder.add(pixels);
+    }
+    expect(finder.ready).toBe(false);
+    expect(finder.verdict()).toEqual({ kind: 'unsure' });
+  });
+
+  it('finds nothing in moving video without an overlay, and can’t tell in a still one', () => {
     const finder = new OverlayFinder();
     const next = random(3);
     for (let frame = 0; frame < 48; frame += 1) {

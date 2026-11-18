@@ -1,7 +1,6 @@
 import {
   FIND_COLS,
   FIND_ROWS,
-  FIND_SAMPLES,
   isWatermarkActive,
   OverlayFinder,
   sampleLayout,
@@ -37,6 +36,8 @@ export class WatermarkSampler {
     private readonly onMask: (mask: WatermarkMask | null) => void,
     /** What finding found: a box, or none (unsure: too little moved to tell). */
     private readonly onFound: (box: Box | null, unsure: boolean) => void,
+    /** Scene changes seen while finding: the answer waits for two (or about a minute). */
+    private readonly onProgress: (cuts: number) => void = () => {},
   ) {
     let context: CanvasRenderingContext2D | null;
     try {
@@ -101,8 +102,10 @@ export class WatermarkSampler {
       FIND_ROWS,
     );
     if (!pixels) return;
+    const cuts = finder.cuts;
     finder.add(pixels);
-    if (finder.samples < FIND_SAMPLES) return;
+    if (finder.cuts !== cuts) this.onProgress(finder.cuts);
+    if (!finder.ready) return;
     this.finder = null;
     const verdict = finder.verdict();
     this.onFound(verdict.kind === 'found' ? verdict.box : null, verdict.kind === 'unsure');

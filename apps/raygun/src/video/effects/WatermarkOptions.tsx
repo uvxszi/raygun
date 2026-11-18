@@ -37,7 +37,7 @@ export const WatermarkOptions: FC<Props> = ({ effects, onDraw }) => {
   const status = effects.watermarkStatus;
   const line =
     status === 'finding'
-      ? t('videoPlayer.watermarkFinding')
+      ? t('videoPlayer.watermarkFindingCuts', { n: effects.watermarkCuts })
       : status === 'notFound'
         ? t('videoPlayer.watermarkNotFound')
         : status === 'unsure'
@@ -72,7 +72,10 @@ export const WatermarkOptions: FC<Props> = ({ effects, onDraw }) => {
               type="button"
               className={pill}
               disabled={status === 'finding'}
-              onClick={() => effects.setWatermarkStatus('finding')}
+              onClick={() => {
+                effects.setWatermarkCuts(0);
+                effects.setWatermarkStatus('finding');
+              }}
             >
               {t('videoPlayer.watermarkFind')}
             </button>

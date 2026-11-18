@@ -119,6 +119,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
     private val watermarks = params.watermarkState.apply {
         onFound = { found -> host.main.post { watermarkFound(found) } }
         onMasked = { host.main.post { if (host.sheetShown(sheet)) open() } }
+        onProgress = { host.main.post { if (host.sheetShown(sheet)) open() } }
     }
     /** The Effects sheet while it shows. */
     private var sheet: PlayerSheet? = null
@@ -589,7 +590,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
             }
         })
         when {
-            watermarks.finding -> sheet.row(label("watermarkFinding", "Looking for a watermark that stays put…"), onClick = null)
+            watermarks.finding -> sheet.row(label("watermarkFindingCuts", "Looking for a watermark that stays through scene changes ({n} of 2 so far)…", watermarks.cuts.toString()), onClick = null)
             current.active && !watermarks.masked ->
                 sheet.row(label("watermarkLearning", "Learning the watermark as the video plays…"), onClick = null)
         }
@@ -667,6 +668,7 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
 
     /** Finding samples the playing picture for a few seconds (the effects' pipeline goes in for it). */
     private fun findWatermark() {
+        watermarks.cuts = 0
         watermarks.finding = true
         apply()
         if (!host.player.isPlaying) host.player.play()

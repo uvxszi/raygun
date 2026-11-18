@@ -45,6 +45,14 @@ internal class WatermarkState {
     @Volatile
     var onFound: ((FindVerdict) -> Unit)? = null
 
+    /** Scene changes finding has seen (an answer needs two). */
+    @Volatile
+    var cuts = 0
+
+    /** Another scene change seen while finding, called on the GL thread. */
+    @Volatile
+    var onProgress: (() -> Unit)? = null
+
     /** The first mask for a box, called on the GL thread. */
     @Volatile
     var onMasked: (() -> Unit)? = null
@@ -145,8 +153,13 @@ internal class WatermarkGl(context: Context, private val state: WatermarkState) 
     private fun find(input: Int, again: Boolean) {
         val looking = finder ?: OverlayFinder().also { finder = it }
         if (again || frames % FIND_EVERY != 0L) return
+        val before = looking.cuts
         looking.add(readBack(input, floatArrayOf(0f, 0f, 1f, 1f), OverlayFinder.COLS, OverlayFinder.ROWS))
-        if (looking.samples < OverlayFinder.SAMPLES) return
+        if (looking.cuts != before) {
+            state.cuts = looking.cuts
+            state.onProgress?.invoke()
+        }
+        if (!looking.ready) return
         state.finding = false
         finder = null
         state.onFound?.invoke(looking.verdict())

@@ -15,9 +15,10 @@ export type WatermarkHooks = {
   finding: boolean;
   /** A mask was found for the box (true), or it's learning again (false). */
   onMask: (found: boolean) => void;
-  /** Find it's answer: the box round a still overlay, or null. */
   /** Finding's answer: a box, or none (unsure: too little moved to tell). */
   onFound: (box: Pick<Watermark, 'x' | 'y' | 'width' | 'height'> | null, unsure: boolean) => void;
+  /** Scene changes seen while finding (an answer needs two). */
+  onProgress?: (cuts: number) => void;
 };
 
 type Props = {
@@ -85,6 +86,7 @@ export const VideoEffectsLayer: FC<Props> = ({
     (box: Pick<Watermark, 'x' | 'y' | 'width' | 'height'> | null, unsure: boolean) =>
       watermark?.onFound(box, unsure),
   );
+  const findProgress = useEffectEvent((cuts: number) => watermark?.onProgress?.(cuts));
   const box = useRef(effects.watermark);
   const findingNow = useRef(finding);
   const renderer = useRef<EffectsRenderer | null>(null);
@@ -127,6 +129,7 @@ export const VideoEffectsLayer: FC<Props> = ({
         if (video.paused) redraw.current();
       },
       (found, unsure) => overlayFound(found, unsure),
+      (cuts) => findProgress(cuts),
     );
     boxFrames.setWatermark(box.current);
     if (findingNow.current) boxFrames.find();

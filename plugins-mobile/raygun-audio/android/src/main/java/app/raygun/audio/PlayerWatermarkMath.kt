@@ -185,7 +185,7 @@ internal object WatermarkMath {
         return texel
     }
 
-    /** What `fx_watermark.glsl` does with a pixel (0–1 RGB) under a mask texel (bytes). */
+    /** What `fx_watermark.glsl` does with a pixel (0â€“1 RGB) under a mask texel (bytes). */
     fun restorePixel(pixel: DoubleArray, texel: IntArray): DoubleArray {
         val alpha = texel[3] / 255.0
         return DoubleArray(3) { ((pixel[it] - texel[it] / 255.0) / max(1 - alpha, 0.4)).coerceIn(0.0, 1.0) }
@@ -313,15 +313,34 @@ internal class WatermarkEstimator(val layout: SampleLayout) {
 /** What finding concluded: a box ([found]), none, or that the picture moved too little to tell. */
 internal class FindVerdict(val found: WatermarkRemoval?, val unsure: Boolean)
 
-/** Luma of the whole picture over time, to find a static overlay ([verdict]). */
+/**
+ * Luma of the whole picture over time, to find a static overlay ([verdict]). Samples go on until
+ * the picture has changed shot at least [CUTS] times (each a sample far from its shot's first),
+ * since within one held shot scenery with edges looks just like an overlay; a patch that stays the
+ * same across the shots is one (`OverlayFinder` in `watermarkMath.ts`).
+ */
 internal class OverlayFinder {
     var samples = 0
         private set
+
+    /** Scene changes seen so far. */
+    var cuts = 0
+        private set
     private val sums = DoubleArray(COLS * ROWS)
     private val squares = DoubleArray(COLS * ROWS)
+    private var shotStart: DoubleArray? = null
 
-    /** One sample: `COLS × ROWS` RGBA bytes, rows from the top. */
+    /** The first samples of the latest shots, to check a patch looks the same across each cut. */
+    private val shotStarts = ArrayDeque<DoubleArray>()
+
+    /** Enough to answer: the scene changes and samples needed, or as many samples as are taken. */
+    val ready: Boolean get() = (cuts >= CUTS && samples >= SAMPLES) || samples >= MAX_SAMPLES
+
+    /** One sample: `COLS Ã— ROWS` RGBA bytes, rows from the top. */
     fun add(pixels: ByteArray) {
+        val lumas = DoubleArray(COLS * ROWS)
+        val start = shotStart
+        var difference = 0.0
         for (cell in 0 until COLS * ROWS) {
             val at = cell * 4
             val luma = WatermarkMath.luma(
@@ -329,8 +348,16 @@ internal class OverlayFinder {
                 (pixels[at + 1].toInt() and 0xFF) / 255.0,
                 (pixels[at + 2].toInt() and 0xFF) / 255.0,
             )
+            lumas[cell] = luma
+            if (start != null) difference += abs(luma - start[cell])
             sums[cell] += luma
             squares[cell] += luma * luma
+        }
+        if (start == null || difference / (COLS * ROWS) > CUT_DIFFERENCE) {
+            if (start != null) cuts += 1
+            shotStart = lumas
+            shotStarts.addLast(lumas)
+            if (shotStarts.size > KEPT_SHOTS) shotStarts.removeFirst()
         }
         samples += 1
     }
@@ -339,12 +366,13 @@ internal class OverlayFinder {
 
     /**
      * A box round the largest patch that stays put while the picture round it moves a lot, stands
-     * out from its neighbours and is logo-sized; nothing unless the evidence is strong; unsure
-     * when too little of the picture moved (`OverlayFinder.verdict` in `watermarkMath.ts`).
+     * out from its neighbours, is logo-sized and stays the same across [CUTS] scene changes
+     * (nearer the picture's edges wins a tie); nothing unless the evidence is strong; unsure when
+     * too little moved or the scene didn't change often enough (`verdict` in `watermarkMath.ts`).
      */
     fun verdict(): FindVerdict {
         val unsure = FindVerdict(null, true)
-        if (samples < 2) return unsure
+        if (samples < 2 || cuts < CUTS) return unsure
         val n = samples.toDouble()
         val cells = COLS * ROWS
         val means = DoubleArray(cells) { sums[it] / n }
@@ -359,6 +387,8 @@ internal class OverlayFinder {
             for (col in 0 until COLS) {
                 val cell = row * COLS + col
                 if (deviations[cell] >= stillLimit) continue
+                // The same before and after each cut, not just on average.
+                if (shotStarts.any { abs(it[cell] - means[cell]) > SHOT_MATCH }) continue
                 var edge = 0.0
                 for ((dx, dy) in NEIGHBOURS) {
                     if (!inside(col + dx, row + dy)) continue
@@ -402,7 +432,10 @@ internal class OverlayFinder {
             val height = found[4] - found[2] + 1
             val plausible = found[0] >= MIN_CELLS && width.toDouble() * height / cells <= MAX_AREA &&
                 width <= COLS * MAX_SPAN && height <= ROWS * MAX_SPAN
-            if (!plausible || (best != null && found[0] <= best[0])) continue
+            // Larger wins; of two the same size, the one nearer the picture's edge (where logos sit).
+            fun fromEdge(patch: IntArray) = minOf(patch[1], patch[2], COLS - 1 - patch[3], ROWS - 1 - patch[4])
+            val better = best == null || found[0] > best[0] || (found[0] == best[0] && fromEdge(found) < fromEdge(best))
+            if (!plausible || !better) continue
             // The picture just round the patch must move: a still patch in a still corner is scenery.
             val ring = ArrayList<Double>()
             for (row in found[2] - 2..found[4] + 2) {
@@ -437,6 +470,15 @@ internal class OverlayFinder {
         const val COLS = 64
         const val ROWS = 36
         const val SAMPLES = 40
+
+        /** The most samples taken (about a minute at one every 4th frame) before giving up. */
+        const val MAX_SAMPLES = 450
+
+        /** Scene changes an overlay must stay through. */
+        const val CUTS = 2
+        private const val CUT_DIFFERENCE = 0.08
+        private const val SHOT_MATCH = 0.04
+        private const val KEPT_SHOTS = 16
         private val NEIGHBOURS = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
         private const val STILL_SHARE = 0.15
         private const val STILL_MOST = 0.02

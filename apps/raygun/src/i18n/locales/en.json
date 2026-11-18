@@ -3160,6 +3160,7 @@
     "watermarkRedraw": "Draw again",
     "watermarkFind": "Find it",
     "watermarkFinding": "Looking for a watermark that stays put…",
+    "watermarkFindingCuts": "Looking for a watermark that stays through scene changes ({{n}} of 2 so far)…",
     "watermarkNotFound": "No watermark found; draw a box round it",
     "watermarkUnsure": "Couldn't tell; try again while something moves, or draw a box",
     "watermarkDrawHint": "Drag a box round the watermark",
