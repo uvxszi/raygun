@@ -34,9 +34,45 @@ pub fn normalize(bytes: &[u8], wanted: Option<&str>) -> Vec<u8> {
         (Some("vtt" | "webvtt"), Kind::Srt | Kind::Ass) => {
             subtitles::to_vtt(&subtitles::parse(&text))
         }
+        (_, Kind::Srt) => numbered(&text),
         _ => text,
     };
     out.into_bytes()
+}
+
+/// SubRip with a clean number before every timing line. Strict readers (Media3's) take a cue
+/// only after a line that is a number alone, so a file whose numbers carry spaces ("1 ") or
+/// that leaves them out showed no subtitles at all; the cues themselves are left as written.
+fn numbered(text: &str) -> String {
+    let mut lines: Vec<&str> = Vec::new();
+    let mut numbers: Vec<(usize, usize)> = Vec::new();
+    for line in text.lines() {
+        if line.contains("-->") {
+            let previous = lines.last().map(|line| line.trim());
+            let is_number = previous.is_some_and(|line| {
+                !line.is_empty() && line.bytes().all(|byte| byte.is_ascii_digit())
+            });
+            if is_number {
+                lines.pop();
+            }
+            numbers.push((lines.len(), numbers.len() + 1));
+            lines.push("");
+        }
+        lines.push(line);
+    }
+    let mut out = String::with_capacity(text.len() + numbers.len() * 4);
+    let mut next = numbers.iter().peekable();
+    for (index, line) in lines.iter().enumerate() {
+        match next.peek() {
+            Some((at, number)) if *at == index => {
+                out.push_str(&number.to_string());
+                next.next();
+            }
+            _ => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    out
 }
 
 fn gunzip(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -113,8 +149,27 @@ mod tests {
         assert!(vtt.starts_with("WEBVTT"));
         assert!(vtt.contains("00:00:01.000 --> 00:00:02.000\nHi"));
         assert_eq!(normalize(srt.as_bytes(), Some("srt")), srt.as_bytes());
+        assert_eq!(normalize(srt.as_bytes(), None), srt.as_bytes());
         assert_eq!(kind_of(srt), Kind::Srt);
         assert_eq!(kind_of("00:01.000 --> 00:02.000\nHi"), Kind::Vtt);
+    }
+
+    #[test]
+    fn subrip_numbers_are_made_plain() {
+        // OpenSubtitles' Big Buck Bunny file: every cue numbered "1 ", which Media3 skipped.
+        let srt = "1 \r\n00:00:02,000 --> 00:00:05,000\r\nBig Buck Bunny\r\n\r\n1 \r\n00:00:45,000 --> 00:00:59,000\r\nHello, there...\r\n";
+        let tidy = String::from_utf8(normalize(srt.as_bytes(), Some("srt"))).unwrap();
+        assert_eq!(
+            tidy,
+            "1\n00:00:02,000 --> 00:00:05,000\nBig Buck Bunny\n\n2\n00:00:45,000 --> 00:00:59,000\nHello, there...\n"
+        );
+        // A cue without a number gets one; text that is a number stays.
+        let bare = "00:00:01,000 --> 00:00:02,000\n42\n\n00:00:03,000 --> 00:00:04,000\nNext\n";
+        let tidy = String::from_utf8(normalize(bare.as_bytes(), None)).unwrap();
+        assert_eq!(
+            tidy,
+            "1\n00:00:01,000 --> 00:00:02,000\n42\n\n2\n00:00:03,000 --> 00:00:04,000\nNext\n"
+        );
     }
 
     #[test]
