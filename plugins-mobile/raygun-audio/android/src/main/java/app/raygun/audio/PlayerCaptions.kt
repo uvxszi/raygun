@@ -213,6 +213,64 @@ internal fun PlayerSheet.subtitleTools(host: VideoPlayerActivity, tools: List<Su
     custom(row)
 }
 
+/** A switch drawn as a small tile: its icon, a word or two, and what it does at length. */
+internal class ToggleTile(val icon: Int, val name: String, val description: String, val on: Boolean, val onClick: () -> Unit)
+
+/**
+ * Switches as small tiles side by side (Audio's smart audio): the icon over a word or two, white
+ * while on, as a picked pill. What each does is its tooltip, shown on a long press.
+ */
+internal fun PlayerSheet.toggleTiles(host: VideoPlayerActivity, tiles: List<ToggleTile>) {
+    val context: Context = host
+    val ripple = TypedValue().also { context.theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true) }
+    val row = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        isBaselineAligned = false
+        setPadding(context.dp(16), context.dp(4), context.dp(16), context.dp(6))
+    }
+    tiles.forEachIndexed { index, tile ->
+        val view = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            minimumHeight = context.dp(64)
+            setPadding(context.dp(4), context.dp(8), context.dp(4), context.dp(8))
+            background = rounded(if (tile.on) Color.WHITE else 0x1FFFFFFF, context.dp(12).toFloat())
+            foreground = ContextCompat.getDrawable(context, ripple.resourceId)
+            isClickable = true
+            isFocusable = true
+            contentDescription = tile.description
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, tile.description)
+            androidx.core.view.ViewCompat.setAccessibilityDelegate(this, object : androidx.core.view.AccessibilityDelegateCompat() {
+                override fun onInitializeAccessibilityNodeInfo(
+                    host: View,
+                    info: androidx.core.view.accessibility.AccessibilityNodeInfoCompat,
+                ) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.className = android.widget.CompoundButton::class.java.name
+                    info.isCheckable = true
+                    info.isChecked = tile.on
+                }
+            })
+            setOnClickListener { tile.onClick() }
+            addView(ImageView(context).apply {
+                setImageResource(tile.icon)
+                setColorFilter(if (tile.on) Color.BLACK else Color.WHITE)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(context.dp(22), context.dp(22)))
+            addView(TextView(context).apply {
+                text = tile.name
+                setTextColor(if (tile.on) Color.BLACK else Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                gravity = Gravity.CENTER
+                maxLines = 2
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = context.dp(4) })
+        }
+        row.addView(view, LinearLayout.LayoutParams(0, -1, 1f).apply { if (index > 0) marginStart = context.dp(8) })
+    }
+    custom(row)
+}
+
 /**
  * "Aa" as subtitles in `look` show it, over a grey like a picture's: its font, colours, edge and
  * background, for the style card.
@@ -313,10 +371,17 @@ internal fun PlayerSheet.fontChips(host: VideoPlayerActivity, current: String, o
     })
 }
 
+/** The delay pills' steps, in milliseconds: a second and a tenth either way. */
+internal val DELAY_STEPS = listOf(-1000L to "−1", -100L to "−0.1", 100L to "+0.1", 1000L to "+1")
+
+/** `delayMs` moved by `step`, kept within the largest delay either way. */
+internal fun steppedDelay(delayMs: Long, step: Long): Long = (delayMs + step).coerceIn(-MAX_DELAY_MS, MAX_DELAY_MS)
+
 /**
- * A delay (the subtitles', the sound's): typed in seconds (decimals; negative for earlier), or
- * stepped with the pills under it. `set` gets the new delay in milliseconds; `description` names
- * the field for accessibility.
+ * A delay (the subtitles', the sound's) under a "Delay" heading, as one row filling the width:
+ * −1 and −0.1, the seconds typed (decimals; negative for earlier) between them and +0.1 and +1,
+ * then Reset. `set` gets the new delay in milliseconds; `description` names the field for
+ * accessibility.
  */
 internal fun PlayerSheet.delayField(
     host: VideoPlayerActivity,
@@ -329,7 +394,7 @@ internal fun PlayerSheet.delayField(
         setText(formatDelay(delayMs))
         contentDescription = description
         setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         gravity = Gravity.CENTER
         inputType = InputType.TYPE_CLASS_NUMBER or
             InputType.TYPE_NUMBER_FLAG_DECIMAL or
@@ -337,7 +402,10 @@ internal fun PlayerSheet.delayField(
         imeOptions = EditorInfo.IME_ACTION_DONE
         isSingleLine = true
         setSelectAllOnFocus(true)
-        backgroundTintList = android.content.res.ColorStateList.valueOf(playerAccent)
+        background = null
+        setPadding(0, 0, 0, 0)
+        minWidth = 0
+        minimumWidth = 0
     }
     val commit = {
         val typed = parseDelay(field.text.toString())
@@ -349,36 +417,67 @@ internal fun PlayerSheet.delayField(
         if (done) commit()
         done
     }
-    custom(LinearLayout(context).apply {
+    // The field in a box of the pills' height, its unit inside it; a tap anywhere in it types.
+    val box = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(context.dp(20), context.dp(4), context.dp(20), 0)
-        addView(TextView(context).apply {
-            text = host.label("delay", "Delay")
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        addView(field, LinearLayout.LayoutParams(context.dp(96), -2))
+        gravity = Gravity.CENTER
+        setPadding(context.dp(6), 0, context.dp(8), 0)
+        background = GradientDrawable().apply {
+            setColor(0x1FFFFFFF)
+            cornerRadius = context.dp(20).toFloat()
+            setStroke(context.dp(1), 0x4DFFFFFF)
+        }
+        setOnClickListener {
+            field.requestFocus()
+            (context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+                ?.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT)
+        }
+        addView(field, LinearLayout.LayoutParams(0, -2, 1f))
         addView(TextView(context).apply {
             text = host.label("secondsUnit", "s")
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(context.dp(6), 0, 0, 0)
+            setTextColor(0xB3FFFFFF.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         })
-    })
-    val steps = listOf(-1000L to "−1", -100L to "−0.1", 100L to "+0.1", 1000L to "+1")
+    }
+    header(host.label("delay", "Delay"))
+    val height = context.dp(40)
+    val compact = { pill: TextView ->
+        pill.setPadding(context.dp(4), 0, context.dp(4), 0)
+        pill.maxLines = 1
+        pill
+    }
     val line = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        setPadding(context.dp(12), context.dp(2), context.dp(20), context.dp(6))
-        steps.forEach { (step, name) ->
-            addView(context.pill(name) { set((delayMs + step).coerceIn(-MAX_DELAY_MS, MAX_DELAY_MS)) })
-        }
-        addView(context.pill(host.label("reset", "Reset")) { set(0) }.apply { isEnabled = delayMs != 0L; alpha = if (delayMs != 0L) 1f else 0.4f })
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(context.dp(16), context.dp(2), context.dp(16), context.dp(8))
     }
-    custom(HorizontalScrollView(context).apply {
-        isHorizontalScrollBarEnabled = false
-        addView(line)
-    })
+    val add = { view: View, weight: Float ->
+        line.addView(view, LinearLayout.LayoutParams(0, height, weight).apply {
+            if (line.childCount > 0) marginStart = context.dp(6)
+        })
+    }
+    DELAY_STEPS.forEachIndexed { index, (step, name) ->
+        if (index == DELAY_STEPS.size / 2) add(box, 1.6f)
+        add(compact(context.pill(name) { set(steppedDelay(delayMs, step)) }), 1f)
+    }
+    val reset = ImageView(context).apply {
+        setImageResource(R.drawable.raygun_ic_replay)
+        setColorFilter(Color.WHITE)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        setPadding(context.dp(9), context.dp(9), context.dp(9), context.dp(9))
+        background = rounded(0x66000000, context.dp(20).toFloat())
+        val name = host.label("reset", "Reset")
+        contentDescription = name
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(this, name)
+        isEnabled = delayMs != 0L
+        alpha = if (delayMs != 0L) 1f else 0.4f
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { set(0) }
+    }
+    line.addView(reset, LinearLayout.LayoutParams(height, height).apply { marginStart = context.dp(6) })
+    custom(line)
 }
 
 /**

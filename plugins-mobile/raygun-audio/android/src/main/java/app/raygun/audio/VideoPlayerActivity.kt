@@ -385,6 +385,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         val request = JSONObject(intent.getStringExtra(EXTRA_REQUEST) ?: "{}")
         readSettings(request)
 
+        // The screen stays on while the video plays ([updateScreenOn]), from its first frame.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.setBackgroundColor(Color.BLACK)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -432,7 +433,6 @@ class VideoPlayerActivity : AppCompatActivity() {
             useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             setKeepContentOnPlayerReset(true)
-            keepScreenOn = true
         }
         // The player's own subtitle view sits inside the picture's frame; these follow the part
         // of the frame on screen.
@@ -624,6 +624,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            updateScreenOn()
             when (playbackState) {
                 Player.STATE_READY -> {
                     rebuffering = false
@@ -654,7 +655,12 @@ class VideoPlayerActivity : AppCompatActivity() {
             controls.update()
         }
 
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            updateScreenOn()
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            updateScreenOn()
             subtitleClock.refresh()
             if (!isPlaying) report("progress")
             updateWaiting()
@@ -1560,6 +1566,7 @@ class VideoPlayerActivity : AppCompatActivity() {
      */
     private fun settingsChanged(update: JSONObject) {
         readSettings(update)
+        updateScreenOn()
         effects.onPrefs(update)
         languages = LanguagePrefs.from(prefs, appLanguage, subtitleLanguage, subtitleMode, spokenLanguage)
         controls.setSeekStep(seekStepMs)
@@ -2331,6 +2338,21 @@ class VideoPlayerActivity : AppCompatActivity() {
      * The ring while a video buffers, with how much of what it needs has come in, and before it
      * starts which source it is.
      */
+    /**
+     * Keeps the screen on while the video plays or waits to (paused, the system's timeout applies)
+     * unless Keep the screen on while paused is on ([screenStaysOn]). Picture-in-picture and the
+     * sound in the background don't depend on it.
+     */
+    internal fun updateScreenOn() {
+        if (!::player.isInitialized) return
+        val on = screenStaysOn(player.playWhenReady, player.playbackState, prefs.keepScreenOnPaused)
+        if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     private fun updateWaiting() {
         if (!::loading.isInitialized) return
         if (loading.finding || problem.shown) {

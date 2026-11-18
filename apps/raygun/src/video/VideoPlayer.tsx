@@ -41,7 +41,7 @@ import { useTranslation } from 'react-i18next';
 
 import { formatTime } from '../player/formatTime';
 import { useCaptions } from '../player/spoken';
-import { AudioPanel } from './AudioPanel';
+import { AddAudioFileButton, AudioPanel } from './AudioPanel';
 import { CastPanel, CastStage } from './Cast';
 import { MAX_AUDIO_DELAY_MS, rememberOf } from './externalAudio';
 import type { SoundSource } from './externalAudio';
@@ -64,7 +64,7 @@ import { usePictureBox } from './pictureBox';
 import { VIGNETTE } from './vignette';
 import { CueEditor } from './CueEditor';
 import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
-import { EffectsPanel, SmartAudioOptions } from './effects/EffectsPanel';
+import { EffectsPanel, SmartAudioToggles } from './effects/EffectsPanel';
 import { HEAVY_LABEL } from './effects/effectLabels';
 import { isNeutral } from './effects/effectParams';
 import { useVideoAudio } from './effects/useVideoAudio';
@@ -110,6 +110,7 @@ import { useVideoPlayerStore } from './videoPlayerStore';
 import { VideoSettingsPanel } from './VideoSettingsPanel';
 import { sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
+import { useWakeLock } from '../manga/reader/useWakeLock';
 import { seekByDragging } from '../settings/playerOptions';
 import { useBackLayer } from '../shell/backLayers';
 import { useIsPhone } from '../shell/useIsDesktop';
@@ -467,6 +468,8 @@ const VideoStage: FC<StageProps> = ({
   const subtitleFiles = useRef(new Map<string, Cue[]>());
 
   const [playing, setPlaying] = useState(false);
+  // A playing video keeps the screen on by itself; paused, only when asked to.
+  useWakeLock(prefs.keepScreenOnPaused && !playing);
   const [waiting, setWaiting] = useState(true);
   /** Play or pause pressed while it waits: shown in the ring's place for a moment. */
   const [pressShown, setPressShown] = useState<'play' | 'pause' | null>(null);
@@ -2053,7 +2056,20 @@ const VideoStage: FC<StageProps> = ({
         />
       )}
       {panel === 'audio' && (
-        <PlayerPanel title={t('videoPlayer.audio')} onClose={() => setPanel(null)}>
+        <PlayerPanel
+          title={t('videoPlayer.audio')}
+          onClose={() => setPanel(null)}
+          actions={
+            <AddAudioFileButton
+              onFile={(file) => {
+                pickSoundFile(file);
+                setPanel(null);
+              }}
+            />
+          }
+        >
+          {/* Whichever sound plays goes through it. */}
+          <SmartAudioToggles effects={effects} />
           <AudioPanel
             tracks={audioTracks.map((track, index) => ({
               id: track.id,
@@ -2069,15 +2085,9 @@ const VideoStage: FC<StageProps> = ({
               pickSoundOffer(offer);
               setPanel(null);
             }}
-            onFile={(file) => {
-              pickSoundFile(file);
-              setPanel(null);
-            }}
             delayMs={audioDelayMs}
             onDelay={changeAudioDelay}
           />
-          {/* Whichever sound plays goes through it. */}
-          <SmartAudioOptions effects={effects} />
         </PlayerPanel>
       )}
       {panel === 'quality' && (

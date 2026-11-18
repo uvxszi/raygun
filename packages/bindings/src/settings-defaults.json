@@ -128,6 +128,7 @@
     "audioFallback": "",
     "pipOnLeave": true,
     "pipOnBack": false,
+    "keepScreenOnPaused": false,
     "decoder": "auto",
     "videoCodec": "auto",
     "externalPlayer": false,

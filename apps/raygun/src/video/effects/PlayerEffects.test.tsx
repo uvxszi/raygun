@@ -282,10 +282,21 @@ describe('effects in the desktop player', () => {
     // A video with one track still has the Audio panel, for smart audio.
     await user.click(within(player).getByRole('button', { name: 'Audio' }));
     const audio = screen.getByRole('region', { name: 'Audio' });
-    await user.click(within(audio).getByRole('menuitemcheckbox', { name: /Clearer dialogue/ }));
+    // Smart audio's switches sit at the top as small buttons; what each does is their tip.
+    const dialogue = within(audio).getByRole('button', { name: 'Clearer dialogue' });
+    expect(dialogue).toHaveTextContent('Dialogue');
+    expect(dialogue).toHaveAttribute('title', 'Clearer dialogue: Voices brought forward');
+    expect(dialogue).toHaveAttribute('aria-pressed', 'false');
+    await user.click(dialogue);
     expect(requests().at(-1)).toMatchObject({
       action: 'state',
       change: { smartAudio: expect.objectContaining({ dialogue: true }) },
     });
+    expect(within(audio).getByRole('button', { name: 'Clearer dialogue' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // Add an audio file is a small button by the title.
+    expect(within(audio).getByRole('button', { name: 'Add an audio file' })).toBeInTheDocument();
   });
 });

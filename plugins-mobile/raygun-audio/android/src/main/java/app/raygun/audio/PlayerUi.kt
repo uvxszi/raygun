@@ -278,6 +278,18 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
     private val maxHeight: Int get() = (context.resources.displayMetrics.heightPixels * 0.72f).toInt()
     private val body = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val scroll = CappedScroll(context) { maxHeight }.apply { addView(body) }
+    /** The title, and small buttons at its end ([action]). */
+    private val titleRow = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(context.dp(20), 0, context.dp(14), context.dp(8))
+        addView(TextView(context).apply {
+            text = title
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+    }
     // Two panes side by side (Sources) take a wider panel. Its size comes from the room left
     // between the system bars and a cutout, measured each layout (a turn of the phone too).
     private val panel = BoundedColumn(context, context.dp(if (wide) 880 else 560), context.dp(16)).apply {
@@ -289,13 +301,7 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         }
         setPadding(0, context.dp(16), 0, context.dp(12))
         isClickable = true
-        addView(TextView(context).apply {
-            text = title
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(context.dp(20), 0, context.dp(20), context.dp(8))
-        })
+        addView(titleRow, LinearLayout.LayoutParams(-1, -2))
         // Weighted: in a short window (landscape) the rows give up height first, never the
         // panel's room above the navigation bar.
         addView(scroll, LinearLayout.LayoutParams(-1, -2, 1f))
@@ -357,6 +363,34 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
     var onDismiss: (() -> Unit)? = null
     /** Back while it shows: true when the sheet closed something of its own (a menu in it). */
     var onBack: (() -> Boolean)? = null
+
+    /**
+     * A small round button at the end of the title (Audio's Add an audio file): `description`
+     * names it, also as its tooltip.
+     */
+    fun action(icon: Int, description: String, onClick: () -> Unit): View {
+        val button = ImageButton(context).apply {
+            setImageResource(icon)
+            setColorFilter(Color.WHITE)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(context.dp(9), context.dp(9), context.dp(9), context.dp(9))
+            background = RippleDrawable(
+                ColorStateList.valueOf(0x33FFFFFF),
+                GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(0x1FFFFFFF)
+                },
+                null,
+            )
+            contentDescription = description
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
+            setOnClickListener { onClick() }
+        }
+        titleRow.addView(button, LinearLayout.LayoutParams(context.dp(40), context.dp(40)).apply {
+            marginStart = context.dp(8)
+        })
+        return button
+    }
 
     fun header(text: String) {
         body.addView(TextView(context).apply {

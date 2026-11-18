@@ -953,6 +953,18 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             settings()
         }
 
+        sheet.header(label("screen", "Screen"))
+        sheet.row(
+            label("keepScreenOnPaused", "Keep the screen on while paused"),
+            label("keepScreenOnPausedHint", "Otherwise it turns off as usual while the video waits"),
+            selected = prefs.keepScreenOnPaused,
+        ) {
+            prefs.keepScreenOnPaused = !prefs.keepScreenOnPaused
+            host.savePrefs(JSONObject().put("keepScreenOnPaused", prefs.keepScreenOnPaused))
+            host.updateScreenOn()
+            settings()
+        }
+
         if (host.canPip) {
             sheet.row(label("moreSettings", "More settings")) {
                 sheet.dismiss()

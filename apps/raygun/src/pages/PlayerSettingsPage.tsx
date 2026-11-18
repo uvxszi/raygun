@@ -67,6 +67,7 @@ const PAGE_RESETS: Record<
       'controlsSeconds',
       'showRemaining',
       'rememberBrightness',
+      'keepScreenOnPaused',
       'defaultSpeed',
       'speedPresets',
       'holdSpeed',
@@ -192,6 +193,13 @@ const ControlsScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
             onChange={(rememberBrightness) => set({ rememberBrightness })}
           />
         )}
+        <PrefSwitch
+          title={t('settings.player.keepScreenOnPaused')}
+          summary={t('settings.player.keepScreenOnPausedHint')}
+          checked={prefs.keepScreenOnPaused}
+          disabled={busy}
+          onChange={(keepScreenOnPaused) => set({ keepScreenOnPaused })}
+        />
       </PrefGroup>
       <PrefGroup title={t('settings.player.speed')}>
         <PrefSlider

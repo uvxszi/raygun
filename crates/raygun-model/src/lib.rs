@@ -3084,6 +3084,9 @@ pub struct VideoPlayerPrefs {
     pub pip_on_leave: bool,
     /// Back shrinks the player into a small window instead of closing it.
     pub pip_on_back: bool,
+    /// The screen stays on while a video is paused too; otherwise only while it plays, and the
+    /// system's timeout applies once paused.
+    pub keep_screen_on_paused: bool,
 
     pub decoder: DecoderMode,
     /// The codec looked for among a video's formats: here and in YouTube's player.
@@ -3158,6 +3161,7 @@ impl Default for VideoPlayerPrefs {
             audio_fallback: String::new(),
             pip_on_leave: true,
             pip_on_back: false,
+            keep_screen_on_paused: false,
             decoder: DecoderMode::Auto,
             video_codec: VideoCodec::Auto,
             external_player: false,

@@ -1,6 +1,7 @@
 package app.raygun.audio
 
 import android.content.pm.ActivityInfo
+import androidx.media3.common.Player
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -133,6 +134,8 @@ internal class PlayerPrefs(json: JSONObject) {
 
     val pipOnLeave: Boolean = json.optBoolean("pipOnLeave", true)
     val pipOnBack: Boolean = json.optBoolean("pipOnBack", false)
+    /** The screen stays on while a video is paused too, not only while it plays ([screenStaysOn]). */
+    var keepScreenOnPaused: Boolean = json.optBoolean("keepScreenOnPaused", false)
 
     var decoder: String = json.optString("decoder", "auto")
     /** `VideoCodec` in raygun-model: H.264 over VP9 and AV1 where a stream offers it. */
@@ -240,6 +243,15 @@ internal data class Chapter(val startMs: Long, val endMs: Long?, val name: Strin
         }
     }
 }
+
+/**
+ * Whether the player keeps the screen on: while the video plays or waits for more to play (asked
+ * to play, ready or buffering); paused, ended or failed, the system's timeout applies, unless
+ * `keepWhilePaused` (Settings → Video player → Keep the screen on while paused).
+ */
+internal fun screenStaysOn(playWhenReady: Boolean, playbackState: Int, keepWhilePaused: Boolean): Boolean =
+    keepWhilePaused ||
+        (playWhenReady && (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING))
 
 /**
  * The screen orientation the player asks for under Settings → Player → Orientation

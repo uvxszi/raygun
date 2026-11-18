@@ -1,4 +1,5 @@
 import { FilePlus2 } from 'lucide-react';
+import { useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -24,13 +25,9 @@ type Props = {
   /** A session's video: other sources may offer their sound. */
   session: boolean;
   onOffer: (offer: AudioOffer) => void;
-  onFile: (file: File) => void;
   delayMs: number;
   onDelay: (ms: number) => void;
 };
-
-const TOOL =
-  'flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-center text-sm font-medium hover:bg-white/15 focus-within:ring-1 focus-within:ring-white/40';
 
 /** A language code's name in the app's language ("it" → "Italian"). */
 const languageName = (code: string) => {
@@ -39,10 +36,11 @@ const languageName = (code: string) => {
 };
 
 /**
- * Audio: adding a sound file, the audio delay (later or earlier than the picture, kept for the
- * title), the video's own tracks with the sound beside the picture, then the other sources'
- * streams of this episode, each named by the languages its names give and where it comes from.
- * Picking one plays its sound over this picture.
+ * Audio, under smart audio's switches (Add an audio file is by the title, `AddAudioFileButton`):
+ * the audio delay (later or earlier than the picture, kept for the title), the video's own
+ * tracks with the sound beside the picture, then the other sources' streams of this episode,
+ * each named by the languages its names give and where it comes from. Picking one plays its
+ * sound over this picture.
  */
 export const AudioPanel: FC<Props> = ({
   tracks,
@@ -52,7 +50,6 @@ export const AudioPanel: FC<Props> = ({
   offers,
   session,
   onOffer,
-  onFile,
   delayMs,
   onDelay,
 }) => {
@@ -68,21 +65,6 @@ export const AudioPanel: FC<Props> = ({
 
   return (
     <>
-      <div className="px-1 pt-1 pb-2">
-        <label className={TOOL}>
-          <FilePlus2 aria-hidden size={20} />
-          {t('videoPlayer.addAudioFile')}
-          <input
-            type="file"
-            accept="audio/*,video/*"
-            className="sr-only"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) onFile(file);
-            }}
-          />
-        </label>
-      </div>
       <DelayControls
         delayMs={delayMs}
         label={t('videoPlayer.audioDelaySeconds')}
@@ -139,6 +121,40 @@ export const AudioPanel: FC<Props> = ({
           ))}
         </>
       )}
+    </>
+  );
+};
+
+/**
+ * Add an audio file: a small round button by the Audio panel's title. The file picked plays as
+ * the video's sound.
+ */
+export const AddAudioFileButton: FC<{ onFile: (file: File) => void }> = ({ onFile }) => {
+  const { t } = useTranslation();
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={t('videoPlayer.addAudioFile')}
+        onClick={() => input.current?.click()}
+        className="grid size-9 place-items-center rounded-full bg-white/10 hover:bg-white/20"
+      >
+        <FilePlus2 aria-hidden size={18} />
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept="audio/*,video/*"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden
+        data-testid="audio-file-input"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onFile(file);
+        }}
+      />
     </>
   );
 };

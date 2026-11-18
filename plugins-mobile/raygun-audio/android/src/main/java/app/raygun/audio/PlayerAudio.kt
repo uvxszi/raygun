@@ -347,19 +347,20 @@ internal class PlayerAudio(private val host: VideoPlayerActivity) {
     )
 
     /**
-     * The audio sheet: adding a file, the delay, the video's own tracks with the sound beside
-     * it (named by where it comes from), then the other sources' sound for this episode. Opened,
-     * it shows the track playing; drawn again after a change, it stays where it was scrolled.
+     * The audio sheet: adding a file (a small button by the title), smart audio's switches
+     * ([PlayerEffects]: whichever sound plays goes through it), the delay, the video's own
+     * tracks with the sound beside it (named by where it comes from), then the other sources'
+     * sound for this episode. Opened, it shows the track playing; drawn again after a change, it
+     * stays where it was scrolled.
      */
     private fun draw(opening: Boolean) {
         val sheet = PlayerSheet(host, label("audio", "Audio"))
         this.sheet = sheet
-        sheet.subtitleTools(host, listOf(
-            SubtitleTool(R.drawable.raygun_ic_note_add, label("addAudioFile", "Add an audio file"), null) {
-                sheet.dismiss()
-                host.pickAudioFile()
-            },
-        ))
+        sheet.action(R.drawable.raygun_ic_note_add, label("addAudioFile", "Add an audio file")) {
+            sheet.dismiss()
+            host.pickAudioFile()
+        }
+        host.effects.audioToggles(sheet) { draw(opening = false) }
         sheet.delayField(host, host.state.audioDelayMs, label("audioDelaySeconds", "Audio delay in seconds")) { ms ->
             setDelay(ms)
             draw(opening = false)
@@ -436,8 +437,6 @@ internal class PlayerAudio(private val host: VideoPlayerActivity) {
                 }
             }
         }
-        // Smart audio ([PlayerEffects]): whichever sound plays goes through it.
-        host.effects.audioRows(sheet) { draw(opening = false) }
         sheet.show()
     }
 }

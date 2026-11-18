@@ -1,3 +1,4 @@
+import { RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,7 +29,7 @@ const DelayField: FC<{ delayMs: number; label: string; onChange: (ms: number) =>
     setDraft(null);
   };
   return (
-    <label className="flex flex-1 items-center justify-center gap-1 text-sm tabular-nums">
+    <label className="flex min-w-0 flex-[1.6] cursor-text items-center justify-center gap-0.5 rounded-full bg-white/5 px-2 py-1 text-sm tabular-nums ring-1 ring-white/25 focus-within:ring-white/60">
       <input
         type="text"
         inputMode="decimal"
@@ -41,16 +42,29 @@ const DelayField: FC<{ delayMs: number; label: string; onChange: (ms: number) =>
           if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
           event.stopPropagation();
         }}
-        className="w-16 rounded-md bg-white/10 px-2 py-1 text-center outline-none focus:ring-1 focus:ring-white/40"
+        className="w-full min-w-0 bg-transparent py-0.5 text-center outline-none"
       />
-      s
+      <span aria-hidden className="text-white/60">
+        s
+      </span>
     </label>
   );
 };
 
+/** The step buttons' changes, in milliseconds, and their words: a second and a tenth either way. */
+const STEPS: [number, string][] = [
+  [-1000, '−1'],
+  [-100, '−0.1'],
+  [100, '+0.1'],
+  [1000, '+1'],
+];
+
+const STEP =
+  'min-w-0 flex-1 rounded-full bg-white/10 px-1 py-1.5 text-sm font-medium tabular-nums hover:bg-white/20';
+
 /**
- * A delay's heading and row (the subtitles', the sound's): a tenth of a second earlier or later,
- * the seconds typed, and Reset.
+ * A delay's heading and one row filling the width (the subtitles', the sound's): a second and a
+ * tenth earlier, the seconds typed between them, a tenth and a second later, then Reset.
  */
 export const DelayControls: FC<{
   delayMs: number;
@@ -60,32 +74,26 @@ export const DelayControls: FC<{
   const { t } = useTranslation();
   const step = (ms: number) =>
     onChange(Math.max(-MAX_DELAY_S * 1000, Math.min(MAX_DELAY_S * 1000, delayMs + ms)));
+  const button = ([ms, words]: [number, string]) => (
+    <button key={ms} type="button" onClick={() => step(ms)} className={STEP}>
+      {words}
+    </button>
+  );
   return (
     <>
       <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
-      <div className="flex items-center gap-2 px-3 py-1">
-        <button
-          type="button"
-          onClick={() => step(-100)}
-          className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-        >
-          −0.1 s
-        </button>
+      <div className="flex items-center gap-1.5 px-2 py-1">
+        {STEPS.slice(0, 2).map(button)}
         <DelayField delayMs={delayMs} label={label} onChange={onChange} />
+        {STEPS.slice(2).map(button)}
         <button
           type="button"
-          onClick={() => step(100)}
-          className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-        >
-          +0.1 s
-        </button>
-        <button
-          type="button"
+          aria-label={t('videoPlayer.reset')}
           disabled={delayMs === 0}
           onClick={() => onChange(0)}
-          className="rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 disabled:opacity-40"
+          className="grid size-8 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-40"
         >
-          {t('videoPlayer.reset')}
+          <RotateCcw aria-hidden size={15} />
         </button>
       </div>
     </>

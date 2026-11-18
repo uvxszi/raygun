@@ -103,6 +103,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.aspect',
     'settings.player.controlsTimeout',
     'settings.player.showRemaining',
+    'settings.player.keepScreenOnPaused',
     'settings.player.defaultSpeed',
     'settings.player.speedPresets',
   ),

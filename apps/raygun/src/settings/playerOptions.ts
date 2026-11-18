@@ -233,6 +233,7 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   audioFallback: '',
   pipOnLeave: true,
   pipOnBack: false,
+  keepScreenOnPaused: false,
   decoder: 'auto',
   videoCodec: 'auto',
   externalPlayer: false,

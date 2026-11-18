@@ -9291,6 +9291,11 @@ export type VideoPlayerPrefs = {
 	pipOnLeave?: boolean,
 	/**  Back shrinks the player into a small window instead of closing it. */
 	pipOnBack?: boolean,
+	/**
+	 *  The screen stays on while a video is paused too; otherwise only while it plays, and the
+	 *  system's timeout applies once paused.
+	 */
+	keepScreenOnPaused?: boolean,
 	decoder?: DecoderMode,
 	/**  The codec looked for among a video's formats: here and in YouTube's player. */
 	videoCodec?: VideoCodec,

@@ -11,6 +11,8 @@ type Props = {
   at?: 'top' | 'bottom';
   /** Wider, for two panes side by side (Sources). */
   wide?: boolean;
+  /** Small buttons beside the title, before Close (Audio's Add an audio file). */
+  actions?: ReactNode;
 };
 
 /**
@@ -25,6 +27,7 @@ export const PlayerPanel: FC<Props> = ({
   children,
   at = 'bottom',
   wide = false,
+  actions,
 }) => {
   const { t } = useTranslation();
   const list = useRef<HTMLDivElement>(null);
@@ -44,7 +47,8 @@ export const PlayerPanel: FC<Props> = ({
       } max-w-[calc(100%-1.5rem)] ${at === 'top' ? 'top-16' : 'bottom-24'}`}
     >
       <header className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
-        <h2 className="truncate text-base font-semibold">{title}</h2>
+        <h2 className="min-w-0 flex-1 truncate text-base font-semibold">{title}</h2>
+        {actions}
         <button
           type="button"
           aria-label={t('desktopPlayer.closePanel')}

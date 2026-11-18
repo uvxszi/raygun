@@ -1,4 +1,6 @@
 import type { PictureLook } from '@raygun/bindings';
+import { AudioWaveform, ChartNoAxesColumn, Moon, Speech } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 import type { AdjustKey, Audio, HeavyKind } from './effectParams';
 import type { MotionModel } from './motionMath';
@@ -32,12 +34,45 @@ export const LOOK_LABEL: Record<PictureLook, string> = {
   sepia: 'videoPlayer.effectsLookSepia',
 };
 
-/** Smart audio's switches: their words and the line under them. */
-export const SMART_AUDIO: { key: keyof Audio; label: string; hint: string }[] = [
-  { key: 'dialogue', label: 'videoPlayer.smartDialogue', hint: 'videoPlayer.smartDialogueHint' },
-  { key: 'night', label: 'videoPlayer.smartNight', hint: 'videoPlayer.smartNightHint' },
-  { key: 'normalize', label: 'videoPlayer.smartNormalize', hint: 'videoPlayer.smartNormalizeHint' },
-  { key: 'leveling', label: 'videoPlayer.smartLeveling', hint: 'videoPlayer.smartLevelingHint' },
+type SmartAudioLabel = {
+  key: keyof Audio;
+  label: string;
+  hint: string;
+  /** A word or two for the Audio panel's small switches. */
+  short: string;
+  icon: LucideIcon;
+};
+
+/** Smart audio's switches: their words, the line under them, and the Audio panel's icon. */
+export const SMART_AUDIO: SmartAudioLabel[] = [
+  {
+    key: 'dialogue',
+    label: 'videoPlayer.smartDialogue',
+    hint: 'videoPlayer.smartDialogueHint',
+    short: 'videoPlayer.smartDialogueShort',
+    icon: Speech,
+  },
+  {
+    key: 'night',
+    label: 'videoPlayer.smartNight',
+    hint: 'videoPlayer.smartNightHint',
+    short: 'videoPlayer.smartNightShort',
+    icon: Moon,
+  },
+  {
+    key: 'normalize',
+    label: 'videoPlayer.smartNormalize',
+    hint: 'videoPlayer.smartNormalizeHint',
+    short: 'videoPlayer.smartNormalizeShort',
+    icon: ChartNoAxesColumn,
+  },
+  {
+    key: 'leveling',
+    label: 'videoPlayer.smartLeveling',
+    hint: 'videoPlayer.smartLevelingHint',
+    short: 'videoPlayer.smartLevelingShort',
+    icon: AudioWaveform,
+  },
 ];
 
 /** Smooth motion's models: their words and what each does. */

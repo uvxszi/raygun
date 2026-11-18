@@ -216,7 +216,46 @@ export const EffectsPanel: FC<Props> = ({ effects, playing = true, onClose, soun
 
 type SmartAudioProps = { effects: VideoEffects; title?: string };
 
-/** Smart audio's switches: under the Audio panel's tracks, and as the Effects panel's Sound. */
+/**
+ * Smart audio at the top of the Audio panel: four small switches side by side, each an icon over a
+ * word or two; what each does shows on hover. Make default once they differ from the settings'.
+ */
+export const SmartAudioToggles: FC<{ effects: VideoEffects }> = ({ effects }) => {
+  const { t } = useTranslation();
+  const { audio } = effects;
+  return (
+    <>
+      <PanelHeading>{t('videoPlayer.smartAudio')}</PanelHeading>
+      <div className="grid grid-cols-4 gap-1.5 px-1 pb-1">
+        {SMART_AUDIO.map(({ key, label, hint, short, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={audio[key]}
+            aria-label={t(label)}
+            title={`${t(label)}: ${t(hint)}`}
+            onClick={() => effects.setAudio({ ...audio, [key]: !audio[key] })}
+            className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-center text-xs leading-tight ${
+              audio[key] ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/15'
+            }`}
+          >
+            <Icon aria-hidden size={20} />
+            {t(short)}
+          </button>
+        ))}
+      </div>
+      {effects.ownAudio && (
+        <div className="px-1 pt-1">
+          <button type="button" onClick={effects.makeAudioDefault} className={pill(false)}>
+            {t('videoPlayer.effectsMakeDefault')}
+          </button>
+        </div>
+      )}
+    </>
+  );
+};
+
+/** Smart audio's switches as the Effects panel's Sound. */
 export const SmartAudioOptions: FC<SmartAudioProps> = ({ effects, title }) => {
   const { t } = useTranslation();
   const { audio } = effects;

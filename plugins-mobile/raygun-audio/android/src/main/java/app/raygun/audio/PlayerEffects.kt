@@ -68,29 +68,39 @@ private fun PictureEffects.with(key: String, value: Int): PictureEffects = when 
     else -> this
 }
 
-/** Smart audio's switches: field, words, the line under them. */
-private class SmartOption(
+/**
+ * Smart audio's switches: field, words, the line under them, and the Audio sheet's icon and
+ * word or two (as `SMART_AUDIO` in the app's `video/effects/effectLabels.ts`).
+ */
+internal class SmartOption(
     val label: String,
     val fallback: String,
     val hint: String,
     val hintFallback: String,
+    val short: String,
+    val shortFallback: String,
+    val icon: Int,
     val get: (SmartAudioPrefs) -> Boolean,
     val toggled: (SmartAudioPrefs) -> SmartAudioPrefs,
 )
 
-private val SMART_OPTIONS = listOf(
-    SmartOption("smartDialogue", "Clearer dialogue", "smartDialogueHint", "Voices brought forward", { it.dialogue }) {
-        it.copy(dialogue = !it.dialogue)
-    },
-    SmartOption("smartNight", "Night mode", "smartNightHint", "Loud parts quieter, quiet parts louder", { it.night }) {
-        it.copy(night = !it.night)
-    },
-    SmartOption("smartNormalize", "Even loudness", "smartNormalizeHint", "Every video about as loud", { it.normalize }) {
-        it.copy(normalize = !it.normalize)
-    },
-    SmartOption("smartLeveling", "Level scenes", "smartLevelingHint", "Quiet and loud scenes evened out", { it.leveling }) {
-        it.copy(leveling = !it.leveling)
-    },
+internal val SMART_OPTIONS = listOf(
+    SmartOption(
+        "smartDialogue", "Clearer dialogue", "smartDialogueHint", "Voices brought forward",
+        "smartDialogueShort", "Dialogue", R.drawable.raygun_ic_voice, { it.dialogue },
+    ) { it.copy(dialogue = !it.dialogue) },
+    SmartOption(
+        "smartNight", "Night mode", "smartNightHint", "Loud parts quieter, quiet parts louder",
+        "smartNightShort", "Night", R.drawable.raygun_ic_night, { it.night },
+    ) { it.copy(night = !it.night) },
+    SmartOption(
+        "smartNormalize", "Even loudness", "smartNormalizeHint", "Every video about as loud",
+        "smartNormalizeShort", "Even volume", R.drawable.raygun_ic_level_meter, { it.normalize },
+    ) { it.copy(normalize = !it.normalize) },
+    SmartOption(
+        "smartLeveling", "Level scenes", "smartLevelingHint", "Quiet and loud scenes evened out",
+        "smartLevelingShort", "Level scenes", R.drawable.raygun_ic_waves, { it.leveling },
+    ) { it.copy(leveling = !it.leveling) },
 )
 
 /**
@@ -868,8 +878,36 @@ internal class PlayerEffects(private val host: VideoPlayerActivity) {
         pill.background = rounded(if (picked) Color.WHITE else 0x66000000, host.dp(20).toFloat())
     }
 
-    /** The Audio sheet's smart audio: four switches, and Make default once they differ. */
-    fun audioRows(sheet: PlayerSheet, redraw: () -> Unit) = soundRows(sheet, label("smartAudio", "Smart audio"), redraw)
+    /**
+     * The Audio sheet's smart audio, at its top: four small switches side by side, each with an
+     * icon and a word or two (what it does is its tooltip), and Make default once they differ.
+     */
+    fun audioToggles(sheet: PlayerSheet, redraw: () -> Unit) {
+        val current = sound
+        sheet.header(label("smartAudio", "Smart audio"))
+        sheet.toggleTiles(host, SMART_OPTIONS.map { option ->
+            val name = label(option.label, option.fallback)
+            ToggleTile(
+                option.icon,
+                label(option.short, option.shortFallback),
+                "$name: ${label(option.hint, option.hintFallback)}",
+                option.get(current),
+            ) {
+                setSound(option.toggled(sound))
+                redraw()
+            }
+        })
+        if (ownAudio != null && ownAudio != defaultAudio) {
+            sheet.custom(LinearLayout(host).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(host.dp(8), 0, host.dp(16), host.dp(4))
+                addView(host.pill(label("effectsMakeDefault", "Make default")) {
+                    makeSoundDefault()
+                    redraw()
+                })
+            })
+        }
+    }
 
     /** Smart audio's switches under `title`: the Audio sheet's, and the Effects sheet's Sound. */
     private fun soundRows(sheet: PlayerSheet, title: String, redraw: () -> Unit) {

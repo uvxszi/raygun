@@ -540,7 +540,7 @@ describe('desktop video player', () => {
 
     // A later sound: the delay is typed or stepped, and kept for the title.
     await user.click(within(player).getByRole('button', { name: 'Audio' }));
-    await user.click(screen.getByRole('button', { name: '+0.1 s' }));
+    await user.click(screen.getByRole('button', { name: '+0.1' }));
     expect(reports()).toContainEqual(
       expect.objectContaining({ action: 'state', change: { audioDelayMs: 100 } }),
     );
