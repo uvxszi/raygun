@@ -53,7 +53,9 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.ExoPlaybackException
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -412,6 +414,18 @@ class VideoPlayerActivity : AppCompatActivity() {
             .build()
         player.addListener(listener)
         player.addListener(surfaceListener)
+        // The variant decoded changed: the Quality menu marks it. Picture effects draw through a
+        // frame processor, whose output size never changes with the variant, so the size
+        // change alone misses it.
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onVideoInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                quality.reportVariants()
+            }
+        })
 
         playerView = PlayerView(this).apply {
             player = this@VideoPlayerActivity.player
