@@ -231,8 +231,8 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
                 : link.current
                   ? t('videoPlayer.sourcePlaying')
                   : link.worked
-                  ? t('videoPlayer.workedLastTime')
-                  : leftOutText(link, t)
+                    ? t('videoPlayer.workedLastTime')
+                    : leftOutText(link, t)
             }
             selected={link.current}
             current={link.current}
