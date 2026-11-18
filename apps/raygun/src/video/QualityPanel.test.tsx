@@ -180,9 +180,7 @@ describe('the Quality panel', () => {
       session: true,
       qualityWanted: null,
       qualityHandPicked: true,
-      qualities: [
-        { key: '1080:sdr', height: 1080, range: 'sdr', codec: null, state: 'playing' },
-      ],
+      qualities: [{ key: '1080:sdr', height: 1080, range: 'sdr', codec: null, state: 'playing' }],
     });
     render(
       <QualityPanel
