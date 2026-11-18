@@ -337,13 +337,16 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
             })
         }
 
-    /** Opens scrolled so `row` (the chosen one) sits in the middle, not at the top. */
-    fun reveal(row: View) {
+    /**
+     * Opens scrolled so `row` (the chosen one) sits in the middle, not at the top. With `nearest`,
+     * only as far as it takes to show it: a sheet whose own controls lead (Audio) keeps them in view.
+     */
+    fun reveal(row: View, nearest: Boolean = false) {
         scroll.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 if (row.height == 0) return
                 scroll.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                scroll.scrollTo(0, maxOf(0, row.top - (scroll.height - row.height) / 2))
+                scroll.scrollTo(0, revealScroll(row.top, row.height, scroll.height, nearest))
             }
         })
     }
@@ -516,4 +519,15 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
     internal fun dismissed() {
         onDismiss?.invoke()
     }
+}
+
+/**
+ * Where a sheet opens scrolled to show a row at `top` (`height` tall) in a view `viewport` tall:
+ * the row in the middle, or with `nearest` only as far as it takes for all of it to show (a row
+ * already in view leaves the sheet at its top).
+ */
+internal fun revealScroll(top: Int, height: Int, viewport: Int, nearest: Boolean): Int = if (nearest) {
+    maxOf(0, top + minOf(height, viewport) - viewport)
+} else {
+    maxOf(0, top - (viewport - height) / 2)
 }

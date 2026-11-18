@@ -12,4 +12,15 @@ class PlayerUiTest {
         assertEquals(100, chipScroll(100, 2_000, 1_080))
         assertEquals(0, chipScroll(0, 500, 1_080))
     }
+
+    @Test
+    fun aSheetRevealsTheChosenRowCentredOrOnlyAsFarAsNeeded() {
+        // A row at 900–1,060 in a 700 tall sheet: centred, or just enough for its bottom to show.
+        assertEquals(630, revealScroll(900, 160, 700, nearest = false))
+        assertEquals(360, revealScroll(900, 160, 700, nearest = true))
+        // Already in view: the sheet stays at its top (Audio keeps smart audio showing).
+        assertEquals(0, revealScroll(400, 160, 700, nearest = true))
+        // A row taller than the sheet shows from its top.
+        assertEquals(900, revealScroll(900, 900, 700, nearest = true))
+    }
 }

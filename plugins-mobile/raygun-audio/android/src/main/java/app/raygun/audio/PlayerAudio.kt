@@ -381,7 +381,8 @@ internal class PlayerAudio(private val host: VideoPlayerActivity) {
                 chooseOwn(track)
                 sheet.dismiss()
             }
-            if (opening && host.tracks.chosen(track)) sheet.reveal(row)
+            // Only as far as the track takes: smart audio and the delay stay in view above it.
+            if (opening && host.tracks.chosen(track)) sheet.reveal(row, nearest = true)
         }
         val audio = mergedIn
         beside.forEach { track ->
