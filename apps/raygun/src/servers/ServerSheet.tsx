@@ -15,6 +15,7 @@ const ADDRESS_HINT: Record<ServerKind, string> = {
   jellyfin: 'jellyfin.example.org:8096',
   emby: 'emby.example.org:8096',
   subsonic: 'music.example.org:4533',
+  navidrome: 'music.example.org:4533',
   audiobookshelf: 'books.example.org:13378',
   opds: 'example.org/opds',
 };

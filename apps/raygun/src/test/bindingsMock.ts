@@ -609,6 +609,10 @@ export const bindingsMock = {
     serversList: vi.fn(),
     serversAdd: vi.fn(),
     serversRemove: vi.fn(),
+    serverSyncStatus: vi.fn(),
+    serverSyncSet: vi.fn(),
+    serverSyncNow: vi.fn(),
+    serverQueueTake: vi.fn(),
     onlineSearch: vi.fn(),
     searchRecent: vi.fn(),
     searchRecentAdd: vi.fn(),
@@ -1481,6 +1485,19 @@ export const seedBindings = () => {
   commands.serversList.mockResolvedValue(ok([]));
   commands.serversAdd.mockResolvedValue(ok([]));
   commands.serversRemove.mockResolvedValue(ok([]));
+  commands.serverSyncStatus.mockResolvedValue(
+    ok({
+      serverId: '',
+      prefs: { favorites: false, playlists: false, scrobble: true, playQueue: false },
+      syncedAt: null,
+      report: null,
+      error: null,
+      running: false,
+    }),
+  );
+  commands.serverSyncSet.mockResolvedValue({ status: 'error', error: 'not set up' });
+  commands.serverSyncNow.mockResolvedValue({ status: 'error', error: 'not set up' });
+  commands.serverQueueTake.mockResolvedValue(ok(0));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
   commands.searchRecent.mockResolvedValue(ok([]));
   commands.searchRecentAdd.mockResolvedValue(ok([]));

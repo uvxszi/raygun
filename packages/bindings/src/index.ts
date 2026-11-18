@@ -503,6 +503,14 @@ export const commands = {
 	 *  unknown.
 	 */
 	barcodeLookup: (code: string) => typedError<BarcodeFind_Serialize, string>(__TAURI_INVOKE("barcode_lookup", { code })),
+	/**  What a Subsonic or Navidrome server keeps in step with Raygun, and how its last sync went. */
+	serverSyncStatus: (id: string) => typedError<ServerSyncStatus, string>(__TAURI_INVOKE("server_sync_status", { id })),
+	/**  Sets what a server keeps in step; Favorites or playlists just switched on sync at once. */
+	serverSyncSet: (id: string, prefs: ServerSyncPrefs) => typedError<ServerSyncStatus, string>(__TAURI_INVOKE("server_sync_set", { id, prefs })),
+	/**  Syncs a server's Favorites and playlists now. */
+	serverSyncNow: (id: string) => typedError<ServerSyncStatus, string>(__TAURI_INVOKE("server_sync_now", { id })),
+	/**  Plays the queue a server keeps, paused where it was; how many songs it holds. */
+	serverQueueTake: (id: string) => typedError<number, string>(__TAURI_INVOKE("server_queue_take", { id })),
 	/**  Matches imported songs against the music sources (M46.21). */
 	importMatch: (songs: ImportedSong[]) => typedError<MatchedSong[], string>(__TAURI_INVOKE("import_match", { songs })),
 	/**
@@ -6832,7 +6840,50 @@ export type ServerInput = {
 };
 
 /**  What kind of server a connection is: servers people own, added by address and sign-in. */
-export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "opds";
+export type ServerKind = "jellyfin" | "emby" | "subsonic" | "navidrome" | "audiobookshelf" | "opds";
+
+/**
+ *  What a Subsonic or Navidrome server keeps in step with Raygun, as its sync settings say
+ *  (device-local, per connection).
+ */
+export type ServerSyncPrefs = {
+	/**  Stars on the server and Raygun's Favorites, both ways. */
+	favorites: boolean,
+	/**  The user's playlists on the server and Raygun's, both ways. */
+	playlists: boolean,
+	/**  Songs played are counted on the server (its play counts, Last.fm or ListenBrainz there). */
+	scrobble: boolean,
+	/**  Raygun's queue is kept on the server, for other apps (or Raygun elsewhere) to go on from. */
+	playQueue: boolean,
+};
+
+/**  What the last sync with a server did. */
+export type ServerSyncReport = {
+	/**  Songs starred on the server, and stars taken off. */
+	starred: number,
+	unstarred: number,
+	/**  Songs added to Raygun's Favorites, and taken out. */
+	favorited: number,
+	unfavorited: number,
+	/**  Playlists made or changed, on either side. */
+	playlistsMade: number,
+	playlistsChanged: number,
+	/**  Songs the server doesn't have, left out there. */
+	notOnServer: number,
+};
+
+/**  A server's sync: its settings and how the last run went. */
+export type ServerSyncStatus = {
+	serverId: string,
+	prefs: ServerSyncPrefs,
+	/**  When the last sync finished (Unix ms). */
+	syncedAt: number | null,
+	report: ServerSyncReport | null,
+	/**  Why the last sync stopped, when it did. */
+	error: string | null,
+	/**  Whether a sync is running now. */
+	running: boolean,
+};
 
 /**
  *  A change to a single setting. The tagged shape (`{ key, value }`) lets the UI send only valid

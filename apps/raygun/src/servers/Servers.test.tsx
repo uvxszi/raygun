@@ -200,4 +200,66 @@ describe('Servers', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Remove Home Media' }));
     expect(commands.serversRemove).toHaveBeenCalledWith(SERVER.id);
   });
+
+  it('keeps a Navidrome library in step and goes on from its queue', async () => {
+    const user = userEvent.setup();
+    const navidrome: ServerInfo = {
+      id: 'server.navidrome.0a1b2c3d4e5f',
+      kind: 'navidrome',
+      name: 'Music',
+      address: 'http://192.168.1.5:4533',
+      username: 'listener',
+      provides: ['music.metadata', 'music.stream', 'lyrics', 'music.charts'],
+      error: null,
+    };
+    commands.serversList.mockResolvedValue(ok([navidrome]));
+    commands.serverSyncSet.mockImplementation(async (id, prefs) =>
+      ok({
+        serverId: id,
+        prefs,
+        syncedAt: Date.UTC(2026, 10, 18, 9, 30),
+        report: {
+          starred: 2,
+          unstarred: 0,
+          favorited: 5,
+          unfavorited: 0,
+          playlistsMade: 0,
+          playlistsChanged: 0,
+          notOnServer: 1,
+        },
+        error: null,
+        running: false,
+      }),
+    );
+    commands.serverQueueTake.mockResolvedValue(ok(3));
+    await AppShellWrapper.mount('/sources?type=servers');
+    const row = await screen.findByTestId('server-row');
+    expect(row).toHaveTextContent('Navidrome · 192.168.1.5:4533 · listener');
+
+    await user.click(within(row).getByRole('button', { name: 'Music options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Sync with Raygun' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Sync with Music' });
+    const plays = await within(sheet).findByRole('switch', { name: 'Count plays' });
+    expect(plays).toBeChecked();
+    expect(within(sheet).queryByRole('button', { name: 'Sync now' })).not.toBeInTheDocument();
+
+    await user.click(within(sheet).getByRole('switch', { name: 'Favorites and stars' }));
+    expect(commands.serverSyncSet).toHaveBeenCalledWith(navidrome.id, {
+      favorites: true,
+      playlists: false,
+      scrobble: true,
+      playQueue: false,
+    });
+    expect(
+      await within(sheet).findByText('2 starred, 5 added to Favorites, 0 playlists changed'),
+    ).toBeInTheDocument();
+    expect(within(sheet).getByText("1 song isn't on the server")).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Sync now' })).toBeEnabled();
+
+    await user.click(within(sheet).getByRole('button', { name: "Play the server's queue" }));
+    expect(commands.serverQueueTake).toHaveBeenCalledWith(navidrome.id);
+    expect(await within(sheet).findByRole('status')).toHaveTextContent(
+      "3 songs from the server's queue",
+    );
+  });
 });

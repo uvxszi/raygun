@@ -422,6 +422,28 @@ const SERVER_PROBES: [&str; 6] = [
     "opds",
 ];
 
+/// The address before a server's web app or API part of `url`'s path (`/app`, `/share`, `/rest`),
+/// when it has one.
+fn before_web_app(url: &Url) -> Option<Url> {
+    let path = url.path();
+    let lower = path.to_ascii_lowercase();
+    let at = ["/app/", "/share/", "/rest/"]
+        .iter()
+        .filter_map(|part| lower.find(part))
+        .chain(
+            ["/app", "/rest"]
+                .iter()
+                .filter(|part| lower.ends_with(*part))
+                .map(|part| lower.len() - part.len()),
+        )
+        .min()?;
+    let mut server = url.clone();
+    server.set_path(&format!("{}/", &path[..at]));
+    server.set_query(None);
+    server.set_fragment(None);
+    Some(server)
+}
+
 /// `path` under `base`'s path, as a folder.
 fn under(base: &Url, path: &str) -> Option<Url> {
     let mut folder = base.clone();
@@ -482,6 +504,14 @@ fn beside(asked: &Url, answer: &Fetched) -> Vec<Place> {
         base.set_query(None);
         base.set_fragment(None);
         bases.insert(0, base);
+    }
+    // A page of a server's own web app (Navidrome's `/app/#/album/…`, a share's `/share/…`), or
+    // an address with `/rest/…` as music apps such as Feishin and Navic keep it: the server is at
+    // the address before it.
+    if let Some(server) = before_web_app(asked)
+        && !bases.contains(&server)
+    {
+        bases.insert(0, server);
     }
     // A redirect to another site (a web app's sign-in page) says where the server is.
     if answer.url.origin() != asked.origin() && matches!(answer.url.scheme(), "http" | "https") {
@@ -645,8 +675,8 @@ fn feed_title(text: &str) -> Option<String> {
 
 /// A Subsonic server (Navidrome, Airsonic, gonic…) whose ping answered under `base`: at the
 /// address before its API's `/rest/` part, so an address typed with `/rest/ping.view` (or
-/// `/rest`) connects the server itself.
-fn subsonic_at(base: &Url) -> Found {
+/// `/rest`) connects the server itself. `navidrome` when the ping said so (its `type`).
+fn subsonic_at(base: &Url, navidrome: bool) -> Found {
     let mut url = base.clone();
     url.set_query(None);
     url.set_fragment(None);
@@ -666,7 +696,11 @@ fn subsonic_at(base: &Url) -> Found {
     };
     url.set_path(&root);
     Found::Server {
-        kind: ServerKind::Subsonic,
+        kind: if navidrome {
+            ServerKind::Navidrome
+        } else {
+            ServerKind::Subsonic
+        },
         url,
         name: None,
     }
@@ -695,7 +729,10 @@ fn read_xml(answer: &Fetched, text: &str, base: &Url) -> Option<Reading> {
             .map(Reading::Follow)
             .or_else(|| kodi::refusal(text.as_bytes()).map(Reading::Refused)),
         // Subsonic's ping in XML (servers that answer in XML whatever `f` asks for).
-        "subsonic-response" => Some(Reading::Found(subsonic_at(base))),
+        "subsonic-response" => Some(Reading::Found(subsonic_at(
+            base,
+            text.contains("type=\"navidrome\""),
+        ))),
         "feed" if is_opds(answer, text) => Some(Reading::Found(Found::Server {
             kind: ServerKind::Opds,
             url: answer.url.clone(),
@@ -771,8 +808,12 @@ fn server_answer(value: &Value, answer: &Fetched, base: &Url) -> Option<Found> {
             name,
         })
     };
-    if object.contains_key("subsonic-response") {
-        return Some(subsonic_at(base));
+    if let Some(response) = object.get("subsonic-response") {
+        let navidrome = response
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("navidrome"));
+        return Some(subsonic_at(base, navidrome));
     }
     // Jellyfin's and Emby's `System/Info/Public`.
     if object.contains_key("Version")
@@ -1464,6 +1505,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn navidrome_is_found_from_its_web_app_and_share_links() {
+        // Navidrome's ping, as its own (recorded from 0.64.2, without a sign-in).
+        let ping = json!({ "subsonic-response": { "status": "failed", "version": "1.16.1",
+            "type": "navidrome", "serverVersion": "0.64.2 (10114574)", "openSubsonic": true,
+            "error": { "code": 10, "message": "missing parameter: 'u'" } } })
+        .to_string();
+        let page = "<!DOCTYPE html><html><head><meta name=\"description\" content=\"Navidrome Music Server\"></head></html>";
+        let table = Table::default()
+            .with("https://home.example/music/app/", page)
+            .with("https://home.example/music/share/abc123", page)
+            .with(
+                "https://home.example/music/rest/ping.view?v=1.16.1&c=Raygun&f=json",
+                ping,
+            );
+        for typed in [
+            "https://home.example/music/app/#/album/7mfSNXmjHg3nlKiTxChzOr/show",
+            "https://home.example/music/share/abc123",
+        ] {
+            let Found::Server { kind, url, .. } = look(&table, typed).await else {
+                panic!("{typed}: not a server");
+            };
+            assert_eq!(
+                (kind, url.as_str()),
+                (ServerKind::Navidrome, "https://home.example/music/"),
+                "{typed}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn servers_are_found_by_their_endpoints() {
         let table = Table::default()
             .with("https://media.example/", "<!DOCTYPE html><html>Jellyfin</html>")
@@ -1493,7 +1564,7 @@ mod tests {
         );
         assert!(matches!(
             look(&subsonic, "192.168.1.5:4533").await,
-            Found::Server { kind: ServerKind::Subsonic, url, .. } if url.as_str() == "http://192.168.1.5:4533/"
+            Found::Server { kind: ServerKind::Navidrome, url, .. } if url.as_str() == "http://192.168.1.5:4533/"
         ));
 
         let books = Table::default()

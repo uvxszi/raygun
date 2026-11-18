@@ -284,8 +284,10 @@ const readXml = (answer: Answer, base: string): Reading | null => {
         kind: 'refused',
         message: `A Kodi add-on on its own is added in the app. ${NEEDS_APP}`,
       };
-    case 'subsonic-response':
-      return { kind: 'found', source: server('subsonic', subsonicRoot(base), null) };
+    case 'subsonic-response': {
+      const kind = answer.text.includes('type="navidrome"') ? 'navidrome' : 'subsonic';
+      return { kind: 'found', source: server(kind, subsonicRoot(base), null) };
+    }
     case 'feed':
       if (
         answer.contentType.includes('opds') ||
@@ -321,7 +323,15 @@ const readServer = (
   answer: Answer,
   base: string,
 ): DetectedSource | null => {
-  if ('subsonic-response' in value) return server('subsonic', subsonicRoot(base), null);
+  if ('subsonic-response' in value) {
+    const response = value['subsonic-response'];
+    const navidrome =
+      typeof response === 'object' &&
+      response !== null &&
+      'type' in response &&
+      text(response.type)?.toLowerCase() === 'navidrome';
+    return server(navidrome ? 'navidrome' : 'subsonic', subsonicRoot(base), null);
+  }
   if ('Version' in value && 'Id' in value && ('ServerName' in value || 'ProductName' in value)) {
     const emby = (text(value.ProductName) ?? '').toLowerCase().includes('emby');
     return server(emby ? 'emby' : 'jellyfin', base, text(value.ServerName));

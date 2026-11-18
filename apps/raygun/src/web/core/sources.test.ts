@@ -125,6 +125,12 @@ describe('Sources → Add in the browser', () => {
         body: JSON.stringify({ 'subsonic-response': { status: 'failed' } }),
       },
       'https://music.example/': { body: '<html></html>', type: 'text/html' },
+      'https://navidrome.example/rest/ping.view?v=1.16.1&c=Raygun&f=json': {
+        body: JSON.stringify({
+          'subsonic-response': { status: 'failed', type: 'navidrome', openSubsonic: true },
+        }),
+      },
+      'https://navidrome.example/': { body: '<html></html>', type: 'text/html' },
     });
     await openCore();
     expect(await commands.sourcesDetect('https://novels.example/index.json')).toMatchObject({
@@ -139,6 +145,10 @@ describe('Sources → Add in the browser', () => {
     expect(await commands.sourcesDetect('music.example')).toMatchObject({
       status: 'ok',
       data: { kind: 'server', server: 'subsonic', url: 'https://music.example/' },
+    });
+    expect(await commands.sourcesDetect('navidrome.example')).toMatchObject({
+      status: 'ok',
+      data: { kind: 'server', server: 'navidrome', url: 'https://navidrome.example/' },
     });
   });
 

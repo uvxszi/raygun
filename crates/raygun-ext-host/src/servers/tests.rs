@@ -414,8 +414,24 @@ fn subsonic_app() -> Router {
                 } })),
                 "getAlbum.view" => ok(json!({ "album": { "id": "al-3", "name": "Piano Sonatas", "song": [song] } })),
                 "getSong.view" => ok(json!({ "song": song })),
-                "getLyricsBySongId.view" => ok(json!({ "lyricsList": { "structuredLyrics": [{
-                    "synced": true, "offset": 0, "line": [{ "start": 0, "value": "(instrumental)" }] }] } })),
+                "getLyricsBySongId.view" => ok(json!({ "lyricsList": { "structuredLyrics": [
+                    { "kind": "translation", "lang": "de", "synced": true, "line": [{ "start": 0, "value": "(Instrumental)" }] },
+                    { "kind": "main", "synced": true, "offset": 0, "line": [{ "start": 0, "value": "(instrumental)" }] }] } })),
+                // Answers shaped as Navidrome 0.64's.
+                "getGenres.view" => ok(json!({ "genres": { "genre": [
+                    { "value": "Ambient", "songCount": 1, "albumCount": 1 },
+                    { "value": "Classical", "songCount": 12, "albumCount": 2 }] } })),
+                "getAlbumList2.view" => ok(json!({ "albumList2": { "album": [{ "id": "al-3",
+                    "name": "Piano Sonatas", "artist": "Ludwig van Beethoven", "year": 1802, "songCount": 1 }] } })),
+                "getSongsByGenre.view" if query.get("genre").map(String::as_str) == Some("Classical") => {
+                    ok(json!({ "songsByGenre": { "song": [song] } }))
+                }
+                "getInternetRadioStations.view" => ok(json!({ "internetRadioStations": { "internetRadioStation": [
+                    { "id": "st-1", "name": "Public Domain Radio", "streamUrl": "https://radio.example/stream" }] } })),
+                "getStarred2.view" => ok(json!({ "starred2": { "song": [song] } })),
+                "star.view" | "unstar.view" if query.get("id").map(String::as_str) == Some("tr-7") => ok(json!({})),
+                "getPlayQueue.view" => ok(json!({ "playQueue": { "entry": [song], "current": "tr-7",
+                    "position": 81_000, "username": "listener", "changedBy": "Feishin" } })),
                 _ => json_answer(json!({ "subsonic-response": { "status": "failed", "error": { "code": 70, "message": "not found" } } })),
             }
         }),
@@ -487,7 +503,7 @@ async fn subsonic_searches_streams_and_finds_lyrics() {
         panic!("a web stream");
     };
     assert!(url.starts_with(&format!(
-        "{base}/rest/stream.view?id=tr-7&maxBitRate=160&format=raw&u=listener"
+        "{base}/rest/stream.view?id=tr-7&maxBitRate=160&u=listener"
     )));
 
     let lyrics = host
@@ -495,7 +511,81 @@ async fn subsonic_searches_streams_and_finds_lyrics() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(lyrics.synced[0].text, "(instrumental)");
+    assert_eq!(lyrics.synced[0].text, "(instrumental)", "the words as sung");
+
+    // The library to browse: album lists, genres by size, decades, radio.
+    let charts = host
+        .call(&format!("{id}/charts"), "charts", json!({}))
+        .await
+        .unwrap();
+    let names: Vec<&str> = charts["charts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|chart| chart["id"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "albums:newest",
+            "albums:recent",
+            "albums:frequent",
+            "albums:starred",
+            "albums:highest",
+            "random",
+            "genre:Classical",
+            "genre:Ambient",
+            "decade:1800",
+            "radio"
+        ]
+    );
+    let classical = host
+        .call(
+            &format!("{id}/charts"),
+            "tagSongs",
+            json!({ "tag": "Classical music", "aliases": ["classical"], "limit": 5 }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(classical["tracks"][0]["title"], "Moonlight Sonata");
+    let radio = host
+        .call(&format!("{id}/charts"), "chart", json!({ "id": "radio" }))
+        .await
+        .unwrap();
+    assert_eq!(
+        radio["tracks"][0]["source"]["url"],
+        "https://radio.example/stream"
+    );
+
+    // What keeping the library in step uses.
+    let library = subsonic::Library::open(&connected.config, "sesame").unwrap();
+    let starred = library.starred().await.unwrap();
+    assert_eq!(
+        (starred[0].id.as_str(), starred[0].artist.as_deref()),
+        ("tr-7", Some("Ludwig van Beethoven"))
+    );
+    library.star(&["tr-7".to_owned()], false).await.unwrap();
+    let queue = library.play_queue().await.unwrap().unwrap();
+    assert_eq!(
+        (
+            queue.current.as_deref(),
+            queue.position_ms,
+            queue.changed_by.as_deref()
+        ),
+        (Some("tr-7"), 81_000, Some("Feishin"))
+    );
+}
+
+#[test]
+fn streams_are_converted_down_only_when_a_bitrate_is_aimed_for() {
+    assert_eq!(subsonic::stream_format(false, false, true), Some("raw"));
+    assert_eq!(subsonic::stream_format(true, false, true), None);
+    assert_eq!(
+        subsonic::stream_format(true, true, true),
+        Some("mp3"),
+        "not Opus for Raygun's own decoder"
+    );
+    assert_eq!(subsonic::stream_format(false, true, false), Some("mp3"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -954,7 +1044,7 @@ fn connections_build_their_extension_folder() {
     assert_eq!(manifest.runtime, crate::manifest::Runtime::Server);
     assert_eq!(
         manifest.provides,
-        ["music.metadata", "music.stream", "lyrics"]
+        ["music.metadata", "music.stream", "lyrics", "music.charts"]
     );
     let net: Vec<String> = manifest
         .net
@@ -1049,6 +1139,198 @@ async fn navidrome_live() {
         .unwrap();
     assert!(!album.tracks.is_empty());
     println!("{} songs in {}", album.tracks.len(), albums[0].title);
+}
+
+/// A Navidrome of one's own (`NAVIDROME_URL`, default `http://127.0.0.1:4599`; `NAVIDROME_USER`
+/// and `NAVIDROME_PASSWORD`, default `admin`/`raygun-test`) whose library holds the test tones:
+/// "Sine Album" by "Raygun Test Tones" (2024, Electronic; "Tone 220 Hz" with an `.lrc` beside it)
+/// and "Square Things" by "Second Artist" (1999, Ambient, FLAC). Browsing, lyrics, a stream
+/// converted down, and the library calls that sync uses. It changes the user's stars, playlists
+/// and play queue, and puts them back.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a Navidrome"]
+async fn own_navidrome_live() {
+    let env = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
+    let address = env("NAVIDROME_URL", "http://127.0.0.1:4599");
+    let (user, password) = (
+        env("NAVIDROME_USER", "admin"),
+        env("NAVIDROME_PASSWORD", "raygun-test"),
+    );
+    // Added as plain Subsonic, it's connected as what it says it is.
+    let connected = connect(&input(ServerKind::Subsonic, address, &user, &password))
+        .await
+        .unwrap();
+    assert_eq!(connected.config.kind, ServerKind::Navidrome);
+    let (host, _dir, id) = connected_host(&connected).await;
+
+    let charts = host
+        .call(&format!("{id}/charts"), "charts", json!({}))
+        .await
+        .unwrap();
+    let ids: Vec<&str> = charts["charts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|chart| chart["id"].as_str())
+        .collect();
+    println!("charts: {ids:?}");
+    for wanted in [
+        "albums:newest",
+        "random",
+        "genre:Electronic",
+        "decade:2020",
+        "decade:1990",
+    ] {
+        assert!(ids.contains(&wanted), "{wanted} in {ids:?}");
+    }
+    let electronic = host
+        .call(
+            &format!("{id}/charts"),
+            "chart",
+            json!({ "id": "genre:Electronic", "limit": 10 }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(electronic["tracks"].as_array().unwrap().len(), 3);
+    let newest = host
+        .call(
+            &format!("{id}/charts"),
+            "chart",
+            json!({ "id": "albums:newest", "limit": 10 }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(newest["tracks"].as_array().unwrap().len(), 4);
+    let ambient = host
+        .call(
+            &format!("{id}/charts"),
+            "tagSongs",
+            json!({ "tag": "Ambient", "aliases": [], "kind": "genre", "limit": 5 }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ambient["tracks"][0]["title"], "Quiet Square");
+
+    let lyrics = host
+        .lyrics(&query("Tone 220 Hz", "Raygun Test Tones"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lyrics.synced[1].text, "Second line");
+    assert_eq!(lyrics.synced[1].time_ms, 5500);
+
+    // The FLAC, converted down to 96 kbps by the server.
+    let song = host
+        .call(
+            &format!("{id}/streams"),
+            "candidates",
+            json!({ "title": "Quiet Square", "artist": "Second Artist" }),
+        )
+        .await
+        .unwrap();
+    let song_id = song["candidates"][0]["id"].as_str().unwrap().to_owned();
+    let stream = host
+        .resolve_stream(
+            &format!("{id}/streams"),
+            &song_id,
+            crate::StreamUse {
+                quality: raygun_resolver::QualityTarget::Kbps(96),
+                decodable: true,
+            },
+        )
+        .await
+        .unwrap();
+    let raygun_model::MediaSource::Url { url, .. } = stream.source else {
+        panic!("a web stream");
+    };
+    let response = reqwest::get(&url).await.unwrap();
+    let kind = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    let bytes = response.bytes().await.unwrap();
+    println!("stream: {kind}, {} bytes", bytes.len());
+    assert_eq!(kind, "audio/mpeg", "converted to MP3");
+    assert!(bytes.len() < 400_000, "15 s at 96 kbps");
+
+    let library =
+        subsonic::Library::open(&connected.config, connected.secret.as_deref().unwrap()).unwrap();
+    let tones = library.search("Tone", 10).await.unwrap();
+    assert_eq!(tones.len(), 3);
+    let ids: Vec<String> = tones.iter().map(|song| song.id.clone()).collect();
+    let starred_before = library.starred().await.unwrap();
+    library.star(&ids[..2], true).await.unwrap();
+    let starred = library.starred().await.unwrap();
+    assert!(
+        ids[..2]
+            .iter()
+            .all(|id| starred.iter().any(|song| &song.id == id))
+    );
+    library.star(&ids[..2], false).await.unwrap();
+    let keep: Vec<String> = starred_before.iter().map(|song| song.id.clone()).collect();
+    library.star(&keep, true).await.unwrap();
+
+    let made = library
+        .create_playlist("Raygun live check", &ids)
+        .await
+        .unwrap();
+    assert_eq!(library.playlist(&made).await.unwrap().len(), 3);
+    let reversed: Vec<String> = ids.iter().rev().take(2).cloned().collect();
+    library.replace_playlist(&made, &reversed).await.unwrap();
+    let held = library.playlist(&made).await.unwrap();
+    assert_eq!(
+        held.iter().map(|song| song.id.clone()).collect::<Vec<_>>(),
+        reversed
+    );
+    library.replace_playlist(&made, &[]).await.unwrap();
+    assert!(library.playlist(&made).await.unwrap().is_empty());
+    library
+        .rename_playlist(&made, "Raygun live check 2")
+        .await
+        .unwrap();
+    assert!(
+        library
+            .playlists()
+            .await
+            .unwrap()
+            .iter()
+            .any(|playlist| playlist.id == made
+                && playlist.editable
+                && playlist.name == "Raygun live check 2")
+    );
+    library.delete_playlist(&made).await.unwrap();
+
+    library
+        .scrobble(&ids[0], 1_763_000_000_000, false)
+        .await
+        .unwrap();
+    library
+        .scrobble(&ids[0], 1_763_000_000_000, true)
+        .await
+        .unwrap();
+
+    let queue_before = library.play_queue().await.unwrap();
+    library
+        .save_play_queue(&ids, Some(&ids[1]), 4_000)
+        .await
+        .unwrap();
+    let queue = library.play_queue().await.unwrap().unwrap();
+    assert_eq!(queue.songs.len(), 3);
+    assert_eq!(queue.current.as_deref(), Some(ids[1].as_str()));
+    assert_eq!(queue.position_ms, 4_000);
+    println!("queue saved by {:?}", queue.changed_by);
+    match queue_before {
+        Some(before) => {
+            let ids: Vec<String> = before.songs.iter().map(|song| song.id.clone()).collect();
+            library
+                .save_play_queue(&ids, before.current.as_deref(), before.position_ms)
+                .await
+                .unwrap();
+        }
+        None => library.save_play_queue(&[], None, 0).await.unwrap(),
+    }
 }
 
 /// Komga's public demo (demo.komga.org; `demo@komga.org`/`komga-demo`): public-domain comics.

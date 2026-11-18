@@ -4629,6 +4629,7 @@ pub enum ServerKind {
     Jellyfin,
     Emby,
     Subsonic,
+    Navidrome,
     Audiobookshelf,
     Opds,
 }
@@ -4664,6 +4665,64 @@ pub struct ServerInfo {
     pub provides: Vec<String>,
     /// Why it isn't working (signed out, a load that failed), when it isn't.
     pub error: Option<String>,
+}
+
+/// What a Subsonic or Navidrome server keeps in step with Raygun, as its sync settings say
+/// (device-local, per connection).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerSyncPrefs {
+    /// Stars on the server and Raygun's Favorites, both ways.
+    pub favorites: bool,
+    /// The user's playlists on the server and Raygun's, both ways.
+    pub playlists: bool,
+    /// Songs played are counted on the server (its play counts, Last.fm or ListenBrainz there).
+    pub scrobble: bool,
+    /// Raygun's queue is kept on the server, for other apps (or Raygun elsewhere) to go on from.
+    pub play_queue: bool,
+}
+
+impl Default for ServerSyncPrefs {
+    fn default() -> Self {
+        Self {
+            favorites: false,
+            playlists: false,
+            scrobble: true,
+            play_queue: false,
+        }
+    }
+}
+
+/// What the last sync with a server did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerSyncReport {
+    /// Songs starred on the server, and stars taken off.
+    pub starred: u32,
+    pub unstarred: u32,
+    /// Songs added to Raygun's Favorites, and taken out.
+    pub favorited: u32,
+    pub unfavorited: u32,
+    /// Playlists made or changed, on either side.
+    pub playlists_made: u32,
+    pub playlists_changed: u32,
+    /// Songs the server doesn't have, left out there.
+    pub not_on_server: u32,
+}
+
+/// A server's sync: its settings and how the last run went.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerSyncStatus {
+    pub server_id: String,
+    pub prefs: ServerSyncPrefs,
+    /// When the last sync finished (Unix ms).
+    pub synced_at: Option<f64>,
+    pub report: Option<ServerSyncReport>,
+    /// Why the last sync stopped, when it did.
+    pub error: Option<String>,
+    /// Whether a sync is running now.
+    pub running: bool,
 }
 
 /// One repository's listing; a repository that couldn't be read reports why.

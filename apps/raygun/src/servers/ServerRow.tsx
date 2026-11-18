@@ -1,12 +1,14 @@
 import type { ServerInfo } from '@raygun/bindings';
-import { KeyRound, Trash2 } from 'lucide-react';
+import { KeyRound, RefreshCw, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { SourceIssue } from '../shell/SourceIssue';
-import { BRINGS, hostOf, useRemoveServer } from './useServers';
+import { ServerSyncSheet } from './ServerSyncSheet';
+import { BRINGS, SYNCS, hostOf, useRemoveServer } from './useServers';
 
 /**
  * A connected server (Sources → Servers): its kind, address and user, what it brings, and why it
@@ -22,6 +24,7 @@ export const ServerRow: FC<{
 }> = ({ server, onSignIn, off = false, leading, trailing }) => {
   const { t } = useTranslation();
   const remove = useRemoveServer();
+  const [syncing, setSyncing] = useState(false);
   const brings = [
     ...new Set(
       server.provides.map((kind) => BRINGS[kind]).filter((key): key is string => key !== undefined),
@@ -46,6 +49,15 @@ export const ServerRow: FC<{
         <OverflowMenu
           label={t('servers.menu', { name: server.name })}
           items={[
+            ...(SYNCS.has(server.kind)
+              ? [
+                  {
+                    label: t('servers.sync.open'),
+                    icon: RefreshCw,
+                    onSelect: () => setSyncing(true),
+                  },
+                ]
+              : []),
             { label: t('servers.signInAgain'), icon: KeyRound, onSelect: onSignIn },
             {
               label: t('servers.remove'),
@@ -70,6 +82,7 @@ export const ServerRow: FC<{
           {remove.error?.message ?? server.error}
         </SourceIssue>
       )}
+      {syncing && <ServerSyncSheet server={server} onClose={() => setSyncing(false)} />}
     </li>
   );
 };

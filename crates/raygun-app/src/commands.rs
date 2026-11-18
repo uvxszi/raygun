@@ -899,9 +899,12 @@ pub async fn servers_add(
 #[specta::specta]
 pub async fn servers_remove(
     servers: tauri::State<'_, crate::servers::ServerService>,
+    sync: tauri::State<'_, raygun_app_music::server_sync::ServerSync>,
     id: String,
 ) -> Result<Vec<raygun_model::ServerInfo>, String> {
-    servers.remove(&id).await
+    let listed = servers.remove(&id).await?;
+    sync.forget(&id).await;
+    Ok(listed)
 }
 
 /// Lyrics for a track, or `null` when no provider has any. The song's own lyrics (M46.12) win, and

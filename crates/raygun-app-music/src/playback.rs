@@ -265,6 +265,10 @@ impl PlaybackService {
                 if changed && !crate::privacy::incognito(&app) {
                     let db = app.state::<crate::startup::AppDb>().inner().0.clone();
                     crate::last_played::save(&db, &json).await;
+                    // Kept on music servers too, where their sync keeps the queue.
+                    if let Some(sync) = app.try_state::<crate::server_sync::ServerSync>() {
+                        sync.queue_changed(&json);
+                    }
                 }
             }
         });
@@ -355,6 +359,24 @@ impl PlaybackService {
                     .mark_suggested(&last.suggested, last.smart_shuffle && smart_chip),
             );
             effects.extend(inner.core.set_context(context));
+            self.resolve(&mut inner, effects, Cause::Chosen)
+        };
+        self.send(effects_ran);
+    }
+
+    /// Puts a queue kept elsewhere (a music server's) in place of this one, paused at `current`
+    /// and `position_ms`.
+    pub fn take_queue(&self, items: Vec<QueueItemInput>, current: usize, position_ms: f64) {
+        if items.is_empty() {
+            return;
+        }
+        let effects_ran = {
+            let mut inner = self.lock();
+            let repeat = inner.core.state().repeat;
+            let order = (0..items.len()).collect();
+            let effects = inner
+                .core
+                .restore(items, order, current, position_ms, false, repeat);
             self.resolve(&mut inner, effects, Cause::Chosen)
         };
         self.send(effects_ran);
@@ -1574,6 +1596,9 @@ impl PlaybackService {
             tauri::async_runtime::spawn(async move { found.keep(&app).await });
         }
         if let Some(item) = outbox.played {
+            if let Some(sync) = self.app.try_state::<crate::server_sync::ServerSync>() {
+                sync.played(&item);
+            }
             self.app.state::<CollectionsService>().record_play(item);
         }
         if let Some((load_id, wait)) = outbox.resolve {
