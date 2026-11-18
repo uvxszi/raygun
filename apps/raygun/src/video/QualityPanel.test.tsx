@@ -174,6 +174,36 @@ describe('the Quality panel', () => {
     expect(picked).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('leaves Automatic unticked while a link picked in Sources plays', () => {
+    const { engine } = engineWith([]);
+    useVideoPlayerStore.setState({
+      session: true,
+      qualityWanted: null,
+      qualityHandPicked: true,
+      qualities: [
+        { key: '1080:sdr', height: 1080, range: 'sdr', codec: null, state: 'playing' },
+      ],
+    });
+    render(
+      <QualityPanel
+        videoKey="k"
+        positionMs={0}
+        engine={engine}
+        onClose={vi.fn()}
+        onAsked={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('menuitemradio', { name: 'Automatic' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(screen.getByRole('menuitemradio', { name: /1080p/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    useVideoPlayerStore.setState({ qualityHandPicked: false });
+  });
+
   it('tags the preferred row, and lists its links when the row picked is tapped again', async () => {
     const user = userEvent.setup();
     const { engine } = engineWith([]);

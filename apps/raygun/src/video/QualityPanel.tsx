@@ -26,17 +26,19 @@ type Props = {
  * variant) switches here; one the source playing has as another link, or only another source
  * has, is asked of Rust, which plays its best link from where the video is. The row picked,
  * tapped again, lists every link with that tier (`alternatives`) to pick one. Automatic is ticked
- * while nothing was picked here; the row playing is always set apart, and ticked too when it was
+ * while nothing was picked here or in Sources; the row playing is always set apart, and ticked too when it was
  * picked.
  */
 export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose, onAsked }) => {
   const { t } = useTranslation();
   const rows = useVideoPlayerStore((state) => state.qualities);
   const wanted = useVideoPlayerStore((state) => state.qualityWanted);
+  const handPicked = useVideoPlayerStore((state) => state.qualityHandPicked);
   const session = useVideoPlayerStore((state) => state.session);
   const sources = useVideoPlayerStore((state) => state.sources);
   const variants = engine?.variants() ?? [];
-  const auto = (engine?.quality() ?? -1) === -1 && wanted === null;
+  // A link picked in Sources holds too: Automatic isn't what plays until it's chosen again.
+  const auto = (engine?.quality() ?? -1) === -1 && wanted === null && !handPicked;
   /** The row whose links show (its key). */
   const [listed, setListed] = useState<string | null>(null);
 

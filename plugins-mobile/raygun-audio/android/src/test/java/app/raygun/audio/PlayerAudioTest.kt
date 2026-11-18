@@ -101,6 +101,8 @@ class PlayerAudioTest {
         assertTrue(automatic(variantsAuto = true, wanted = null))
         assertFalse(automatic(variantsAuto = true, wanted = "1080:sdr"))
         assertFalse(automatic(variantsAuto = false, wanted = null))
+        // A link picked in Sources: Automatic isn't what plays.
+        assertFalse(automatic(variantsAuto = true, wanted = null, handPicked = true))
     }
 
     @Test

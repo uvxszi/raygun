@@ -8,10 +8,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Whether the quality is automatic: the stream picks its variant by itself (`variantsAuto`) and
- * no step was asked for in the menu (Rust's `wanted`).
+ * Whether the quality is automatic: the stream picks its variant by itself (`variantsAuto`), no
+ * step was asked for in the menu (Rust's `wanted`) and no link was picked in Sources (`handPicked`).
  */
-internal fun automatic(variantsAuto: Boolean, wanted: String?): Boolean = variantsAuto && wanted == null
+internal fun automatic(variantsAuto: Boolean, wanted: String?, handPicked: Boolean = false): Boolean =
+    variantsAuto && wanted == null && !handPicked
 
 /** A row's name: its tier, the picture's own size beside it when Rust names one ("1080p (1920×816)"). */
 internal fun qualityName(height: Int, exact: String?, nickname: String?): String = when {
@@ -226,7 +227,7 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         val before = sheet?.takeIf { host.sheetShown(it) }?.scrolled ?: 0
         val sheet = PlayerSheet(host, host.label("quality", "Quality"))
         this.sheet = sheet
-        val auto = automatic(host.tracks.qualityAuto(), wanted)
+        val auto = automatic(host.tracks.qualityAuto(), wanted, handPicked)
         sheet.row(host.label("qualityAuto", "Automatic"), selected = auto, highlighted = false) {
             host.tracks.selectQuality(null)
             if (host.session) host.request("quality", JSONObject().put("key", JSONObject.NULL))
