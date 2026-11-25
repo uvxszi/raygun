@@ -215,6 +215,7 @@ internal class DownloadList(
             this.request = request
         }
         rows.add(0, row)
+        keepPending(activity, ticket, request)
         while (rows.size > MAX_ROWS) rows.removeAt(rows.size - 1).let { views.remove(it.ticket) }
         toast("Downloading ${name.ifBlank { "the file" }}")
         expectWord(row)
@@ -237,6 +238,7 @@ internal class DownloadList(
                 drop(row)
                 continue
             }
+            if (row.request != null) forgetPending(activity, row.ticket)
             row.request = null
             row.unheard = false
             fill(row, item)
@@ -339,6 +341,7 @@ internal class DownloadList(
 
     private fun drop(row: DownloadRow) {
         main.removeCallbacksAndMessages(row)
+        if (row.request != null) forgetPending(activity, row.ticket)
         rows.remove(row)
         views.remove(row.ticket)
     }

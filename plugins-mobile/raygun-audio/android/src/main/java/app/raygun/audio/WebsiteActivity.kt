@@ -846,12 +846,15 @@ class WebsiteActivity : AppCompatActivity() {
                 }
                 val (file, dataType) = written
                 val kind = type ?: dataType
-                val name = fileNameFor(url, disposition, null, kind)
                 download.put("url", "data:")
                     .put("mime", kind)
                     .put("localFile", file.path)
                     .put("size", file.length().toDouble())
-                showSheet(download.put("name", name), name, kind, file.length(), from)
+                owner.webView.evaluateJavascript(downloadNameScript(url)) { answer ->
+                    val noted = runCatching { JSONArray("[$answer]").optString(0) }.getOrNull()
+                    val name = fileNameFor(url, disposition, noted, kind)
+                    showSheet(download.put("name", name), name, kind, file.length(), from)
+                }
             }
             "blob" -> {
                 showNotice("Reading the file…")

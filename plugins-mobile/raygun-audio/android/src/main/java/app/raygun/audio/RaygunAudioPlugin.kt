@@ -1031,6 +1031,11 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     @Command
     fun websiteDownloads(invoke: Invoke) {
         val context = activity.applicationContext
+        // Raygun started: requests a browser left while it wasn't running reach it now, even
+        // when that browser is gone (opening Raygun from it closes it).
+        if (invoke.getArgs().optBoolean("hello")) {
+            pendingDownloads(context).forEach { NativeBridge.website(it) }
+        }
         context.sendBroadcast(
             Intent(WebsiteActivity.ACTION_DOWNLOADS)
                 .setPackage(context.packageName)

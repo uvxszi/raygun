@@ -297,3 +297,34 @@ internal fun fetchToCache(context: Context, url: String, userAgent: String?, ref
         }
     }.getOrNull()
 }
+
+/**
+ * Requests Raygun hasn't heard of yet, one file each (`<ticket>.json`), so they reach Raygun when
+ * it next starts even if the browser that made them is gone ([pendingDownloads]).
+ */
+internal fun pendingFolder(context: Context): File = File(filesFolder(context), "pending")
+
+internal fun keepPending(context: Context, ticket: String, request: JSONObject) {
+    runCatching {
+        val folder = pendingFolder(context).apply { mkdirs() }
+        File(folder, "${ticket.filter { it.isLetterOrDigit() || it == '-' }}.json")
+            .writeText(JSONObject().put("download", request).toString())
+    }
+}
+
+internal fun forgetPending(context: Context, ticket: String) {
+    runCatching { File(pendingFolder(context), "${ticket.filter { it.isLetterOrDigit() || it == '-' }}.json").delete() }
+}
+
+/** Takes the kept requests as reports (`{"download": …}`), oldest first (Raygun takes a ticket once). */
+internal fun pendingDownloads(context: Context): List<String> {
+    val week = 7L * 24 * 60 * 60 * 1000
+    val now = System.currentTimeMillis()
+    return pendingFolder(context).listFiles().orEmpty()
+        .sortedBy { it.lastModified() }
+        .mapNotNull { file ->
+            val text = if (now - file.lastModified() > week) null else runCatching { file.readText() }.getOrNull()
+            file.delete()
+            text
+        }
+}
