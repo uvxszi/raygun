@@ -1034,7 +1034,9 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         // Raygun started: requests a browser left while it wasn't running reach it now, even
         // when that browser is gone (opening Raygun from it closes it).
         if (invoke.getArgs().optBoolean("hello")) {
-            pendingDownloads(context).forEach { NativeBridge.website(it) }
+            val kept = pendingDownloads(context)
+            if (kept.isNotEmpty()) android.util.Log.i("RaygunAudio", "the browser's ${kept.size} waiting downloads handed over")
+            kept.forEach { NativeBridge.website(it) }
         }
         context.sendBroadcast(
             Intent(WebsiteActivity.ACTION_DOWNLOADS)

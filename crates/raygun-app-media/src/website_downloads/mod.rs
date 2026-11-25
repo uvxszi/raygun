@@ -910,8 +910,12 @@ pub fn accept(app: &AppHandle, request: FileRequest) {
         }
         return;
     }
-    if let Some(service) = app.try_state::<Arc<WebsiteDownloadService>>() {
-        service.add(request);
+    match app.try_state::<Arc<WebsiteDownloadService>>() {
+        Some(service) => {
+            let id = service.add(request);
+            tracing::info!(%id, "a browser download was taken");
+        }
+        None => tracing::warn!("a browser download came before its service"),
     }
 }
 
