@@ -87,8 +87,12 @@ internal object WebProcess {
  *
  * Nothing leaves for another app on its own: downloads open a sheet here (Download/Raygun or a
  * picked folder) and go to Raygun's downloads in the same broadcast, with the page's cookies,
- * User-Agent and Referer; Raygun's word on them comes back to the download bar under the page
- * ([DownloadBar]). Links to apps are held. Only "Open in another browser" hands a page over.
+ * User-Agent and Referer (`blob:` and `data:` files are read here first, [PageFiles]); Raygun's
+ * word on them comes back to the toolbar's Downloads button and its panel ([DownloadList]). While
+ * the browser is open it holds Raygun's process ([BrowserLink]), which Android would otherwise
+ * freeze or end with only the browser on screen. A long press on a link or picture offers what
+ * browsers do (open in a tab, copy, download, share). Links to apps are held. Only "Open in
+ * another browser" hands a page over.
  *
  * Site scripts: extensions may add scripts to pages of the sites they name. Raygun composes each
  * one's into a bundle and names the files in the request; every tab registers Raygun's page bridge
@@ -150,7 +154,11 @@ class WebsiteActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var fullScreen: KeptVisibleFrame
     private lateinit var notice: TextView
-    private lateinit var downloads: DownloadBar
+    private lateinit var downloads: DownloadList
+    /** `blob:` files read from pages for downloads. */
+    private val pageFiles by lazy { PageFiles(this) }
+    /** Raygun's process kept as important as the browser while it's open. */
+    private val link by lazy { BrowserLink(applicationContext) }
     private var tabList: TabListPopup? = null
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
@@ -249,6 +257,8 @@ class WebsiteActivity : AppCompatActivity() {
 
         mobileAgent = runCatching { WebSettings.getDefaultUserAgent(this) }.getOrDefault("")
         CookieManager.getInstance().setAcceptCookie(true)
+        link.hold()
+        thread(name = "raygun-web-files") { forgetOldFiles() }
         buildViews()
         built = true
         ContextCompat.registerReceiver(
@@ -335,6 +345,14 @@ class WebsiteActivity : AppCompatActivity() {
         tabsButton = button.apply { visibility = View.GONE }
         tabsCount = count
         bar.addView(button)
+        downloads = DownloadList(
+            this,
+            ask = { question -> send(JSONObject().put("downloadAsk", question)) },
+            send = { request -> send(request) },
+            host = { panel -> hostSheet(panel) },
+            close = { closeSheet() },
+        )
+        bar.addView(downloads.button)
         lateinit var more: View
         more = iconButton(R.drawable.raygun_ic_more, "More") { showMenu(more) }
         bar.addView(more)
@@ -347,7 +365,7 @@ class WebsiteActivity : AppCompatActivity() {
         }
         column.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
 
-        // The page, with notices over its foot (above the download bar).
+        // The page, with notices over its foot.
         val pageArea = FrameLayout(this)
         pages = FrameLayout(this)
         pageArea.addView(pages, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -365,13 +383,6 @@ class WebsiteActivity : AppCompatActivity() {
             },
         )
         column.addView(pageArea, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
-        downloads = DownloadBar(
-            this,
-            ask = { question -> send(JSONObject().put("downloadAsk", question)) },
-            notice = { text -> showNotice(text) },
-        )
-        column.addView(downloads.root, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // Edge to edge (always, from Android 15): the bars' space is padded, in the bar's colour.
         val root = FrameLayout(this).apply { setBackgroundColor(PANEL) }
@@ -443,9 +454,32 @@ class WebsiteActivity : AppCompatActivity() {
         view.setDownloadListener { url, userAgent, disposition, mime, length ->
             offerDownload(owner, url, userAgent, disposition, mime, length)
         }
-        // A long press on a link: Open in new tab, Copy link.
+        // A long press on a link or a picture: what browsers offer ([onCreateContextMenu]).
         registerForContextMenu(view)
+        addFileReading(view)
         addPageScripts(owner)
+    }
+
+    /**
+     * What `blob:` downloads need: the bytes' channel ([PageFiles]) and the hook that keeps each
+     * blob (and a link's `download` name) a while ([FILES_HOOK]), in every frame before the page.
+     */
+    private fun addFileReading(view: WebView) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            runCatching { WebViewCompat.addWebMessageListener(view, FILES_NAME, setOf("*"), pageFiles) }
+                .onFailure { Log.w("RaygunAudio", "pages can't hand over files", it) }
+        }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            runCatching { WebViewCompat.addDocumentStartJavaScript(view, FILES_HOOK, setOf("*")) }
+                .onFailure { Log.w("RaygunAudio", "the download hook couldn't be added", it) }
+        }
+    }
+
+    /** Files read for downloads that were never taken (a sheet cancelled), after a day. */
+    private fun forgetOldFiles() {
+        val day = 24L * 60 * 60 * 1000
+        val now = System.currentTimeMillis()
+        filesFolder(this).listFiles()?.forEach { if (now - it.lastModified() > day) it.delete() }
     }
 
     private fun switchTo(next: BrowserTab) {
@@ -530,35 +564,100 @@ class WebsiteActivity : AppCompatActivity() {
         }?.takeIf { it.isNotBlank() }
     }
 
+    /** The picture the person last touched in `view`, when it was one (its address). */
+    private fun pictureAt(view: WebView): String? {
+        val hit = view.hitTestResult
+        return when (hit.type) {
+            WebView.HitTestResult.IMAGE_TYPE, WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> hit.extra
+            else -> null
+        }?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * A long press on a link or a picture: what browsers offer. Links: Open in new tab, Open in
+     * background tab, Copy link address, Download link, Share link. Pictures: Open image in new
+     * tab, Download image, Copy image address, Share image. A linked picture gets both.
+     */
     override fun onCreateContextMenu(menu: ContextMenu, view: View, menuInfo: ContextMenu.ContextMenuInfo?) {
         super.onCreateContextMenu(menu, view, menuInfo)
         val owner = tabs.firstOrNull { it.webView === view } ?: return
-        val link = linkAt(owner.webView) ?: return
-        val scheme = Uri.parse(link).scheme?.lowercase()
-        if (scheme != "http" && scheme != "https") return
-        menu.setHeaderTitle(link)
-        menu.add(0, 1, 0, "Open in new tab").setOnMenuItemClickListener {
-            val target = Uri.parse(link)
-            val made = openTab(
-                link,
-                owner,
-                show = false,
-                referer = refererFor(owner.webView.url, target, sameSite(owner, target.host)),
-            )
-            if (made != null) showNotice("Opened in a new tab", "Switch") { if (made in tabs) switchTo(made) }
-            true
-        }
-        menu.add(0, 2, 1, "Copy link").setOnMenuItemClickListener {
-            copyLink(link)
-            true
+        val link = linkAt(owner.webView)?.takeIf { isWeb(it) }
+        val picture = pictureAt(owner.webView)
+        val items = contextItems(link, picture)
+        if (items.isEmpty()) return
+        menu.setHeaderTitle(link ?: picture?.takeIf { isWeb(it) } ?: "Image")
+        items.forEachIndexed { index, item ->
+            menu.add(0, index + 1, index, item.title).setOnMenuItemClickListener {
+                when (item) {
+                    ContextItem.OPEN_TAB -> openLinkTab(owner, link ?: return@setOnMenuItemClickListener true, show = true)
+                    ContextItem.OPEN_BACKGROUND -> openLinkTab(owner, link ?: return@setOnMenuItemClickListener true, show = false)
+                    ContextItem.COPY_LINK -> copyText("Link", link ?: "")
+                    ContextItem.DOWNLOAD_LINK -> link?.let { downloadAddress(owner, it, null) }
+                    ContextItem.SHARE_LINK -> link?.let { shareText(it) }
+                    ContextItem.OPEN_IMAGE -> picture?.let { openLinkTab(owner, it, show = true) }
+                    ContextItem.DOWNLOAD_IMAGE -> picture?.let { downloadAddress(owner, it, pictureType(it)) }
+                    ContextItem.COPY_IMAGE -> copyText("Image address", picture ?: "")
+                    ContextItem.SHARE_IMAGE -> picture?.let { sharePicture(owner, it) }
+                }
+                true
+            }
         }
     }
 
-    private fun copyLink(link: String) {
+    private fun isWeb(address: String): Boolean = Uri.parse(address).scheme?.lowercase().let { it == "http" || it == "https" }
+
+    /** A link opened in a tab of its own, shown or behind this one (with a notice to switch). */
+    private fun openLinkTab(owner: BrowserTab, address: String, show: Boolean) {
+        val target = Uri.parse(address)
+        val made = openTab(
+            address,
+            owner,
+            show = show,
+            referer = refererFor(owner.webView.url, target, sameSite(owner, target.host)),
+        )
+        if (made != null && !show) showNotice("Opened in a new tab", "Switch") { if (made in tabs) switchTo(made) }
+    }
+
+    /** A link or picture downloaded as if the page had started it. */
+    private fun downloadAddress(owner: BrowserTab, address: String, mime: String?) {
+        offerDownload(owner, address, owner.webView.settings.userAgentString, null, mime, -1)
+    }
+
+    private fun shareText(text: String) {
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+        runCatching { startActivity(Intent.createChooser(send, "Share")) }
+    }
+
+    /** Shares the picture itself: fetched as the page would (or read from it), then the share sheet. */
+    private fun sharePicture(owner: BrowserTab, address: String) {
+        val share = { file: java.io.File?, mime: String? ->
+            if (file == null) {
+                showNotice("The picture couldn't be shared")
+            } else {
+                runCatching {
+                    startActivity(Storage(this).share(file.path, mime?.takeIf { it.startsWith("image/") } ?: "image/*", "Share image"))
+                }.onFailure { showNotice("The picture couldn't be shared") }
+            }
+        }
+        if (address.startsWith("blob:", ignoreCase = true)) {
+            pageFiles.read(owner.webView, address) { read, _ -> share(read?.file, read?.mime) }
+            return
+        }
+        val agent = owner.webView.settings.userAgentString
+        val referer = owner.webView.url?.takeIf { isWeb(it) }
+        val cookies = if (isWeb(address)) CookieManager.getInstance().getCookie(address) else null
+        thread(name = "raygun-share-picture") {
+            val fetched = fetchToCache(this, address, agent, referer, cookies)
+            main.post { if (!isDestroyed) share(fetched?.first, fetched?.second) }
+        }
+    }
+
+    private fun copyText(label: String, text: String) {
+        if (text.isEmpty()) return
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-        clipboard.setPrimaryClip(ClipData.newPlainText("Link", link))
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
         // Android 13 and later say so themselves.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) showNotice("Link copied")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) showNotice("$label copied")
     }
 
     /**
@@ -708,36 +807,81 @@ class WebsiteActivity : AppCompatActivity() {
 
     /**
      * A download the page started (a link to a file, or a response sent as an attachment): the
-     * sheet asks where it goes. `blob:` addresses only the page can read, so those aren't saved.
+     * sheet asks where it goes. Web addresses go to Raygun with the page's cookies, User-Agent
+     * and Referer; `blob:` files are read from the page and `data:` ones decoded here first, into
+     * the cache Raygun takes them from ([PageFiles], [writeDataUrl]).
      */
     private fun offerDownload(owner: BrowserTab, url: String, userAgent: String?, disposition: String?, mime: String?, length: Long) {
         val scheme = Uri.parse(url).scheme?.lowercase()
-        if (scheme != "http" && scheme != "https" && scheme != "data") {
-            showNotice("This download can't be saved from here")
-            return
-        }
         val type = mime?.substringBefore(';')?.trim()?.takeIf { it.isNotEmpty() && it != "application/octet-stream" }
-        val name = URLUtil.guessFileName(url, disposition, type)
         val page = owner.webView.url?.takeIf { it.startsWith("http") }
         val download = JSONObject()
             .put("url", url)
             .put("userAgent", userAgent?.takeIf { it.isNotBlank() } ?: owner.webView.settings.userAgentString)
             .put("referer", page ?: tabs.firstOrNull { it.id == owner.opener }?.webView?.url ?: home)
             .put("contentDisposition", disposition)
-            .put("name", name)
             .put("mime", type)
             .put("size", if (length > 0) length.toDouble() else JSONObject.NULL)
-        if (scheme != "data") {
-            CookieManager.getInstance().getCookie(url)?.takeIf { it.isNotBlank() }?.let { download.put("cookies", it) }
-        }
         // A tab a link opened only for the file (nothing loaded in it) goes again, once its
         // WebView is out of this call.
         if (tabs.size > 1 && owner.opener != null && owner.webView.copyBackForwardList().size == 0) {
             main.post { if (owner in tabs) closeTab(owner) }
         }
         val from = Uri.parse(download.optString("referer")).host
-        showSheet(download, name, type, length, from)
+        when (scheme) {
+            "http", "https" -> {
+                CookieManager.getInstance().getCookie(url)?.takeIf { it.isNotBlank() }?.let { download.put("cookies", it) }
+                // A link's `download` name, when the page noted one (the hook in every page).
+                owner.webView.evaluateJavascript(downloadNameScript(url)) { answer ->
+                    val noted = runCatching { JSONArray("[$answer]").optString(0) }.getOrNull()
+                    val name = fileNameFor(url, disposition, noted, type)
+                    showSheet(download.put("name", name), name, type, length, from)
+                }
+            }
+            "data" -> {
+                val written = writeDataUrl(this, url)
+                if (written == null) {
+                    showNotice("This download can't be saved from here")
+                    return
+                }
+                val (file, dataType) = written
+                val kind = type ?: dataType
+                val name = fileNameFor(url, disposition, null, kind)
+                download.put("url", "data:")
+                    .put("mime", kind)
+                    .put("localFile", file.path)
+                    .put("size", file.length().toDouble())
+                showSheet(download.put("name", name), name, kind, file.length(), from)
+            }
+            "blob" -> {
+                showNotice("Reading the file…")
+                pageFiles.read(owner.webView, url) { read, error ->
+                    if (read == null) {
+                        showNotice(error ?: "This download can't be saved from here")
+                        return@read
+                    }
+                    notice.visibility = View.GONE
+                    val kind = read.mime.ifBlank { null } ?: type
+                    val name = fileNameFor(url, disposition, read.name, kind)
+                    download.put("mime", kind)
+                        .put("localFile", read.file.path)
+                        .put("size", read.written.toDouble())
+                    showSheet(download.put("name", name), name, kind, read.written, from)
+                }
+            }
+            else -> showNotice("This download can't be saved from here")
+        }
     }
+
+    /** The name a download is offered under: the server's, the link's `download` name, else a guess. */
+    private fun fileNameFor(url: String, disposition: String?, noted: String?, type: String?): String =
+        dispositionName(disposition)
+            ?: noted?.trim()?.takeIf { it.isNotEmpty() }?.substringAfterLast('/')
+            ?: if (url.startsWith("http", ignoreCase = true)) {
+                URLUtil.guessFileName(url, disposition, type)
+            } else {
+                URLUtil.guessFileName("https://page/download", null, type)
+            }
 
     private fun showSheet(download: JSONObject, name: String, type: String?, length: Long, from: String?) {
         val panel = LinearLayout(this).apply {
@@ -811,6 +955,7 @@ class WebsiteActivity : AppCompatActivity() {
     }
 
     private fun closeSheet() {
+        if (::downloads.isInitialized) downloads.panelClosed()
         val shown = sheet ?: return
         (shown.parent as? ViewGroup)?.removeView(shown)
         sheet = null
@@ -818,14 +963,15 @@ class WebsiteActivity : AppCompatActivity() {
 
     /**
      * Hands the download to Raygun, which downloads it and shows it in its notifications; its
-     * ticket names it in Raygun's word back, which the download bar shows.
+     * ticket names it in Raygun's word back, which the Downloads button and panel show (and the
+     * request goes again until Raygun has heard it, [DownloadList]).
      */
     private fun startDownload(download: JSONObject, destination: JSONObject) {
         val ticket = UUID.randomUUID().toString()
         download.put("destination", destination).put("ticket", ticket)
         send(JSONObject().put("download", download))
         val folder = if (destination.optString("kind") == "folder") destination.optString("name") else "Download/Raygun"
-        downloads.add(ticket, download.optString("name"), folder)
+        downloads.add(ticket, download.optString("name"), folder, download)
     }
 
     /** To Raygun's process: reports, downloads and questions about them. */
@@ -1515,7 +1661,7 @@ class WebsiteActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         onScreen = true
-        // Raygun tells the download bar how its downloads go while the browser is on screen.
+        // Raygun tells the Downloads button how its downloads go while the browser is on screen.
         downloads.watch()
         stopStateTicks()
         // Back on screen: paused pages no longer need to look shown.
@@ -1558,6 +1704,7 @@ class WebsiteActivity : AppCompatActivity() {
         main.removeCallbacksAndMessages(null)
         WebMedia.clear(mediaOwner)
         downloads.clear()
+        link.release()
         tabList?.dismiss()
         runCatching { unregisterReceiver(downloadReports) }
         runCatching { unregisterReceiver(scriptReports) }

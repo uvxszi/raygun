@@ -114,6 +114,7 @@ fn origin(url: String) -> Origin {
         user_agent: Some("PageAgent/1.0".into()),
         referer: Some("https://example.org/page".into()),
         cookies: Some("session=abc".into()),
+        local_file: None,
     }
 }
 
@@ -519,7 +520,7 @@ fn the_browser_hears_only_about_the_downloads_it_started() {
     let all: Vec<&Stored> = kept.iter().collect();
     let changed = ["a", "b", "c"].map(str::to_owned).into_iter().collect();
 
-    let views = browser::turn(&changed, Vec::new(), &all);
+    let views = browser::turn(&changed, Vec::new(), &all, false);
     let tickets: Vec<&str> = views.iter().map(|view| view.ticket.as_str()).collect();
     assert_eq!(tickets, ["t-a", "t-b"]);
     assert_eq!(views[0].done_bytes, 250.0);
@@ -536,7 +537,7 @@ fn the_browser_hears_only_about_the_downloads_it_started() {
         browser::BrowserDownload::gone("t-a"),
         browser::BrowserDownload::refused("t-x", "x.zip", "This download couldn't start"),
     ];
-    let views = browser::turn(&changed, said, &all);
+    let views = browser::turn(&changed, said, &all, false);
     let states: Vec<(&str, WebsiteDownloadState)> = views
         .iter()
         .map(|view| (view.ticket.as_str(), view.state))
@@ -598,6 +599,7 @@ fn the_browser_reads_its_downloads_in_its_own_words() {
             "error": null,
             "saved": null,
             "mime": "application/zip",
+            "waiting": null,
         })
     );
     assert!(browser::view(&stored("b", WebsiteDownloadState::Done, None)).is_none());
@@ -631,5 +633,97 @@ fn the_browsers_questions_are_read() {
     assert!(
         serde_json::from_value::<browser::BrowserAsk>(serde_json::json!({ "action": "delete" }))
             .is_err()
+    );
+}
+
+#[test]
+fn only_files_the_browser_left_in_its_folder_are_taken() {
+    let dir = TempDir::new().unwrap();
+    let inside = dir.path().join(fetch::LOCAL_FILES).join("ticket-1");
+    assert!(fetch::local_file_allowed(inside.to_str().unwrap()));
+    let elsewhere = dir.path().join("secrets.db");
+    assert!(!fetch::local_file_allowed(elsewhere.to_str().unwrap()));
+    let climbing = dir
+        .path()
+        .join(fetch::LOCAL_FILES)
+        .join("..")
+        .join("secrets.db");
+    assert!(!fetch::local_file_allowed(climbing.to_str().unwrap()));
+    assert!(!fetch::local_file_allowed("web-files/ticket-1"));
+}
+
+#[tokio::test]
+async fn a_file_the_browser_read_is_taken_as_it_is() {
+    let dir = TempDir::new().unwrap();
+    let folder = dir.path().join(fetch::LOCAL_FILES);
+    std::fs::create_dir_all(&folder).unwrap();
+    let local = folder.join("ticket-1");
+    std::fs::write(&local, b"from a blob").unwrap();
+    let partial = dir.path().join("files").join("id.part");
+    let origin = Origin {
+        url: "blob:https://example.org/1234".into(),
+        local_file: Some(local.to_string_lossy().into_owned()),
+        ..Origin::default()
+    };
+    let fetched = run(&origin, &partial, &mut Validator::default())
+        .await
+        .unwrap();
+    assert_eq!(fetched.bytes, 11);
+    assert_eq!(std::fs::read(&partial).unwrap(), b"from a blob");
+    assert!(!local.exists());
+    // Tried again after it moved (placing it failed): what's there is used.
+    let again = run(&origin, &partial, &mut Validator::default())
+        .await
+        .unwrap();
+    assert_eq!(again.bytes, 11);
+}
+
+#[test]
+fn requests_with_a_file_the_browser_read_are_read() {
+    let request: FileRequest = serde_json::from_value(serde_json::json!({
+        "url": "blob:https://example.org/5f1c",
+        "name": "export.csv",
+        "localFile": "/data/user/0/app/cache/web-files/t-9",
+        "destination": { "kind": "downloads" },
+        "ticket": "t-9",
+    }))
+    .unwrap();
+    assert_eq!(
+        request.local_file.as_deref(),
+        Some("/data/user/0/app/cache/web-files/t-9")
+    );
+    assert_eq!(request.file_name(), "export.csv");
+}
+
+#[test]
+fn a_waiting_download_says_why() {
+    use WebsiteDownloadState::*;
+    assert_eq!(browser::waiting_reason(Queued, 0, false), None);
+    assert_eq!(
+        browser::waiting_reason(Queued, RUNNING, false).as_deref(),
+        Some("Starts when one of the 3 downloads running ends")
+    );
+    assert_eq!(
+        browser::waiting_reason(Queued, 0, true).as_deref(),
+        Some("Waits until Offline Mode is off")
+    );
+    assert_eq!(
+        browser::waiting_reason(Downloading, 1, true).as_deref(),
+        Some("Paused while Offline Mode is on")
+    );
+    assert_eq!(browser::waiting_reason(Done, 5, true), None);
+
+    let kept = [
+        stored("a", Downloading, Some("t-a")),
+        stored("b", Downloading, Some("t-b")),
+        stored("c", Downloading, Some("t-c")),
+        stored("d", Queued, Some("t-d")),
+    ];
+    let all: Vec<&Stored> = kept.iter().collect();
+    let changed = ["d"].map(str::to_owned).into_iter().collect();
+    let views = browser::turn(&changed, Vec::new(), &all, false);
+    assert_eq!(
+        views[0].waiting.as_deref(),
+        Some("Starts when one of the 3 downloads running ends")
     );
 }

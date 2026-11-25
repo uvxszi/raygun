@@ -24,6 +24,30 @@ pub struct Origin {
     pub referer: Option<String>,
     /// A `Cookie` header's value, from the browser's cookies for the address.
     pub cookies: Option<String>,
+    /// A file the browser already wrote (a `blob:` or `data:` download only the page could
+    /// read): taken as it is instead of fetching `url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_file: Option<String>,
+}
+
+/// The folder the browser leaves files it read itself in (`<cache>/web-files/` on Android).
+pub const LOCAL_FILES: &str = "web-files";
+
+/// Whether `path` is a file the browser left for Raygun: directly in a [`LOCAL_FILES`] folder,
+/// nothing climbing out of it.
+pub fn local_file_allowed(path: &str) -> bool {
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return false;
+    }
+    let plain = path
+        .components()
+        .all(|part| !matches!(part, std::path::Component::ParentDir));
+    let parent = path
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == LOCAL_FILES);
+    plain && parent && path.file_name().is_some()
 }
 
 /// What's known about the file on the server, to carry on later.
@@ -124,6 +148,9 @@ pub async fn fetch(
     cancel: &mut watch::Receiver<bool>,
     progress: &mut (dyn FnMut(u64, Option<u64>) + Send),
 ) -> Result<Fetched, Failure> {
+    if let Some(local) = &origin.local_file {
+        return take_local_file(local, partial, progress).await;
+    }
     if origin.url.starts_with("data:") {
         return write_data_url(&origin.url, partial, progress).await;
     }
@@ -319,6 +346,47 @@ pub fn data_url_bytes(url: &str) -> Option<(Vec<u8>, Option<String>)> {
         decoded
     };
     Some((bytes, mime))
+}
+
+/// Moves a file the browser wrote into `partial` (copied when it's on another drive). Tried
+/// again after it moved (placing failed), the partial is what's there.
+pub async fn take_local_file(
+    local: &str,
+    partial: &Path,
+    progress: &mut (dyn FnMut(u64, Option<u64>) + Send),
+) -> Result<Fetched, Failure> {
+    if !local_file_allowed(local) {
+        return Err(Failure::Permanent(
+            "This download can't be saved from here".into(),
+        ));
+    }
+    if let Some(parent) = partial.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(disk_failure)?;
+    }
+    let source = Path::new(local);
+    if tokio::fs::metadata(source).await.is_ok() {
+        if tokio::fs::rename(source, partial).await.is_err() {
+            tokio::fs::copy(source, partial)
+                .await
+                .map_err(disk_failure)?;
+            let _ = tokio::fs::remove_file(source).await;
+        }
+    } else if tokio::fs::metadata(partial).await.is_err() {
+        return Err(Failure::Permanent(
+            "The file isn't there any more. Start the download on the page again".into(),
+        ));
+    }
+    let length = tokio::fs::metadata(partial)
+        .await
+        .map_err(disk_failure)?
+        .len();
+    progress(length, Some(length));
+    Ok(Fetched {
+        bytes: length,
+        mime: None,
+    })
 }
 
 async fn write_data_url(

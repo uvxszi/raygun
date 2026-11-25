@@ -91,6 +91,11 @@
             android:process=":web"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- In Raygun's process: the open browser binds here so Raygun's process isn't frozen or
+             ended while only the browser shows (its downloads are Raygun's). -->
+        <service
+            android:name="app.raygun.audio.BrowserLinkService"
+            android:exported="false" />
         <service
             android:name="app.raygun.audio.RaygunDownloadService"
             android:exported="false"

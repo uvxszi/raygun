@@ -675,6 +675,7 @@ impl Site {
             size,
             destination: crate::website_downloads::Destination::Downloads,
             ticket: Some(new_ticket(&self.label)),
+            local_file: None,
         }
     }
 
@@ -809,7 +810,10 @@ fn ticket_label(ticket: &str) -> Option<&str> {
 fn download_text(download: &BrowserDownload) -> String {
     let name = &download.name;
     match download.state {
-        WebsiteDownloadState::Queued => format!("{name} — waiting"),
+        WebsiteDownloadState::Queued => match &download.waiting {
+            Some(why) => format!("{name} — {why}"),
+            None => format!("{name} — waiting"),
+        },
         WebsiteDownloadState::Downloading => match download.total_bytes {
             Some(total) if total > 0.0 => format!(
                 "{name} — {}% of {}",
@@ -1344,6 +1348,7 @@ mod tests {
             error: None,
             saved: None,
             mime: None,
+            waiting: None,
         }
     }
 
