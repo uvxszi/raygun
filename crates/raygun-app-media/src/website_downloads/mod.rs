@@ -35,7 +35,7 @@ use fetch::{Failure, Origin, Validator};
 
 const STORE_KEY: &str = "web.downloads";
 /// Downloads running at once; the rest wait.
-const RUNNING: usize = 3;
+pub(crate) const RUNNING: usize = 3;
 /// Tries after the first for a download that broke off (2, 4, 8 s apart).
 const RETRIES: u32 = 3;
 /// Finished entries kept in the list.
@@ -98,6 +98,10 @@ pub struct FileRequest {
     /// The browser's name for it: its changes go back to the browser under it ([`browser`]).
     #[serde(default)]
     pub ticket: Option<String>,
+    /// A file the browser already read for it (`blob:` and `data:` downloads on Android): see
+    /// [`fetch::Origin::local_file`].
+    #[serde(default)]
+    pub local_file: Option<String>,
 }
 
 impl FileRequest {
@@ -202,6 +206,9 @@ impl WebsiteDownloadService {
             }
             service.changed("");
             service.pump();
+            // A browser open before Raygun started hands over what it couldn't yet, and asks to
+            // be told again.
+            browser_platform::hello(&service.app).await;
             loop {
                 service.save.notified().await;
                 // Coalesces a burst of changes.
@@ -239,6 +246,17 @@ impl WebsiteDownloadService {
 
     /// A download the browser asked for; it starts when one of the running slots is free.
     pub fn add(self: &Arc<Self>, request: FileRequest) -> String {
+        // The browser hands a request over again until it hears of it (Raygun may not have been
+        // running then): one already taken stays as it is.
+        if let Some(ticket) = request
+            .ticket
+            .as_deref()
+            .filter(|ticket| !ticket.is_empty())
+            && let Some((id, _)) = self.by_ticket(ticket)
+        {
+            self.feed.touch(&id);
+            return id;
+        }
         let id = uuid::Uuid::now_v7().to_string();
         let name = request.file_name();
         let site = request
@@ -270,6 +288,7 @@ impl WebsiteDownloadService {
                 user_agent: request.user_agent,
                 referer: request.referer,
                 cookies: request.cookies,
+                local_file: request.local_file,
             },
             destination: request.destination,
             validator: Validator::default(),
@@ -574,7 +593,7 @@ impl WebsiteDownloadService {
             let views = {
                 let entries = self.entries.lock().expect("downloads poisoned");
                 let stored: Vec<&Stored> = entries.iter().map(|entry| &entry.stored).collect();
-                browser::turn(&changed, said, &stored)
+                browser::turn(&changed, said, &stored, raygun_net::network_mode::offline())
             };
             if !views.is_empty() {
                 browser_platform::show(&self.app, views).await;
@@ -879,7 +898,7 @@ pub fn take_request(app: &AppHandle, request: serde_json::Value) {
 
 /// Starts a download the person chose a place for.
 pub fn accept(app: &AppHandle, request: FileRequest) {
-    if !fetchable(&request.url) {
+    if !fetchable(&request.url) && request.local_file.is_none() {
         tracing::info!("download of an address Raygun can't fetch skipped");
         if let Some(ticket) = &request.ticket {
             refuse(
@@ -891,8 +910,12 @@ pub fn accept(app: &AppHandle, request: FileRequest) {
         }
         return;
     }
-    if let Some(service) = app.try_state::<Arc<WebsiteDownloadService>>() {
-        service.add(request);
+    match app.try_state::<Arc<WebsiteDownloadService>>() {
+        Some(service) => {
+            let id = service.add(request);
+            tracing::info!(%id, "a browser download was taken");
+        }
+        None => tracing::warn!("a browser download came before its service"),
     }
 }
 
@@ -943,6 +966,18 @@ mod browser_platform {
             tracing::debug!(%error, "the browser wasn't told about its downloads");
         }
     }
+
+    /// Raygun is running: a browser that handed over downloads before sends them again and asks
+    /// to be told how they go.
+    pub async fn hello(app: &AppHandle) {
+        let value = serde_json::json!({ "hello": true });
+        let app = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .website_downloads(&value)
+        })
+        .await;
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -960,6 +995,9 @@ mod browser_platform {
         })
         .await;
     }
+
+    /// Desktop windows are Raygun's own: nothing to tell.
+    pub async fn hello(_app: &AppHandle) {}
 }
 
 // ---- Commands ----

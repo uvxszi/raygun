@@ -274,3 +274,61 @@ internal class TabListPopup(
         }
     }
 }
+
+/** What a long press on a link or a picture offers. */
+internal enum class ContextItem(val title: String) {
+    OPEN_TAB("Open in new tab"),
+    OPEN_BACKGROUND("Open in background tab"),
+    COPY_LINK("Copy link address"),
+    DOWNLOAD_LINK("Download link"),
+    SHARE_LINK("Share link"),
+    OPEN_IMAGE("Open image in new tab"),
+    DOWNLOAD_IMAGE("Download image"),
+    COPY_IMAGE("Copy image address"),
+    SHARE_IMAGE("Share image"),
+}
+
+/**
+ * The long press's items for a web `link` and a `picture` under the finger (a linked picture has
+ * both). Pictures only the page holds (`data:`, `blob:`) can be downloaded and shared, not opened
+ * or copied as addresses.
+ */
+internal fun contextItems(link: String?, picture: String?): List<ContextItem> {
+    val items = mutableListOf<ContextItem>()
+    if (link != null) {
+        items += listOf(
+            ContextItem.OPEN_TAB,
+            ContextItem.OPEN_BACKGROUND,
+            ContextItem.COPY_LINK,
+            ContextItem.DOWNLOAD_LINK,
+            ContextItem.SHARE_LINK,
+        )
+    }
+    if (picture != null) {
+        val scheme = picture.substringBefore(':', "").lowercase()
+        val web = scheme == "http" || scheme == "https"
+        if (web) items += ContextItem.OPEN_IMAGE
+        if (web || scheme == "data" || scheme == "blob") items += ContextItem.DOWNLOAD_IMAGE
+        if (web) items += ContextItem.COPY_IMAGE
+        if (web || scheme == "data" || scheme == "blob") items += ContextItem.SHARE_IMAGE
+    }
+    return items
+}
+
+/** A picture's type from its address (a `data:` address's own, else its extension); null when unknown. */
+internal fun pictureType(address: String): String? {
+    if (address.startsWith("data:", ignoreCase = true)) {
+        return address.substring(5).substringBefore(',').substringBefore(';').takeIf { it.startsWith("image/") }
+    }
+    val path = address.substringBefore('#').substringBefore('?').lowercase()
+    return when (path.substringAfterLast('.', "")) {
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "svg" -> "image/svg+xml"
+        "avif" -> "image/avif"
+        "bmp" -> "image/bmp"
+        else -> null
+    }
+}

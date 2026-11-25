@@ -1,5 +1,5 @@
-//! What Raygun's browser shows of the downloads it started: a bar under the page on Android
-//! (`WebsiteActivity`), the site window's Downloads menu on desktop.
+//! What Raygun's browser shows of the downloads it started: the toolbar's Downloads button and its
+//! panel on Android (`WebsiteActivity`), the site window's Downloads menu on desktop.
 //!
 //! Each request the browser hands over carries a ticket of its own. Every change to a download
 //! with a ticket goes back to the browser, a few times a second at most: on Android in a
@@ -34,6 +34,8 @@ pub struct BrowserDownload {
     /// The finished file, to open it: a content URI on Android, a path on desktop.
     pub saved: Option<String>,
     pub mime: Option<String>,
+    /// Why one that isn't moving waits, as said to the person.
+    pub waiting: Option<String>,
 }
 
 impl BrowserDownload {
@@ -51,6 +53,7 @@ impl BrowserDownload {
             error: None,
             saved: None,
             mime: None,
+            waiting: None,
         }
     }
 
@@ -80,7 +83,26 @@ pub fn view(stored: &Stored) -> Option<BrowserDownload> {
         error: item.error.clone(),
         saved: stored.saved.clone(),
         mime: item.mime.clone(),
+        waiting: None,
     })
+}
+
+/// Why a download that isn't moving waits: Offline Mode, or the others running first.
+pub fn waiting_reason(
+    state: WebsiteDownloadState,
+    running: usize,
+    offline: bool,
+) -> Option<String> {
+    match state {
+        WebsiteDownloadState::Queued if offline => Some("Waits until Offline Mode is off".into()),
+        WebsiteDownloadState::Downloading if offline => {
+            Some("Paused while Offline Mode is on".into())
+        }
+        WebsiteDownloadState::Queued if running >= super::RUNNING => Some(format!(
+            "Starts when one of the {running} downloads running ends"
+        )),
+        _ => None,
+    }
 }
 
 /// What the browser asks about its downloads (`{"downloadAsk": …}` in its reports).
@@ -163,11 +185,20 @@ pub fn turn(
     changed: &BTreeSet<String>,
     said: Vec<BrowserDownload>,
     stored: &[&Stored],
+    offline: bool,
 ) -> Vec<BrowserDownload> {
+    let running = stored
+        .iter()
+        .filter(|stored| stored.item.state == WebsiteDownloadState::Downloading)
+        .count();
     let mut views: Vec<BrowserDownload> = stored
         .iter()
         .filter(|stored| changed.contains(&stored.item.id))
         .filter_map(|stored| view(stored))
+        .map(|mut view| {
+            view.waiting = waiting_reason(view.state, running, offline);
+            view
+        })
         .collect();
     for download in said {
         views.retain(|view| view.ticket != download.ticket);

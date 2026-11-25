@@ -21,7 +21,9 @@ static REPORT_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static CONTROL_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static TTS_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static VIDEO_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
-static WEBSITE_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+/// The browser's reports and requests can come before Rust installs its receiver (Raygun starting
+/// while the browser is open): they wait.
+static WEBSITE_HANDLER: Later = Later::new();
 static WEB_VIEW_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static NOTIFICATION_ACTION_HANDLER: Later = Later::new();
 static OPEN_HANDLER: Later = Later::new();
@@ -155,14 +157,12 @@ fn deliver_window_closing() {
 /// Installs the receiver for the built-in browser's reports (`{"id", "url", "blockAds"}` JSON,
 /// M46.3). Called on the Android main thread. Only the first call wins.
 pub fn set_website_handler(handler: impl Fn(String) + Send + Sync + 'static) {
-    let _ = WEBSITE_HANDLER.set(Box::new(handler));
+    WEBSITE_HANDLER.set(Box::new(handler));
 }
 
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_website(json: String) {
-    if let Some(handler) = WEBSITE_HANDLER.get() {
-        handler(json);
-    }
+    WEBSITE_HANDLER.deliver(json);
 }
 
 /// Installs the receiver for the hidden web views' events (`{"id", "kind", …}` JSON, see
