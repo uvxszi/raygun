@@ -1,7 +1,9 @@
 //! What a scanned barcode is (v2.0.0): an ISBN (EAN-13 from 978 or 979) is looked up on Open
 //! Library; any other EAN-13 or UPC-A is looked for as a CD's or record's barcode on MusicBrainz,
 //! whose release then finds the music sources' albums. Both are keyless public APIs; MusicBrainz
-//! asks for one request a second at most, and a scan makes one.
+//! asks for one request a second at most: a scan looks up its few likeliest codes at once, so
+//! requests to it go one after another a second apart (`paced`), and a busy answer (503) is asked
+//! again a few times, further apart.
 
 use std::sync::Arc;
 
@@ -13,6 +15,24 @@ use crate::extensions::ExtensionService;
 
 const MUSICBRAINZ: &str = "https://musicbrainz.org/ws/2/release";
 const OPEN_LIBRARY: &str = "https://openlibrary.org/api/books";
+
+/// MusicBrainz's limit: one request a second from a client.
+const MUSICBRAINZ_GAP: std::time::Duration = std::time::Duration::from_millis(1100);
+
+/// When the last MusicBrainz request went; held while waiting for the next one's turn.
+static LAST_ASKED: tokio::sync::Mutex<Option<tokio::time::Instant>> =
+    tokio::sync::Mutex::const_new(None);
+
+/// Waits for MusicBrainz's next free second, then sends `request`.
+async fn paced(request: reqwest::RequestBuilder) -> reqwest::Result<reqwest::Response> {
+    let mut last = LAST_ASKED.lock().await;
+    if let Some(at) = *last {
+        tokio::time::sleep_until(at + MUSICBRAINZ_GAP).await;
+    }
+    *last = Some(tokio::time::Instant::now());
+    drop(last);
+    request.send().await
+}
 
 /// The digits of a scanned code when it's a valid EAN-13, UPC-A (as EAN-13 with a leading 0) or
 /// EAN-8: spaces and dashes dropped, the check digit checked.
@@ -90,11 +110,22 @@ async fn release(
         &[("query", query.as_str()), ("fmt", "json"), ("limit", "5")],
     )
     .map_err(|error| error.to_string())?;
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| format!("MusicBrainz couldn't be reached ({error})"))?;
+    let unreachable = |error: reqwest::Error| format!("MusicBrainz couldn't be reached ({error})");
+    let mut response = paced(client.get(url.clone())).await.map_err(unreachable)?;
+    // Busy (its rate limit): asked again after its Retry-After, else 2, 4 and 8 s.
+    for wait in [2, 4, 8] {
+        if response.status() != reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            break;
+        }
+        let wait = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok()?.trim().parse::<u64>().ok())
+            .unwrap_or(wait)
+            .min(10);
+        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+        response = paced(client.get(url.clone())).await.map_err(unreachable)?;
+    }
     if !response.status().is_success() {
         return Err(format!(
             "MusicBrainz answered HTTP {}",
@@ -312,5 +343,27 @@ mod tests {
             })
         );
         assert_eq!(parse_book(&json!({}), "9780306406157"), None);
+    }
+
+    /// Live: three albums' barcodes looked up at once, as a scan's likeliest codes are.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn musicbrainz_barcodes_live() {
+        let client = raygun_net::client_builder()
+            .user_agent(raygun_net::user_agent())
+            .build()
+            .unwrap();
+        let codes = ["720642442517", "077774644020", "074643811224"];
+        let found = futures_util::future::join_all(codes.iter().map(|code| {
+            let client = client.clone();
+            async move { release(&client, &normalize(code).unwrap()).await }
+        }))
+        .await;
+        for (code, answer) in codes.iter().zip(found) {
+            let (title, artist, _) = answer
+                .unwrap()
+                .unwrap_or_else(|| panic!("{code} not found"));
+            println!("{code}: {title} by {artist:?}");
+        }
     }
 }
